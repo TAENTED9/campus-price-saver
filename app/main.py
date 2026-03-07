@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.routers import items, prices, payments, ml, pending, stores, admin_items, auth, google_maps, compare
+from app.routers import items, prices, payments, ml, pending, stores, admin_items, auth, google_maps, compare, admin_stats, flash_sales, seller, admin_users, uploads, storefront, reviews, wishlist, notifications
 from app.database import init_db, SessionLocal
 from app.models import Category
 from contextlib import asynccontextmanager
@@ -75,31 +75,47 @@ async def lifespan(app: FastAPI):
 def seed_categories(db):
     categories_data = [
         {
-            "name": "EDIBLES",
-            "description": "Things you eat: rice, bread, yam, meat, eggs, beans, fruits, vegetables, noodles"
+            "name": "Food & Groceries",
+            "description": "Rice, bread, noodles, eggs, meat, fruits, vegetables, snacks, condiments"
         },
         {
-            "name": "DRINKS",
-            "description": "Things you drink: water, soda, juice, milk, beer, sachet water, powdered drinks"
+            "name": "Drinks & Beverages",
+            "description": "Water, juice, soda, milk, sachet water, energy drinks, tea, coffee"
         },
         {
-            "name": "NON-EDIBLES",
-            "description": "Everything else: soap, detergent, oil bottles, toothbrush, batteries, utensils, diapers, toiletries"
-        }
+            "name": "Fashion & Clothing",
+            "description": "Clothes, shoes, bags, belts, hats, jewelry, accessories, wristwatches"
+        },
+        {
+            "name": "Tech & Gadgets",
+            "description": "Phones, chargers, cables, earphones, power banks, laptops, accessories"
+        },
+        {
+            "name": "Books & Stationery",
+            "description": "Textbooks, notebooks, pens, calculators, printed notes, highlighters"
+        },
+        {
+            "name": "Beauty & Personal Care",
+            "description": "Skincare, haircare, soap, deodorant, perfume, makeup, toiletries"
+        },
+        {
+            "name": "Services & Skills",
+            "description": "Tutoring, printing, laundry, design, photography, repairs, coding help"
+        },
     ]
-    
+
     for cat_data in categories_data:
         category = Category(**cat_data)
         db.add(category)
-    
+
     db.commit()
-    print("✅ 3 main categories seeded! (EDIBLES, DRINKS, NON-EDIBLES)")
+    print("✅ 7 categories seeded!")
 
 
 # ------------------------------
 # FastAPI App
 # ------------------------------
-app = FastAPI(title="UNILAG Price Saver API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Campify API", version="1.0.0", lifespan=lifespan)
 
 # Add rate limiter exception handler
 @app.exception_handler(RateLimitExceeded)
@@ -149,6 +165,15 @@ app.include_router(admin_items.router_user, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(google_maps.router, prefix="/api")
 app.include_router(compare.router, prefix="/api")
+app.include_router(admin_stats.router, prefix="/api")
+app.include_router(flash_sales.router, prefix="/api")
+app.include_router(seller.router, prefix="/api")
+app.include_router(admin_users.router, prefix="/api")
+app.include_router(uploads.router, prefix="/api")
+app.include_router(storefront.router, prefix="/api")
+app.include_router(reviews.router, prefix="/api")
+app.include_router(wishlist.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 
 # ------------------------------
 # Serve Frontend (STATIC + HTML)

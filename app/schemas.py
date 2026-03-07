@@ -79,6 +79,53 @@ class PriceOut(PriceBase):
     submitted_by: Optional[int] = None
     submitted_at: datetime
     status: str
+    view_count: int = 0
+    is_featured: bool = False
+    featured_until: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============ Flash Sales ============
+
+class FlashSaleCreate(BaseModel):
+    price_id: int = Field(gt=0)
+    title: Optional[str] = Field(None, max_length=100)
+    discount_pct: float = Field(..., gt=0, le=100)
+    end_time: datetime
+
+class FlashSaleOut(BaseModel):
+    id: int
+    price_id: int
+    seller_id: int
+    title: Optional[str]
+    original_price: float
+    sale_price: float
+    discount_pct: float
+    start_time: datetime
+    end_time: datetime
+    is_active: bool
+    created_at: datetime
+    # Joined price details
+    item_name: Optional[str] = None
+    item_brand: Optional[str] = None
+    item_location: Optional[str] = None
+    item_retailer: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============ Points ============
+
+class PointsTransactionOut(BaseModel):
+    id: int
+    user_id: int
+    amount: int
+    reason: Optional[str]
+    related_price_id: Optional[int]
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -182,3 +229,131 @@ class SearchResponse(BaseModel):
 
 # Alias for backwards compatibility
 PendingPriceResponse = PendingPriceOut
+
+
+# ============ Admin User Management ============
+
+class UserOut(BaseModel):
+    id: int
+    username: Optional[str] = None
+    email: Optional[str] = None
+    display_name: Optional[str] = None
+    role: str
+    balance: float = 0.0
+    seller_points: int = 0
+    is_suspended: bool = False
+    is_banned: bool = False
+    suspended_until: Optional[datetime] = None
+    ban_reason: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserSuspendRequest(BaseModel):
+    reason: Optional[str] = None
+    hours: Optional[int] = 24
+
+class UserBanRequest(BaseModel):
+    reason: str
+
+
+# ============ Announcements ============
+
+class AnnouncementCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    message: str = Field(..., min_length=1)
+    type: str = Field(default="System")
+    audience: str = Field(default="All")
+    is_active: bool = True
+
+class AnnouncementUpdate(BaseModel):
+    title: Optional[str] = None
+    message: Optional[str] = None
+    type: Optional[str] = None
+    audience: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class AnnouncementOut(BaseModel):
+    id: int
+    title: str
+    message: str
+    type: str
+    audience: str
+    is_active: bool
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============ Reports ============
+
+class ReportOut(BaseModel):
+    id: int
+    reporter_id: int
+    reporter_name: Optional[str] = None
+    target_type: str
+    target_id: int
+    target_name: Optional[str] = None
+    reason: str
+    status: str
+    admin_notes: Optional[str] = None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ReportResolveRequest(BaseModel):
+    admin_notes: Optional[str] = None
+
+
+# ============ Disputes ============
+
+class DisputeOut(BaseModel):
+    id: int
+    buyer_id: int
+    buyer_name: Optional[str] = None
+    seller_id: Optional[int] = None
+    seller_name: Optional[str] = None
+    price_id: Optional[int] = None
+    listing_name: Optional[str] = None
+    issue: str
+    status: str
+    admin_notes: Optional[str] = None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class DisputeUpdateRequest(BaseModel):
+    status: str
+    admin_notes: Optional[str] = None
+
+
+# ============ Audit Log ============
+
+class AuditLogOut(BaseModel):
+    id: int
+    admin_id: int
+    admin_name: Optional[str] = None
+    action: str
+    target_type: Optional[str] = None
+    target_id: Optional[int] = None
+    target_desc: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============ Category Admin ============
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    icon: Optional[str] = None
+    description: Optional[str] = None

@@ -219,7 +219,27 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
-    
+
+    # Enforce ban/suspend
+    if getattr(user, "is_banned", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been permanently banned."
+        )
+    if getattr(user, "is_suspended", False):
+        until = getattr(user, "suspended_until", None)
+        if until and until > datetime.utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Your account is suspended until {until.isoformat()}."
+            )
+        elif getattr(user, "is_suspended", False):
+            # Auto-lift expired suspension
+            user.is_suspended = False
+            user.suspended_until = None
+            user.suspension_reason = None
+            db.commit()
+
     return user
 
 
@@ -351,7 +371,7 @@ async def register_user(
             user_role="user",
             access_token=access_token,
             token_type="bearer",
-            message=f"Welcome to UNILAG Price Saver, {request.username}!"
+            message=f"Welcome to Campify, {request.username}!"
         )
         
     except HTTPException:
@@ -542,10 +562,61 @@ async def get_current_user_info(
         "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
+        "email_verified": getattr(current_user, "email_verified", False),
         "display_name": current_user.display_name,
         "role": current_user.role,
         "balance": current_user.balance,
-        "created_at": current_user.created_at
+        "phone": getattr(current_user, "phone", None),
+        "avatar_url": getattr(current_user, "avatar_url", None),
+        "department": getattr(current_user, "department", None),
+        "level": getattr(current_user, "level", None),
+        "created_at": current_user.created_at,
+    }
+
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    level: Optional[str] = None
+    bio: Optional[str] = None
+    banner_url: Optional[str] = None
+    availability_status: Optional[str] = None   # open / closed / limited
+
+
+@router.put("/me")
+async def update_profile(
+    data: ProfileUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the current user's profile fields."""
+    if data.display_name is not None:
+        current_user.display_name = data.display_name.strip() or current_user.display_name
+    if data.phone is not None:
+        current_user.phone = data.phone.strip() or None
+    if data.department is not None:
+        current_user.department = data.department.strip() or None
+    if data.level is not None:
+        current_user.level = data.level.strip() or None
+    if data.bio is not None:
+        current_user.bio = data.bio.strip() or None
+    if data.banner_url is not None:
+        current_user.banner_url = data.banner_url.strip() or None
+    if data.availability_status is not None and data.availability_status in ("open", "closed", "limited"):
+        current_user.availability_status = data.availability_status
+    db.commit()
+    db.refresh(current_user)
+    return {
+        "success": True,
+        "message": "Profile updated",
+        "display_name": current_user.display_name,
+        "phone": current_user.phone,
+        "department": current_user.department,
+        "level": current_user.level,
+        "bio": current_user.bio,
+        "banner_url": current_user.banner_url,
+        "availability_status": current_user.availability_status,
     }
 
 
@@ -591,3 +662,255 @@ async def auth_health():
         "jwt_available": JWT_AVAILABLE,
         "algorithm": ALGORITHM
     }
+
+
+# ==================== USER DASHBOARD ENDPOINTS ====================
+
+class PriceAlertCreate(BaseModel):
+    item_name: str
+    target_price: float
+    category_id: Optional[int] = None
+    max_distance_km: Optional[float] = None
+
+
+@router.get("/me/submissions")
+async def get_my_submissions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all prices submitted by the current user."""
+    from app.models import Price, Category, Store
+    rows = (
+        db.query(Price)
+        .filter(Price.submitted_by == current_user.id)
+        .order_by(Price.submitted_at.desc())
+        .all()
+    )
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "brand": p.brand,
+                "price": p.price,
+                "location": p.location,
+                "status": p.status,
+                "submitted_at": p.submitted_at.isoformat(),
+                "category_id": p.category_id,
+                "view_count": p.view_count,
+            }
+            for p in rows
+        ],
+    }
+
+
+@router.get("/me/points")
+async def get_my_points(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get current user's points balance and transaction history."""
+    from app.models import PointsTransaction
+    txns = (
+        db.query(PointsTransaction)
+        .filter(PointsTransaction.user_id == current_user.id)
+        .order_by(PointsTransaction.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return {
+        "success": True,
+        "balance": current_user.seller_points,
+        "transactions": [
+            {
+                "id": t.id,
+                "amount": t.amount,
+                "reason": t.reason,
+                "related_price_id": t.related_price_id,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in txns
+        ],
+    }
+
+
+@router.get("/me/alerts")
+async def get_my_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get active price alerts for the current user."""
+    from app.models import PriceAlert
+    alerts = (
+        db.query(PriceAlert)
+        .filter(PriceAlert.user_id == current_user.id, PriceAlert.is_active == True)
+        .order_by(PriceAlert.created_at.desc())
+        .all()
+    )
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": a.id,
+                "item_name": a.item_name,
+                "target_price": a.target_price,
+                "category_id": a.category_id,
+                "max_distance_km": a.max_distance_km,
+                "trigger_count": a.trigger_count,
+                "last_triggered_at": a.last_triggered_at.isoformat() if a.last_triggered_at else None,
+                "created_at": a.created_at.isoformat(),
+            }
+            for a in alerts
+        ],
+    }
+
+
+@router.post("/me/alerts", status_code=201)
+async def create_alert(
+    data: PriceAlertCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new price alert for the current user."""
+    from app.models import PriceAlert
+    alert = PriceAlert(
+        user_id=current_user.id,
+        item_name=data.item_name,
+        target_price=data.target_price,
+        category_id=data.category_id,
+        max_distance_km=data.max_distance_km,
+        is_active=True,
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    return {"success": True, "id": alert.id, "message": f"Alert set for {data.item_name} below ₦{data.target_price:,.0f}"}
+
+
+@router.delete("/me/alerts/{alert_id}")
+async def delete_alert(
+    alert_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Deactivate / delete a price alert owned by the current user."""
+    from app.models import PriceAlert
+    alert = (
+        db.query(PriceAlert)
+        .filter(PriceAlert.id == alert_id, PriceAlert.user_id == current_user.id)
+        .first()
+    )
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    alert.is_active = False
+    db.commit()
+    return {"success": True, "message": "Alert removed"}
+
+
+# ==================== EMAIL OTP VERIFICATION ====================
+
+import secrets
+import string
+from datetime import timedelta
+
+
+def _generate_otp(length: int = 6) -> str:
+    return "".join(secrets.choice(string.digits) for _ in range(length))
+
+
+class OTPRequest(BaseModel):
+    email: str
+
+
+class OTPVerifyRequest(BaseModel):
+    email: str
+    otp: str
+
+
+@router.post("/send-otp")
+async def send_otp(
+    data: OTPRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Generate a 6-digit OTP and send it to the user's email.
+    The user must be logged in (verified their password already).
+    """
+    from app.models import EmailOTP
+    from app.services.email import send_otp_email
+
+    email = data.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    # Invalidate any previous unused OTPs for this email
+    db.query(EmailOTP).filter(
+        EmailOTP.email == email,
+        EmailOTP.used == False,
+        EmailOTP.purpose == "verify_email",
+    ).update({"used": True})
+
+    otp_plain = _generate_otp()
+    otp_hash = hash_password(otp_plain)
+
+    otp_record = EmailOTP(
+        email=email,
+        otp_hash=otp_hash,
+        purpose="verify_email",
+        used=False,
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
+    )
+    db.add(otp_record)
+    db.commit()
+
+    name = current_user.display_name or current_user.username or "there"
+    send_otp_email(email, name, otp_plain)
+
+    return {"success": True, "message": f"Verification code sent to {email}"}
+
+
+@router.post("/verify-otp")
+async def verify_otp(
+    data: OTPVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Verify an OTP code for the current user's email.
+    Marks the user as email_verified on success.
+    """
+    from app.models import EmailOTP
+
+    email = data.email.strip().lower()
+    now = datetime.utcnow()
+
+    otp_record = (
+        db.query(EmailOTP)
+        .filter(
+            EmailOTP.email == email,
+            EmailOTP.used == False,
+            EmailOTP.purpose == "verify_email",
+            EmailOTP.expires_at > now,
+        )
+        .order_by(EmailOTP.created_at.desc())
+        .first()
+    )
+
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired code. Request a new one.")
+
+    if not verify_password(data.otp, otp_record.otp_hash):
+        raise HTTPException(status_code=400, detail="Incorrect verification code.")
+
+    # Mark OTP as used
+    otp_record.used = True
+
+    # Mark user email as verified
+    current_user.email_verified = True
+    if current_user.email != email:
+        current_user.email = email
+
+    db.commit()
+    return {"success": True, "message": "Email verified successfully!"}

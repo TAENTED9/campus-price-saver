@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -10,13 +10,51 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=True)  # For auth
     password_hash = Column(String, nullable=True)  # Hashed password
     email = Column(String, unique=True, index=True, nullable=True)  # Made nullable for backward compat
+    email_verified = Column(Boolean, default=False)
     display_name = Column(String, nullable=True)
     role = Column(String, default="student")
     balance = Column(Float, default=0.0)
+    seller_points = Column(Integer, default=0)          # Karma/boost points
+    # Extended profile
+    phone = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)
+    department = Column(String, nullable=True)
+    level = Column(String, nullable=True)               # e.g. "100L", "200L", "Postgrad"
+    # Storefront profile
+    bio = Column(Text, nullable=True)
+    banner_url = Column(String, nullable=True)
+    availability_status = Column(String, default="open")   # open / closed / limited
+    vacation_mode = Column(Boolean, default=False)
+    auto_reply_message = Column(Text, nullable=True)       # Away/auto-reply message
+    quick_replies = Column(Text, nullable=True)            # JSON array of up to 5 preset replies
+    # Seller scorecard (updated on inquiry events)
+    response_rate = Column(Float, default=100.0)           # % of inquiries replied to
+    avg_response_hours = Column(Float, default=0.0)        # Average hours to first reply
+    completion_rate = Column(Float, default=100.0)         # % inquiries marked Completed
+    no_show_count = Column(Integer, default=0)             # Times buyer marked no-show
+    # Trust tier (derived from points + ratings + sales)
+    trust_tier = Column(String, default="new_seller")      # new_seller/rising/trusted/top_seller
+    is_suspended = Column(Boolean, default=False)
+    is_banned = Column(Boolean, default=False)
+    suspended_until = Column(DateTime, nullable=True)
+    ban_reason = Column(Text, nullable=True)
+    suspension_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     pending_prices = relationship("PendingPrice", back_populates="submitter")
     transactions = relationship("Transaction", back_populates="user")
+
+
+class EmailOTP(Base):
+    """Short-lived OTP tokens for email verification."""
+    __tablename__ = "email_otps"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, index=True)
+    otp_hash = Column(String, nullable=False)           # Argon2 hash of the 6-digit code
+    purpose = Column(String, default="verify_email")    # verify_email | password_reset
+    used = Column(Boolean, default=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Category(Base):
@@ -66,11 +104,66 @@ class Price(Base):
     submitted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     submitted_at = Column(DateTime, default=datetime.utcnow)
     
+    # Marketplace listing fields
+    description = Column(Text, nullable=True)
+    condition = Column(String, default="New")              # New / Fairly Used / Used
+    quantity = Column(Integer, default=1)
+    is_negotiable = Column(Boolean, default=False)
+    delivery_options = Column(String, nullable=True)       # comma-sep: "pickup,delivery"
+    duration_days = Column(Integer, nullable=True)         # 7 / 14 / 30
+    expires_at = Column(DateTime, nullable=True)
+    listing_status = Column(String, default="active", index=True)  # draft/active/paused/sold/expired
+    photos = Column(Text, nullable=True)                   # JSON array of Cloudinary URLs (up to 5)
+    subcategory = Column(String, nullable=True)
+
     # Status
     status = Column(String, default="pending", index=True)  # pending, approved, rejected
-    
+
+    # Discovery & engagement
+    view_count = Column(Integer, default=0, index=True)
+
+    # Featured/promoted (paid with seller points)
+    is_featured = Column(Boolean, default=False, index=True)
+    featured_until = Column(DateTime, nullable=True)
+
     category = relationship("Category", back_populates="prices")
     store = relationship("Store", back_populates="prices")
+    flash_sales = relationship("FlashSale", back_populates="price_item")
+    inquiries = relationship("Inquiry", back_populates="listing")
+
+
+class FlashSale(Base):
+    """Time-limited discount on an existing approved price listing."""
+    __tablename__ = "flash_sales"
+    id = Column(Integer, primary_key=True, index=True)
+    price_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    title = Column(String, nullable=True)              # e.g. "Lunch Special"
+    original_price = Column(Float, nullable=False)     # Price at time of sale creation
+    sale_price = Column(Float, nullable=False)         # Discounted price
+    discount_pct = Column(Float, nullable=False)       # e.g. 20.0 = 20% off
+
+    start_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+    end_time = Column(DateTime, nullable=False)        # When sale expires
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    price_item = relationship("Price", back_populates="flash_sales")
+    seller = relationship("User")
+
+
+class PointsTransaction(Base):
+    """Audit log for seller_points earned or spent."""
+    __tablename__ = "points_transactions"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Integer, nullable=False)           # Positive = earned, Negative = spent
+    reason = Column(String, nullable=True)             # "purchase_confirmed", "listing_boost"
+    related_price_id = Column(Integer, ForeignKey("prices.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
 
 
 class PendingPrice(Base):
@@ -334,3 +427,202 @@ def adjust_thresholds_for_user(base_threshold_high: float, base_threshold_low: f
     adjusted_low = base_threshold_low * scale_factor
     
     return adjusted_high, adjusted_low
+
+
+class SellerVerification(Base):
+    """Seller verification requests submitted during seller registration"""
+    __tablename__ = "seller_verifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    seller_name = Column(String, nullable=False)
+    matric_no = Column(String, nullable=False, index=True)
+    faculty = Column(String, nullable=False)
+    business_name = Column(String, nullable=False)
+    business_description = Column(Text, nullable=True)
+    business_category = Column(String, nullable=True)   # e.g. Food, Fashion, Electronics
+    pickup_location = Column(String, nullable=True)     # Where buyers can collect orders
+    email = Column(String, nullable=False)
+    document_url = Column(String, nullable=True)        # Student ID card (Cloudinary URL)
+    portal_screenshot_url = Column(String, nullable=True)  # Portal/SCIMS screenshot
+    status = Column(String, default="Pending", index=True)  # Pending, Under Review, Approved, Rejected
+    admin_notes = Column(Text, nullable=True)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    applicant = relationship("User", foreign_keys=[user_id])
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+
+
+class Announcement(Base):
+    """Admin announcements/banners displayed to users."""
+    __tablename__ = "announcements"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    type = Column(String, default="System")       # Promo, System, Maintenance
+    audience = Column(String, default="All")       # All, Sellers, Buyers
+    is_active = Column(Boolean, default=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    author = relationship("User")
+
+
+class Report(Base):
+    """User reports on listings or other users."""
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    target_type = Column(String, nullable=False)       # Listing, Seller, User
+    target_id = Column(Integer, nullable=False)
+    target_name = Column(String, nullable=True)
+    reason = Column(Text, nullable=False)
+    status = Column(String, default="Open", index=True)  # Open, Under Review, Resolved
+    admin_notes = Column(Text, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+    reporter = relationship("User", foreign_keys=[reporter_id])
+    resolver = relationship("User", foreign_keys=[resolved_by])
+
+
+class Dispute(Base):
+    """Buyer vs seller complaints."""
+    __tablename__ = "disputes"
+    id = Column(Integer, primary_key=True, index=True)
+    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    price_id = Column(Integer, ForeignKey("prices.id"), nullable=True)
+    listing_name = Column(String, nullable=True)
+    issue = Column(Text, nullable=False)
+    status = Column(String, default="Open", index=True)  # Open, Under Review, Escalated, Resolved
+    admin_notes = Column(Text, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+    buyer = relationship("User", foreign_keys=[buyer_id])
+    seller = relationship("User", foreign_keys=[seller_id])
+    resolver = relationship("User", foreign_keys=[resolved_by])
+
+
+class AuditLog(Base):
+    """Log of all admin actions for accountability."""
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    admin_name = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    target_type = Column(String, nullable=True)    # Verification, User, Listing, Announcement, Dispute, Report
+    target_id = Column(Integer, nullable=True)
+    target_desc = Column(String, nullable=True)
+    metadata_json = Column(Text, nullable=True)    # JSON blob for extra context
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    admin = relationship("User")
+
+
+class Follow(Base):
+    """Buyer follows a seller's storefront."""
+    __tablename__ = "follows"
+    id = Column(Integer, primary_key=True, index=True)
+    follower_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    follower = relationship("User", foreign_keys=[follower_id])
+    seller = relationship("User", foreign_keys=[seller_id])
+
+    __table_args__ = (UniqueConstraint("follower_id", "seller_id", name="uq_follow"),)
+
+
+class Inquiry(Base):
+    """Message sent by a buyer to a seller via a listing."""
+    __tablename__ = "inquiries"
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
+    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    label = Column(String, nullable=True)              # Pending / Completed / Spam
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    listing = relationship("Price", back_populates="inquiries")
+    buyer = relationship("User", foreign_keys=[buyer_id])
+    seller = relationship("User", foreign_keys=[seller_id])
+
+
+class Review(Base):
+    """Star rating + review left after a completed interaction."""
+    __tablename__ = "reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
+    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    rating = Column(Integer, nullable=False)           # 1–5
+    comment = Column(Text, nullable=True)
+    photo_url = Column(String, nullable=True)          # Optional Cloudinary URL
+    is_verified_interaction = Column(Boolean, default=False)  # Came from a completed inquiry
+    seller_response = Column(Text, nullable=True)
+    seller_response_at = Column(DateTime, nullable=True)
+    is_flagged = Column(Boolean, default=False)
+    flag_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    reviewer = relationship("User", foreign_keys=[reviewer_id])
+    seller = relationship("User", foreign_keys=[seller_id])
+    listing = relationship("Price")
+
+    __table_args__ = (
+        UniqueConstraint("reviewer_id", "listing_id", name="uq_review_per_listing"),
+        CheckConstraint("rating >= 1 AND rating <= 5", name="ck_review_rating"),
+    )
+
+
+class Wishlist(Base):
+    """Buyer saves a listing to their wishlist."""
+    __tablename__ = "wishlists"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    listing = relationship("Price")
+
+    __table_args__ = (UniqueConstraint("user_id", "listing_id", name="uq_wishlist"),)
+
+
+class Notification(Base):
+    """In-app notifications for buyers and sellers."""
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type = Column(String, nullable=False)              # new_message, price_drop, restock, new_listing, review, sale
+    title = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    related_id = Column(Integer, nullable=True)        # listing_id / review_id / etc.
+    related_type = Column(String, nullable=True)       # Listing, Review, Inquiry
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+
+
+class BlockedUser(Base):
+    """A user blocks another user (hides their messages & listings)."""
+    __tablename__ = "blocked_users"
+    id = Column(Integer, primary_key=True, index=True)
+    blocker_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    blocked_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    blocker = relationship("User", foreign_keys=[blocker_id])
+    blocked = relationship("User", foreign_keys=[blocked_id])
+
+    __table_args__ = (UniqueConstraint("blocker_id", "blocked_id", name="uq_block"),)

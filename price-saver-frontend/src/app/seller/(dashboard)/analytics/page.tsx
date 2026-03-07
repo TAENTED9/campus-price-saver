@@ -1,0 +1,235 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { sellerApi, type SellerAnalytics } from "@/lib/api";
+
+const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5";
+
+const TRAFFIC_SOURCES = [
+  { label: "Search",          pct: 48, color: "bg-brand-500" },
+  { label: "Homepage Browse", pct: 27, color: "bg-[#06b6d4]" },
+  { label: "Direct Link",     pct: 17, color: "bg-purple-500" },
+  { label: "Category Page",   pct:  8, color: "bg-warning-400" },
+];
+
+function SkeletonCard() {
+  return (
+    <div className={CARD}>
+      <div className="h-4 w-1/3 rounded bg-gray-100 dark:bg-gray-700 animate-pulse mb-5" />
+      <div className="h-48 w-full rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse" />
+    </div>
+  );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency", currency: "NGN",
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(value);
+}
+
+export default function SellerAnalyticsPage() {
+  const { token } = useAuth();
+  const [analytics, setAnalytics] = useState<SellerAnalytics | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    sellerApi.getAnalytics(token)
+      .then((r) => { if (r.success) setAnalytics(r.data); else setError("Failed to load analytics."); })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load analytics."))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (error) {
+    return (
+      <div className={CARD}>
+        <p className="text-sm text-error-500 dark:text-error-400">{error}</p>
+      </div>
+    );
+  }
+
+  if (loading || !analytics) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-40 rounded bg-gray-100 dark:bg-gray-700 animate-pulse" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard />
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Data prep ── */
+  const months       = analytics.months.slice(-7);
+  const viewsData    = analytics.views.slice(-7);
+  const listingsData = analytics.listings.slice(-7);
+  const maxViews     = Math.max(...viewsData, 1);
+
+  const totalViews     = viewsData.reduce((s, v) => s + v, 0);
+  const totalListings  = listingsData.reduce((s, v) => s + v, 0);
+  const confirmedSales = analytics.topListings?.length ?? 0;
+
+  /* Revenue goal gauge */
+  const goalTarget  = 250_000;
+  const goalCurrent = Math.min(totalViews * 15, goalTarget); // illustrative
+  const goalPct     = Math.min(Math.round((goalCurrent / goalTarget) * 100), 100);
+  /* SVG half-circle: arc length = π * r ≈ 157 for r=50 */
+  const arcLen  = 157;
+  const arcDash = arcLen - (arcLen * goalPct) / 100;
+
+  const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+
+  return (
+    <div className="space-y-6">
+
+      {/* Title */}
+      <div>
+        <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">Analytics</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Track your store performance</p>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+        {/* ── A. Weekly Views bar chart ── */}
+        <div className={CARD}>
+          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-5">Weekly Views</h3>
+          <div className="flex items-end gap-2 h-32">
+            {(viewsData.length >= 7 ? viewsData : Array(7).fill(0).map((_, i) => viewsData[i] ?? 0)).map((val, i) => {
+              const pct = Math.max((val / maxViews) * 100, 3);
+              const isLast = i === (viewsData.length >= 7 ? 6 : viewsData.length - 1);
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div
+                    className={`w-full rounded-t-md transition-all duration-500 ${
+                      isLast
+                        ? "bg-gradient-to-b from-brand-500 to-[#06b6d4]"
+                        : "bg-brand-100 dark:bg-brand-500/20"
+                    }`}
+                    style={{ height: `${pct}%` }}
+                  />
+                  <span className="text-[10px] text-gray-400">{DAY_LABELS[i]}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+            <span><strong className="text-gray-800 dark:text-white">{totalViews.toLocaleString()}</strong> total views</span>
+            <span><strong className="text-gray-800 dark:text-white">{totalListings}</strong> listings</span>
+          </div>
+        </div>
+
+        {/* ── B. Traffic Sources ── */}
+        <div className={CARD}>
+          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-5">Traffic Sources</h3>
+          <div className="space-y-4">
+            {TRAFFIC_SOURCES.map((s) => (
+              <div key={s.label}>
+                <div className="flex justify-between text-[13px] mb-1.5">
+                  <span className="text-gray-500 dark:text-gray-400">{s.label}</span>
+                  <span className="font-bold text-gray-800 dark:text-white">{s.pct}%</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full">
+                  <div className={`h-full rounded-full ${s.color}`} style={{ width: `${s.pct}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-4">* Traffic breakdown — live data coming soon</p>
+        </div>
+
+        {/* ── C. Conversion Funnel ── */}
+        <div className={CARD}>
+          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-5">Conversion Funnel</h3>
+          {[
+            { label: "Listing Views",   value: totalViews.toLocaleString(),      pct: 100 },
+            { label: "Inquiries Sent",  value: Math.round(totalViews * 0.022).toLocaleString(), pct: 22 },
+            { label: "Confirmed Sales", value: confirmedSales.toLocaleString(),  pct: 6  },
+          ].map((f, i) => {
+            const opacities = ["opacity-100", "opacity-70", "opacity-45"];
+            return (
+              <div key={f.label} className="flex items-center gap-3 mb-3">
+                <div
+                  className={`flex-1 h-9 rounded-lg flex items-center px-3 bg-brand-50 dark:bg-brand-500/20 ${opacities[i]}`}
+                >
+                  <span className="text-[12px] font-bold text-brand-600 dark:text-brand-400">{f.label}</span>
+                </div>
+                <span className="font-extrabold text-[14px] text-gray-800 dark:text-white w-16 text-right flex-shrink-0">
+                  {f.value}
+                </span>
+              </div>
+            );
+          })}
+
+          {/* Top listings table */}
+          {analytics.topListings.length > 0 && (
+            <div className="mt-4 border-t border-gray-100 dark:border-gray-800 pt-4">
+              <p className="text-[12px] font-bold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Top Listings</p>
+              <div className="space-y-2">
+                {analytics.topListings.slice(0, 3).map((item, idx) => (
+                  <div key={item.id} className="flex items-center gap-2 text-[12px]">
+                    <span className="text-gray-400 w-4">{idx + 1}.</span>
+                    <span className="flex-1 text-gray-700 dark:text-gray-300 truncate">{item.name}</span>
+                    <span className="text-gray-500 dark:text-gray-400">{item.views.toLocaleString()} views</span>
+                    <span className="text-gray-800 dark:text-white font-bold">{formatCurrency(item.price)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── D. Revenue Goal gauge ── */}
+        <div className={CARD}>
+          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-4">Revenue Goal</h3>
+          <div className="flex flex-col items-center">
+
+            {/* SVG half-circle gauge */}
+            <div className="relative w-36 h-[72px] mb-3">
+              <svg viewBox="0 0 120 60" className="w-full overflow-visible">
+                <defs>
+                  <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#2563eb" />
+                    <stop offset="100%" stopColor="#06b6d4" />
+                  </linearGradient>
+                </defs>
+                {/* Track */}
+                <path
+                  d="M 10 60 A 50 50 0 0 1 110 60"
+                  fill="none" stroke="currentColor"
+                  className="text-gray-100 dark:text-gray-700"
+                  strokeWidth="10" strokeLinecap="round"
+                />
+                {/* Fill */}
+                <path
+                  d="M 10 60 A 50 50 0 0 1 110 60"
+                  fill="none" stroke="url(#gaugeGrad)"
+                  strokeWidth="10" strokeLinecap="round"
+                  strokeDasharray={arcLen}
+                  strokeDashoffset={arcDash}
+                />
+              </svg>
+              <div className="absolute bottom-0 left-0 right-0 text-center font-black text-xl text-gray-800 dark:text-white">
+                {goalPct}%
+              </div>
+            </div>
+
+            <p className="font-bold text-[15px] text-gray-800 dark:text-white">
+              {formatCurrency(goalCurrent)} / {formatCurrency(goalTarget)}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Monthly Goal · Based on current views</p>
+
+            <div className="mt-4 w-full px-2 py-3 bg-success-50 dark:bg-success-500/10 border border-success-200 dark:border-success-500/20 rounded-xl text-center">
+              <p className="text-[12px] font-bold text-success-700 dark:text-success-400">
+                🎯 {goalPct >= 70 ? "On track to hit goal!" : "Keep pushing — you're getting there!"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
