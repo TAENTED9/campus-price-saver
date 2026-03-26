@@ -96,18 +96,28 @@ export default function ListingDetailPage() {
   }, [token, listing?.seller?.id, listing?.id]);
 
   async function toggleWishlist() {
-    if (!token) { router.push("/auth/signin"); return; }
+    if (!token) { router.push("/signin"); return; }
     const numId = Number(id);
     setWishlistLoading(true);
     try {
       const res = await wishlistApi.toggle(token, numId);
       setWishlisted(res.wishlisted);
+      // Sync localStorage so sidebar count updates instantly
+      try {
+        const WL_KEY = "ps_wishlist";
+        const stored = JSON.parse(localStorage.getItem(WL_KEY) || "[]") as number[];
+        const updated = res.wishlisted
+          ? [...new Set([...stored, numId])]
+          : stored.filter((x) => x !== numId);
+        localStorage.setItem(WL_KEY, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent("wl-changed"));
+      } catch { /* ignore */ }
     } catch { /* silent */ }
     finally { setWishlistLoading(false); }
   }
 
   async function toggleFollow() {
-    if (!token) { router.push("/auth/signin"); return; }
+    if (!token) { router.push("/signin"); return; }
     if (!listing?.seller?.id) return;
     setFollowLoading(true);
     try {
@@ -118,7 +128,7 @@ export default function ListingDetailPage() {
   }
 
   async function sendInquiry() {
-    if (!token) { router.push("/auth/signin"); return; }
+    if (!token) { router.push("/signin"); return; }
     if (!inquiryMsg.trim() || !listing) return;
     setSendingInquiry(true);
     try {
@@ -131,7 +141,7 @@ export default function ListingDetailPage() {
   }
 
   async function sendReport() {
-    if (!token) { router.push("/auth/signin"); return; }
+    if (!token) { router.push("/signin"); return; }
     if (!listing) return;
     setSendingReport(true);
     try {
@@ -269,7 +279,7 @@ export default function ListingDetailPage() {
               {/* Actions */}
               <div className="mt-4 space-y-2">
                 <button type="button"
-                  onClick={() => { if (!token) { router.push("/auth/signin"); return; } setInquiryOpen(true); }}
+                  onClick={() => { if (!token) { router.push("/signin"); return; } setInquiryOpen(true); }}
                   className="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white text-sm font-bold hover:opacity-90 transition-opacity">
                   ✉️ Message Seller
                 </button>
@@ -462,7 +472,7 @@ export default function ListingDetailPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Reason</label>
                 <select value={reportReason} onChange={(e) => setReportReason(e.target.value)} title="Report reason"
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-4 py-2.5 text-sm text-gray-800 dark:text-white/90 focus:border-brand-300 focus:outline-hidden">
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 dark:[color-scheme:dark] px-4 py-2.5 text-sm text-gray-800 dark:text-white/90 focus:border-brand-300 focus:outline-hidden">
                   {REPORT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>

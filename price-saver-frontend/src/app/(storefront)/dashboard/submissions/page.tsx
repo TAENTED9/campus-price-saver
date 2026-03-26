@@ -128,7 +128,7 @@ export default function SubmissionsPage() {
                   required
                   value={formCat}
                   onChange={(e) => setFormCat(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20"
+                  className="w-full rounded-lg border border-gray-300 bg-gray-50 dark:bg-gray-900 dark:[color-scheme:dark] dark:border-gray-600 text-gray-800 dark:text-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20"
                 >
                   <option value="">Select category</option>
                   {categories.map((c) => (

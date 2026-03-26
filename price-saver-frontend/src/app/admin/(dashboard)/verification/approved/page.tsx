@@ -61,7 +61,7 @@ export default function ApprovedVerificationsPage() {
               <tr key={v.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/[0.02]">
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-sm font-semibold text-green-700 dark:bg-green-500/20 dark:text-green-400">{v.seller_name.charAt(0).toUpperCase()}</div>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-sm font-semibold text-green-700 dark:bg-green-500/20 dark:text-green-400">{(v.seller_name || "?").charAt(0).toUpperCase()}</div>
                     <div>
                       <span className="font-medium text-gray-800 dark:text-white/90">{v.seller_name}</span>
                       <p className="text-xs text-gray-400">Verified Seller</p>

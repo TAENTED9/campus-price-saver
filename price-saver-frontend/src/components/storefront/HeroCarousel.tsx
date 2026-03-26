@@ -4,7 +4,9 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { UtensilsCrossed, Shirt, Monitor, ChevronRight } from "lucide-react";
 
-const slides = [
+// ─── Static fallback slides (used when no admin banners exist) ────────────────
+
+const STATIC_SLIDES = [
   {
     tag: "Campus Essentials",
     title: "Food & Drinks",
@@ -12,6 +14,7 @@ const slides = [
     cta: { label: "Explore Food", href: "/categories/food" },
     bg: "from-brand-600 to-brand-800",
     icon: <UtensilsCrossed size={120} className="opacity-90 text-white/40" />,
+    image: null as string | null,
   },
   {
     tag: "Student Fashion",
@@ -20,6 +23,7 @@ const slides = [
     cta: { label: "Shop Fashion", href: "/categories/fashion" },
     bg: "from-violet-600 to-purple-800",
     icon: <Shirt size={120} className="opacity-90 text-white/40" />,
+    image: null as string | null,
   },
   {
     tag: "Tech & Gadgets",
@@ -28,6 +32,7 @@ const slides = [
     cta: { label: "Browse Tech", href: "/categories/tech" },
     bg: "from-emerald-600 to-teal-800",
     icon: <Monitor size={120} className="opacity-90 text-white/40" />,
+    image: null as string | null,
   },
 ];
 
@@ -48,14 +53,62 @@ const sideCards = [
   },
 ];
 
+type Slide = {
+  tag: string;
+  title: string;
+  subtitle: string;
+  cta: { label: string; href: string };
+  bg: string;
+  icon: React.ReactNode | null;
+  image: string | null;
+};
+
+// ─── Gradient palette for dynamic banners ─────────────────────────────────────
+
+const GRADIENTS = [
+  "from-brand-600 to-brand-800",
+  "from-violet-600 to-purple-800",
+  "from-emerald-600 to-teal-800",
+  "from-orange-600 to-rose-700",
+  "from-cyan-600 to-blue-700",
+];
+
 export default function HeroCarousel() {
+  const [slides, setSlides] = useState<Slide[]>(STATIC_SLIDES);
   const [active, setActive] = useState(0);
+
+  // Fetch dynamic banners from admin announcements
+  useEffect(() => {
+    fetch("/api/storefront/banners")
+      .then(r => r.ok ? r.json() : null)
+      .then(res => {
+        if (!res?.data?.length) return;
+        // Build slides from announcements — only include ones that have a banner_url
+        // OR include all active ones as text-only slides
+        const dynamic: Slide[] = res.data.map((a: { title: string; message: string; banner_url: string | null; type: string }, i: number) => ({
+          tag: a.type === "banner" ? "Featured" : (a.type ? a.type.charAt(0).toUpperCase() + a.type.slice(1) : "Announcement"),
+          title: a.title,
+          subtitle: a.message,
+          cta: { label: a.type === "banner" ? "Explore Now" : "Browse Campus", href: "/search" },
+          bg: GRADIENTS[i % GRADIENTS.length],
+          icon: null,
+          image: a.banner_url ?? null,
+        }));
+        setSlides(dynamic);
+      })
+      .catch(() => {/* keep static */});
+  }, []);
 
   // Auto-advance every 5s
   useEffect(() => {
-    const id = setInterval(() => setActive((prev) => (prev + 1) % slides.length), 5000);
+    const id = setInterval(() => setActive(prev => (prev + 1) % slides.length), 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [slides.length]);
+
+  // Keep active in bounds if slides change
+  useEffect(() => {
+    if (active >= slides.length) setActive(0);
+  }, [slides.length, active]);
 
   const slide = slides[active];
 
@@ -64,11 +117,24 @@ export default function HeroCarousel() {
       {/* ── Main slide ── */}
       <div className="xl:w-2/3 w-full">
         <div className="relative rounded-[10px] overflow-hidden min-h-[340px] sm:min-h-[420px]">
-          {/* Background */}
-          <div className={`absolute inset-0 bg-gradient-to-br ${slide.bg} transition-all duration-700`} />
 
-          {/* Dot pattern overlay */}
-          <div className="absolute inset-0 opacity-10 dot-pattern" />
+          {/* Background — image or gradient */}
+          {slide.image ? (
+            <>
+              <img
+                src={slide.image}
+                alt={slide.title}
+                className="absolute inset-0 w-full h-full object-cover transition-all duration-700"
+              />
+              {/* Dark overlay so text is readable over any image */}
+              <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/40 to-transparent" />
+            </>
+          ) : (
+            <>
+              <div className={`absolute inset-0 bg-gradient-to-br ${slide.bg} transition-all duration-700`} />
+              <div className="absolute inset-0 opacity-10 dot-pattern" />
+            </>
+          )}
 
           {/* Content */}
           <div className="relative z-10 flex items-center justify-between h-full p-8 sm:p-12 min-h-[340px] sm:min-h-[420px]">
@@ -79,7 +145,7 @@ export default function HeroCarousel() {
               <h1 className="font-bold text-white text-3xl sm:text-[44px] leading-tight mb-3">
                 {slide.title}
               </h1>
-              <p className="text-sm text-white/75 leading-relaxed mb-8 max-w-[280px]">
+              <p className="text-sm text-white/80 leading-relaxed mb-8 max-w-[300px] line-clamp-3">
                 {slide.subtitle}
               </p>
               <Link
@@ -90,24 +156,28 @@ export default function HeroCarousel() {
               </Link>
             </div>
 
-            {/* Decorative icon */}
-            <div className="hidden sm:block shrink-0 opacity-80">
-              {slide.icon}
-            </div>
+            {/* Decorative icon (only for static slides) */}
+            {slide.icon && (
+              <div className="hidden sm:block shrink-0 opacity-80">
+                {slide.icon}
+              </div>
+            )}
           </div>
 
           {/* Pagination dots */}
-          <div className="absolute bottom-5 left-8 sm:left-12 flex gap-2">
-            {slides.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setActive(i)}
-                className={`transition-all duration-300 rounded-full ${i === active ? "w-6 h-2 bg-white" : "w-2 h-2 bg-white/40 hover:bg-white/60"}`}
-                aria-label={`Slide ${i + 1}`}
-              />
-            ))}
-          </div>
+          {slides.length > 1 && (
+            <div className="absolute bottom-5 left-8 sm:left-12 flex gap-2">
+              {slides.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setActive(i)}
+                  className={`transition-all duration-300 rounded-full ${i === active ? "w-6 h-2 bg-white" : "w-2 h-2 bg-white/40 hover:bg-white/60"}`}
+                  aria-label={`Slide ${i + 1}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -120,7 +190,7 @@ export default function HeroCarousel() {
             className={`group w-full relative rounded-[10px] px-6 py-6 sm:py-7 ${card.bg} flex items-center justify-between gap-4 hover:shadow-md transition-shadow duration-200`}
           >
             <div>
-              <h2 className={`font-semibold text-gray-800 text-[20px] mb-1 group-hover:text-brand-600 transition-colors`}>
+              <h2 className="font-semibold text-gray-800 text-[20px] mb-1 group-hover:text-brand-600 transition-colors">
                 {card.label}
               </h2>
               <span className={`text-sm font-medium ${card.accent}`}>

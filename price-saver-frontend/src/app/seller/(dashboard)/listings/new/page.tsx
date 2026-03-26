@@ -10,7 +10,7 @@ const CONDITIONS = ["New", "Fairly Used", "Used"] as const;
 const DURATIONS = [7, 14, 30] as const;
 
 const inp =
-  "h-11 w-full rounded-lg border border-gray-200 bg-transparent py-2.5 px-4 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-white/[0.03] dark:text-white/90 dark:placeholder:text-white/30";
+  "h-11 w-full rounded-lg border border-gray-200 bg-white py-2.5 px-4 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-gray-900 dark:[color-scheme:dark] dark:text-white/90 dark:placeholder:text-white/30";
 const lbl = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5";
 const pill = (active: boolean) =>
   `px-4 py-2 rounded-lg text-sm font-medium border transition-colors cursor-pointer ${

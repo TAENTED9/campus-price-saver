@@ -5,19 +5,20 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { itemsApi, storesApi, type Category, type Price, type SearchFilters } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { Search, X, User, ChevronDown, Menu, Loader2, SlidersHorizontal, UtensilsCrossed, Shirt, Monitor, BookOpen, Sparkles, Wrench, Palette, ShoppingBag, Package } from "lucide-react";
+import { Search, X, User, ChevronDown, Menu, Loader2, SlidersHorizontal, UtensilsCrossed, Shirt, Monitor, BookOpen, Sparkles, Wrench, Palette, ShoppingBag, Package, LogOut } from "lucide-react";
 import type { ReactNode } from "react";
+import { getCategoryConfig } from "@/lib/categoryIcons";
 
 // ─── Default categories (fallback while API loads) ────────────────────────────
 
 const DEFAULT_CATEGORIES: { id: number; name: string; href: string; icon: ReactNode }[] = [
-  { id: 0, name: "Food & Drinks",  href: "/categories/food",     icon: <UtensilsCrossed size={15} /> },
-  { id: 0, name: "Fashion",        href: "/categories/fashion",  icon: <Shirt size={15} /> },
-  { id: 0, name: "Tech & Gadgets", href: "/categories/tech",     icon: <Monitor size={15} /> },
-  { id: 0, name: "Books & Notes",  href: "/categories/books",    icon: <BookOpen size={15} /> },
-  { id: 0, name: "Beauty",         href: "/categories/beauty",   icon: <Sparkles size={15} /> },
-  { id: 0, name: "Services",       href: "/categories/services", icon: <Wrench size={15} /> },
-  { id: 0, name: "Crafts & Art",   href: "/categories/crafts",   icon: <Palette size={15} /> },
+  { id: 0, name: "Food & Drinks",  href: "/search?q=Food",     icon: <UtensilsCrossed size={15} /> },
+  { id: 0, name: "Fashion",        href: "/search?q=Fashion",  icon: <Shirt size={15} /> },
+  { id: 0, name: "Tech & Gadgets", href: "/search?q=Tech",     icon: <Monitor size={15} /> },
+  { id: 0, name: "Books & Notes",  href: "/search?q=Books",    icon: <BookOpen size={15} /> },
+  { id: 0, name: "Beauty",         href: "/search?q=Beauty",   icon: <Sparkles size={15} /> },
+  { id: 0, name: "Services",       href: "/search?q=Services", icon: <Wrench size={15} /> },
+  { id: 0, name: "Crafts & Art",   href: "/search?q=Crafts",   icon: <Palette size={15} /> },
 ];
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ function formatPrice(p: number) {
 
 export default function StorefrontHeader() {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
 
   // ── Category dropdown ──
   const [catOpen, setCatOpen] = useState(false);
@@ -186,7 +187,7 @@ export default function StorefrontHeader() {
                       <button
                         type="button"
                         onClick={catOpen ? () => setCatOpen(false) : openCatDropdown}
-                        className="flex items-center gap-1.5 px-4 h-[42px] rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:hover:bg-gray-700 whitespace-nowrap transition-colors"
+                        className="flex items-center gap-1.5 px-4 h-[42px] rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 whitespace-nowrap transition-colors"
                       >
                         <Menu size={20} />
                         <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">All</span>
@@ -198,22 +199,22 @@ export default function StorefrontHeader() {
                         <div className="absolute left-0 top-full mt-2 w-56 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 py-2 z-50 animate-fade-in">
                           <p className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Categories</p>
                           {(catsLoaded
-                            ? categories.map((c) => ({ ...c, href: `/categories/${c.id}` }))
+                            ? categories.map((c) => ({ ...c, href: `/search?category_id=${c.id}` }))
                             : DEFAULT_CATEGORIES
                           ).map((cat, i) => (
                             <Link
                               key={cat.id || i}
-                              href={cat.href || `/categories/${cat.id}`}
+                              href={cat.href || `/search?category_id=${cat.id}`}
                               onClick={() => setCatOpen(false)}
                               className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                             >
-                              <span className="text-gray-500 dark:text-gray-400">{('icon' in cat) ? (cat as { icon?: ReactNode }).icon : <Package size={15} />}</span>
+                              <span className="text-gray-500 dark:text-gray-400">{catsLoaded ? (() => { const cfg = getCategoryConfig(cat.id); return <cfg.icon size={15} className={cfg.color} />; })() : (('icon' in cat) ? (cat as { icon?: ReactNode }).icon : <Package size={15} />)}</span>
                               {cat.name}
                             </Link>
                           ))}
                           <div className="border-t border-gray-100 dark:border-gray-700 mt-2 pt-2">
                             <Link
-                              href="/categories"
+                              href="/search"
                               onClick={() => setCatOpen(false)}
                               className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400 transition-colors"
                             >
@@ -252,7 +253,7 @@ export default function StorefrontHeader() {
               <nav className="hidden xl:flex items-center gap-6">
                 <Link href="/" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Home</Link>
                 <Link href="/search" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Browse</Link>
-                <Link href="/categories" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Categories</Link>
+                <Link href="/search" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Categories</Link>
               </nav>
 
               <div className="flex items-center gap-5">
@@ -267,6 +268,14 @@ export default function StorefrontHeader() {
                         <p className="font-medium text-xs text-gray-900 hover:text-brand-500 dark:text-white dark:hover:text-brand-400 transition-colors truncate max-w-[120px]">{user?.username}</p>
                       </div>
                     </Link>
+                    <button
+                      type="button"
+                      onClick={logout}
+                      title="Sign out"
+                      className="hidden xl:flex items-center justify-center w-9 h-9 border border-gray-200 rounded-full dark:border-gray-700 text-gray-400 hover:text-red-500 hover:border-red-300 dark:hover:text-red-400 transition-colors"
+                    >
+                      <LogOut size={16} />
+                    </button>
                     <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} className="xl:hidden inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-full hover:bg-brand-600 transition-colors">
                       Dashboard
                     </Link>
@@ -393,7 +402,7 @@ export default function StorefrontHeader() {
                       id="filter-category"
                       value={filters.category_id ?? ""}
                       onChange={(e) => setFilters(f => ({ ...f, category_id: e.target.value ? Number(e.target.value) : undefined }))}
-                      className="w-full rounded-lg border border-gray-200 bg-white dark:bg-gray-700 dark:border-gray-600 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 dark:text-white"
+                      className="w-full rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:[color-scheme:dark] dark:border-gray-600 px-3 py-2 text-sm text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-brand-500/20"
                     >
                       <option value="">All Categories</option>
                       {(catsLoaded ? categories : []).map(c => (
@@ -460,11 +469,11 @@ export default function StorefrontHeader() {
                     {matchedCategories.map((c, i) => (
                       <Link
                         key={c.id || i}
-                        href={('href' in c) ? (c as { href: string }).href : `/categories/${c.id}`}
+                        href={('href' in c) ? (c as { href: string }).href : `/search?category_id=${c.id}`}
                         onClick={() => setSearchOpen(false)}
                         className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-400 text-sm font-medium hover:bg-brand-100 transition-colors"
                       >
-                        <span>{('icon' in c) ? (c as { icon?: string }).icon : "📦"}</span>
+                        <span>{catsLoaded ? (() => { const cfg = getCategoryConfig(c.id); return <cfg.icon size={14} className={cfg.color} />; })() : (('icon' in c) ? (c as { icon?: ReactNode }).icon : <Package size={14} />)}</span>
                         {c.name}
                       </Link>
                     ))}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { notificationsApi } from "@/lib/api";
+import NotificationDropdown from "@/components/header/NotificationDropdown";
 import {
   ShoppingBag,
   Package,
@@ -37,20 +38,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileOpen, setMobileOpen] = useState(false);
   const [msgUnread, setMsgUnread] = useState(0);
 
-  // Poll for unread message notifications
+  // Poll for unread message notifications — 10s + immediate on tab focus
   useEffect(() => {
     if (!token) return;
     const fetchMsgCount = () => {
-      notificationsApi.list(token, 0, 50)
-        .then((res) => {
-          const unread = res.notifications.filter((n) => n.type === "new_message" && !n.is_read).length;
-          setMsgUnread(unread);
-        })
+      notificationsApi.unreadCount(token, "buyer")
+        .then((r) => setMsgUnread(r.unread_count))
         .catch(() => {});
     };
     fetchMsgCount();
-    const interval = setInterval(fetchMsgCount, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchMsgCount, 10000);
+    const onVisible = () => { if (document.visibilityState === "visible") fetchMsgCount(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [token]);
 
   useEffect(() => {
@@ -61,7 +64,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setWlCount(getWishlistCount());
     const handler = () => setWlCount(getWishlistCount());
     window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
+    window.addEventListener("wl-changed", handler);
+    return () => {
+      window.removeEventListener("storage", handler);
+      window.removeEventListener("wl-changed", handler);
+    };
   }, []);
 
   if (isLoading) {
@@ -191,14 +198,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </svg>
         </button>
         <p className="font-bold text-gray-800 dark:text-white text-sm flex-1">Dashboard</p>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          title="Toggle theme"
-          className="w-9 h-9 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.05] transition-colors"
-        >
-          {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationDropdown scope="buyer" />
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title="Toggle theme"
+            className="w-9 h-9 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.05] transition-colors"
+          >
+            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer overlay */}

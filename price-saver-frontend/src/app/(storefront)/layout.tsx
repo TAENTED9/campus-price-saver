@@ -1,12 +1,10 @@
 import React from "react";
 import Link from "next/link";
 import StorefrontHeader from "@/components/storefront/StorefrontHeader";
-import ForceLightMode from "@/components/storefront/ForceLightMode";
 
 export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <ForceLightMode />
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* ── Interactive header (client component) ── */}
       <StorefrontHeader />
 
@@ -36,7 +34,7 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
             <div>
               <h4 className="font-semibold text-sm text-gray-900 dark:text-white mb-4">Quick Links</h4>
               <ul className="space-y-2.5">
-                {[["Home", "/"], ["Browse Products", "/search"], ["Categories", "/categories"], ["Top Deals", "/deals"]].map(([label, href]) => (
+                {[["Home", "/"], ["Browse Products", "/search"], ["Categories", "/search"], ["Top Deals", "/deals"]].map(([label, href]) => (
                   <li key={href}>
                     <Link href={href} className="text-sm text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors">{label}</Link>
                   </li>

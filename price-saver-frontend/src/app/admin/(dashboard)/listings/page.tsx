@@ -86,9 +86,9 @@ export default function ListingsPage() {
                 <td className="px-5 py-4 font-medium text-gray-800 dark:text-white/90">{item.name}</td>
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{item.seller_name}</td>
                 <td className="px-5 py-4"><span className="inline-flex items-center rounded-full bg-brand-500/10 px-2.5 py-0.5 text-xs font-medium text-brand-500">{item.category}</span></td>
-                <td className="px-5 py-4 font-medium text-gray-800 dark:text-white/90">{item.price}</td>
+                <td className="px-5 py-4 font-medium text-gray-800 dark:text-white/90">₦{Number(item.price).toLocaleString("en-NG")}</td>
                 <td className="px-5 py-4">{statusBadge(item)}</td>
-                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(item.created_at).toLocaleDateString()}</td>
+                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{item.created_at ? new Date(item.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" }) : "—"}</td>
                 <td className="px-5 py-4">
                   <div className="flex gap-2">
                     {item.status !== "approved" && <button type="button" onClick={() => handleAction("approve", item)} disabled={actionLoading === item.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><CheckCircle size={14} /> Approve</button>}

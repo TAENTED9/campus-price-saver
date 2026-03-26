@@ -13,7 +13,7 @@ const CARD =
   "rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6";
 
 const inp =
-  "rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500";
+  "rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-900 dark:[color-scheme:dark] dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500";
 
 const BUSINESS_CATEGORIES = [
   "Food & Groceries", "Fashion & Clothing", "Electronics & Gadgets",

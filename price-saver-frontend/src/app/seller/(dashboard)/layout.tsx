@@ -35,7 +35,7 @@ export default function SellerDashboardLayout({ children }: { children: React.Re
       <SellerSidebar />
       <Backdrop />
       <div className="flex-1 lg:ml-[220px]">
-        <AppHeader />
+        <AppHeader notificationScope="seller" />
         <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6">{children}</div>
       </div>
     </div>

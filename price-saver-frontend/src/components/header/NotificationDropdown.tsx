@@ -7,7 +7,9 @@ import { useAuth } from "@/context/AuthContext";
 import { notificationsApi, type AppNotification } from "@/lib/api";
 
 function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
+  // Treat naive ISO strings (no Z / offset) as UTC
+  const utc = iso && !iso.endsWith("Z") && !iso.includes("+") ? iso + "Z" : iso;
+  const diff = Date.now() - new Date(utc).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 1) return "Just now";
   if (m < 60) return `${m}m ago`;
@@ -27,7 +29,7 @@ function NotifIcon({ type }: { type: string }) {
   return <div className={`${base} bg-gray-100 text-gray-500`}><Bell size={16} /></div>;
 }
 
-export default function NotificationDropdown() {
+export default function NotificationDropdown({ scope }: { scope?: string }) {
   const { token } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -38,21 +40,21 @@ export default function NotificationDropdown() {
     if (!token) return;
     setLoading(true);
     try {
-      const res = await notificationsApi.list(token);
+      const res = await notificationsApi.list(token, 0, 30, scope);
       setNotifications(res.notifications);
       setUnreadCount(res.unread_count);
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, [token]);
+  }, [token, scope]);
 
   useEffect(() => {
     if (!token) return;
-    notificationsApi.unreadCount(token).then((r) => setUnreadCount(r.unread_count)).catch(() => {});
+    notificationsApi.unreadCount(token, scope).then((r) => setUnreadCount(r.unread_count)).catch(() => {});
     const interval = setInterval(() => {
-      notificationsApi.unreadCount(token).then((r) => setUnreadCount(r.unread_count)).catch(() => {});
+      notificationsApi.unreadCount(token, scope).then((r) => setUnreadCount(r.unread_count)).catch(() => {});
     }, 30000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, scope]);
 
   async function handleOpen() {
     if (!isOpen) await fetchNotifications();

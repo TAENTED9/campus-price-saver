@@ -135,7 +135,7 @@ export default function AlertsPage() {
               <select
                 value={catId}
                 onChange={(e) => setCatId(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/[0.03] text-gray-800 dark:text-white px-3.5 py-2.5 text-sm outline-none focus:border-brand-400 dark:focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-colors"
+                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 dark:[color-scheme:dark] text-gray-800 dark:text-white px-3.5 py-2.5 text-sm outline-none focus:border-brand-400 dark:focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-colors"
               >
                 <option value="">Any category</option>
                 {categories.map((c) => (

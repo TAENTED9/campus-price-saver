@@ -117,6 +117,24 @@ export const authApi = {
       headers: authHeaders(token),
       body: JSON.stringify({ email, otp }),
     }),
+
+  changePassword: (token: string, body: { current_password: string; new_password: string }) =>
+    request<{ message: string }>("/api/auth/change-password", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  getSessions: (token: string) =>
+    request<{ sessions: Array<{ id: string; device: string; location: string; last_active: string; current: boolean }> }>("/api/auth/sessions", {
+      headers: authHeaders(token),
+    }),
+
+  revokeSession: (token: string, sessionId: string) =>
+    request<{ message: string }>(`/api/auth/sessions/${sessionId}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
 };
 
 // ===================== ITEM TYPES =====================
@@ -237,6 +255,8 @@ export type SellerStorefront = {
   listing_count: number;
 };
 
+export type ThreadMessage = { sender: "buyer" | "seller"; text: string; at: string };
+
 export type Inquiry = {
   id: number;
   listing_id: number;
@@ -245,6 +265,9 @@ export type Inquiry = {
   buyer_name: string;
   message: string;
   is_read: boolean;
+  seller_reply: string | null;
+  replied_at: string | null;
+  thread: ThreadMessage[] | null;
   created_at: string;
 };
 
@@ -424,6 +447,26 @@ export const userApi = {
       method: "DELETE",
       headers: authHeaders(token),
     }),
+
+  updateSettings: (token: string, body: Record<string, unknown>) =>
+    request<{ message: string }>("/api/auth/settings", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  updateNotifications: (token: string, body: Record<string, unknown>) =>
+    request<{ message: string }>("/api/auth/notification-preferences", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  deleteAccount: (token: string) =>
+    request<{ message: string }>("/api/auth/account", {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
 };
 
 // ===================== VERIFICATION API =====================
@@ -491,6 +534,22 @@ export const uploadApi = {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(`${API_BASE}/api/upload/listing-photo`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
+      throw new Error(err.detail || "Upload failed");
+    }
+    const data: { success: boolean; url: string } = await res.json();
+    return data.url;
+  },
+
+  uploadBanner: async (token: string, file: File): Promise<string> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/upload/banner`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
@@ -650,6 +709,84 @@ export const sellerApi = {
       method: "PATCH",
       headers: authHeaders(token),
     }),
+
+  replyToInquiry: (token: string, inquiryId: number, reply: string) =>
+    request<{ success: boolean; replied_at: string }>(`/api/seller/inquiries/${inquiryId}/reply`, {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ reply }),
+    }),
+
+  getProfile: (token: string) =>
+    request<Record<string, unknown>>("/api/seller/profile-settings", {
+      headers: authHeaders(token),
+    }),
+
+  updateStorefront: (token: string, data: Record<string, unknown>) =>
+    request<{ message: string }>("/api/seller/storefront", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(data),
+    }),
+
+  checkSlug: (token: string, slug: string) =>
+    request<{ available: boolean; slug: string }>(`/api/seller/check-slug?slug=${encodeURIComponent(slug)}`, {
+      headers: authHeaders(token),
+    }),
+
+  updatePolicies: (token: string, body: { pickup_policy: string; return_policy: string; payment_policy: string }) =>
+    request<{ message: string }>("/api/seller/policies", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  updateAvailability: (token: string, body: { status: string }) =>
+    request<{ message: string; status: string }>("/api/seller/availability", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  setVacation: (token: string, body: { enabled: boolean; resume_date: string | null }) =>
+    request<{ message: string }>("/api/seller/vacation-mode", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  updateAutoReplyMsg: (token: string, body: { message: string }) =>
+    request<{ message: string }>("/api/seller/auto-reply", {
+      method: "PUT",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  updateDefaults: (token: string, body: { default_location: string; default_duration: number; auto_renew: boolean; default_negotiable: boolean }) =>
+    request<{ message: string }>("/api/seller/listing-defaults", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(body),
+    }),
+
+  submitVerificationDocs: async (token: string, formData: FormData) => {
+    const res = await fetch(`${API_BASE}/api/seller/verification/docs`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
+      throw new Error(err.detail || "Upload failed");
+    }
+    return res.json();
+  },
+
+  downgrade: (token: string) =>
+    request<{ message: string }>("/api/seller/downgrade", {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
 };
 
 // ===================== LISTING API (public) =====================
@@ -693,6 +830,31 @@ export const storefrontApi = {
     request<FollowStatus>(`/api/storefront/follow/${sellerId}/status`, {
       headers: authHeaders(token),
     }),
+
+  getMyInquiries: (token: string) =>
+    request<{ success: boolean; data: BuyerInquiry[]; unread_replies: number }>("/api/storefront/my-inquiries", {
+      headers: authHeaders(token),
+    }),
+
+  sendFollowUp: (token: string, inquiryId: number, message: string) =>
+    request<{ success: boolean; thread: ThreadMessage[] }>(`/api/storefront/inquiry/${inquiryId}/followup`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ message }),
+    }),
+};
+
+export type BuyerInquiry = {
+  id: number;
+  listing_id: number;
+  listing_name: string;
+  seller_id: number;
+  seller_name: string;
+  message: string;
+  seller_reply: string | null;
+  replied_at: string | null;
+  thread: ThreadMessage[] | null;
+  created_at: string;
 };
 
 // ===================== ADMIN API TYPES =====================
@@ -739,6 +901,7 @@ export type AdminAnnouncement = {
   type: string;
   audience: string;
   is_active: boolean;
+  banner_url: string | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -894,14 +1057,20 @@ export const adminApi = {
       headers: authHeaders(token),
     }),
 
-  createAnnouncement: (token: string, data: { title: string; message: string; type?: string; audience?: string }) =>
+  createAnnouncement: (token: string, data: { title: string; message: string; type?: string; audience?: string; banner_url?: string }) =>
     request<{ success: boolean; id: number; message: string }>("/api/admin/announcements", {
       method: "POST",
       headers: authHeaders(token),
       body: JSON.stringify(data),
     }),
 
-  updateAnnouncement: (token: string, annId: number, data: Partial<{ title: string; message: string; type: string; audience: string; is_active: boolean }>) =>
+  broadcastAnnouncement: (token: string, annId: number) =>
+    request<{ success: boolean; sent_to: number; message: string }>(`/api/admin/announcements/${annId}/broadcast`, {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+
+  updateAnnouncement: (token: string, annId: number, data: Partial<{ title: string; message: string; type: string; audience: string; is_active: boolean; banner_url: string }>) =>
     request<{ success: boolean; message: string }>(`/api/admin/announcements/${annId}`, {
       method: "PATCH",
       headers: authHeaders(token),
@@ -1018,13 +1187,13 @@ export type AppNotification = {
 };
 
 export const notificationsApi = {
-  list: (token: string, skip = 0, limit = 30) =>
+  list: (token: string, skip = 0, limit = 30, scope?: string) =>
     request<{ unread_count: number; notifications: AppNotification[] }>(
-      `/api/notifications/?token=${token}&skip=${skip}&limit=${limit}`
+      `/api/notifications/?token=${token}&skip=${skip}&limit=${limit}${scope ? `&scope=${scope}` : ""}`
     ),
 
-  unreadCount: (token: string) =>
-    request<{ unread_count: number }>(`/api/notifications/unread-count?token=${token}`),
+  unreadCount: (token: string, scope?: string) =>
+    request<{ unread_count: number }>(`/api/notifications/unread-count?token=${token}${scope ? `&scope=${scope}` : ""}`),
 
   markRead: (token: string, id: number) =>
     request<{ success: boolean }>(`/api/notifications/${id}/read?token=${token}`, {

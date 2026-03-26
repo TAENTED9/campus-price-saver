@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { userApi, itemsApi, flashSalesApi, type Category, type Price, type FlashSale } from "@/lib/api";
 import { Star, Bell, Heart, ClipboardList, ChevronRight, Zap, TrendingUp } from "lucide-react";
+import { getCategoryConfig } from "@/lib/categoryIcons";
 
 const WL_KEY = "ps_wishlist";
 function getWlCount(): number {
@@ -150,11 +151,11 @@ export default function BrowseMarketPage() {
             {categories.slice(0, 8).map((cat) => (
               <Link
                 key={cat.id}
-                href={`/search?category=${cat.id}`}
+                href={`/search?category_id=${cat.id}`}
                 className={`${CARD} p-4 flex items-center gap-3 hover:border-brand-300 dark:hover:border-brand-700 hover:bg-brand-50 dark:hover:bg-brand-500/5 transition-colors`}
               >
-                <div className="w-9 h-9 rounded-xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-lg flex-shrink-0">
-                  {cat.icon ?? "🏪"}
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${getCategoryConfig(cat.id).bg}`}>
+                  {(() => { const { icon: Icon, color } = getCategoryConfig(cat.id); return <Icon size={18} className={color} strokeWidth={1.5} />; })()}
                 </div>
                 <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-300 truncate">{cat.name}</span>
               </Link>

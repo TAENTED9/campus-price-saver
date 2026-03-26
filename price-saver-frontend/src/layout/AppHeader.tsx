@@ -1,14 +1,14 @@
 "use client";
 import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
-import NotificationDropdown from "@/components/header/NotificationDropdown";
 import UserDropdown from "@/components/header/UserDropdown";
+import NotificationDropdown from "@/components/header/NotificationDropdown";
 import { useSidebar } from "@/context/SidebarContext";
 import Image from "next/image";
 import Link from "next/link";
 import React, { useState ,useEffect,useRef} from "react";
 import { Menu, X, Search, MoreVertical } from "lucide-react";
 
-const AppHeader: React.FC = () => {
+const AppHeader: React.FC<{ showNotifications?: boolean; notificationScope?: string }> = ({ showNotifications = true, notificationScope }) => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
 
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
@@ -113,8 +113,7 @@ const AppHeader: React.FC = () => {
             <ThemeToggleButton />
             {/* <!-- Dark Mode Toggler --> */}
 
-           <NotificationDropdown /> 
-            {/* <!-- Notification Menu Area --> */}
+            {showNotifications && <NotificationDropdown scope={notificationScope} />}
           </div>
           {/* <!-- User Area --> */}
           <UserDropdown /> 

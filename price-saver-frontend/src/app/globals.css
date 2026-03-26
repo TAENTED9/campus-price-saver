@@ -184,6 +184,17 @@
   }
 }
 
+/* ── Dark mode: fix native select & option text visibility ── */
+.dark select {
+  color-scheme: dark;
+  background-color: #111827;
+  color: rgba(255, 255, 255, 0.9);
+}
+.dark select option {
+  background-color: #111827;
+  color: rgba(255, 255, 255, 0.9);
+}
+
 @utility no-scrollbar {
   &::-webkit-scrollbar {
     display: none;
