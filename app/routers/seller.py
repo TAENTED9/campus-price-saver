@@ -2,27 +2,22 @@
 Seller Dashboard API — stats, listings management, analytics.
 All endpoints require a valid JWT token (seller role).
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, timedelta
-from typing import Optional
 from pydantic import BaseModel, Field
 
+import asyncio
+import hashlib
 import json
-from app.database import SessionLocal
-from app.models import Price, User, PointsTransaction, SellerVerification, FlashSale, Inquiry, Notification, Review
-from app.routers.auth import get_current_user
+from app.database import get_db
+from app.models import Price, User, PointsTransaction, SellerVerification, Inquiry, Notification, Review, Order, Lead
+from app.routers.auth import get_current_user, get_user_allow_paused
+from app.limiter import limiter
 
 router = APIRouter(prefix="/seller", tags=["Seller Dashboard"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+orders_router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -31,42 +26,42 @@ class ListingCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     category_id: int = Field(..., gt=0)
     price: float = Field(..., gt=0, le=10000000)
-    brand: Optional[str] = Field(None, max_length=100)
-    pack_size: Optional[str] = Field(None, max_length=50)
-    pack_unit: Optional[str] = Field(None, max_length=20)
-    location: Optional[str] = Field(None, max_length=200)
-    store_id: Optional[int] = Field(None, gt=0)
+    brand: str | None = Field(None, max_length=100)
+    pack_size: str | None = Field(None, max_length=50)
+    pack_unit: str | None = Field(None, max_length=20)
+    location: str | None = Field(None, max_length=200)
+    store_id: int | None = Field(None, gt=0)
     # New marketplace fields
-    description: Optional[str] = Field(None, max_length=2000)
-    subcategory: Optional[str] = Field(None, max_length=100)
-    condition: Optional[str] = Field("New")              # New / Fairly Used / Used
-    quantity: Optional[int] = Field(1, ge=1, le=9999)
-    is_negotiable: Optional[bool] = Field(False)
-    delivery_options: Optional[str] = Field(None)        # "pickup", "delivery", "pickup,delivery"
-    duration_days: Optional[int] = Field(30)             # 7 / 14 / 30
-    listing_status: Optional[str] = Field("active")      # draft / active
-    photos: Optional[list] = Field(default_factory=list) # up to 5 Cloudinary URLs
+    description: str | None = Field(None, max_length=2000)
+    subcategory: str | None = Field(None, max_length=100)
+    condition: str | None = Field("New")              # New / Fairly Used / Used
+    quantity: int | None = Field(1, ge=1, le=9999)
+    is_negotiable: bool | None = Field(False)
+    delivery_options: str | None = Field(None)        # "pickup", "delivery", "pickup,delivery"
+    duration_days: int | None = Field(30)             # 7 / 14 / 30
+    listing_status: str | None = Field("active")      # draft / active
+    photos: list | None = Field(default_factory=list) # up to 5 Cloudinary URLs
 
 
 class ListingUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    price: Optional[float] = Field(None, gt=0, le=10000000)
-    brand: Optional[str] = Field(None, max_length=100)
-    location: Optional[str] = Field(None, max_length=200)
-    description: Optional[str] = Field(None, max_length=2000)
-    subcategory: Optional[str] = Field(None, max_length=100)
-    condition: Optional[str] = None
-    quantity: Optional[int] = Field(None, ge=1, le=9999)
-    is_negotiable: Optional[bool] = None
-    delivery_options: Optional[str] = None
-    duration_days: Optional[int] = None
-    listing_status: Optional[str] = None
-    photos: Optional[list] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    price: float | None = Field(None, gt=0, le=10000000)
+    brand: str | None = Field(None, max_length=100)
+    location: str | None = Field(None, max_length=200)
+    description: str | None = Field(None, max_length=2000)
+    subcategory: str | None = Field(None, max_length=100)
+    condition: str | None = None
+    quantity: int | None = Field(None, ge=1, le=9999)
+    is_negotiable: bool | None = None
+    delivery_options: str | None = None
+    duration_days: int | None = None
+    listing_status: str | None = None
+    photos: list | None = None
 
 
 class ProfileUpdate(BaseModel):
-    display_name: Optional[str] = Field(None, max_length=100)
-    email: Optional[str] = Field(None, max_length=255)
+    display_name: str | None = Field(None, max_length=100)
+    email: str | None = Field(None, max_length=255)
 
 
 # ── Dashboard Overview ───────────────────────────────────────────────────
@@ -162,8 +157,8 @@ def _listing_dict(p: Price) -> dict:
 
 @router.get("/listings")
 async def get_seller_listings(
-    status_filter: Optional[str] = Query(None),
-    listing_status: Optional[str] = Query(None),
+    status_filter: str | None = Query(None),
+    listing_status: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
@@ -225,6 +220,17 @@ async def create_listing(
             db.commit()
         except Exception:
             pass
+
+    # Block 2D — notify admin of new listing
+    try:
+        from app.services.admin_notifications import notify_admin
+        await notify_admin(
+            db, "new_listing", current_user.id,
+            current_user.email or "", current_user.role,
+            {"listing_id": listing.id, "title": listing.name, "price": listing.price},
+        )
+    except Exception:
+        pass
 
     msg = "Listing saved as draft" if listing.listing_status == "draft" else "Listing submitted for approval"
     return {"success": True, "id": listing.id, "message": msg}
@@ -402,7 +408,9 @@ async def get_seller_analytics(
 # ── Verification status ─────────────────────────────────────────────────
 
 @router.get("/verification")
+@limiter.limit("3/hour")
 async def get_seller_verification(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -578,7 +586,7 @@ async def mark_inquiry_read(
 
 
 class InquiryLabelUpdate(BaseModel):
-    label: Optional[str] = None   # Pending / Completed / Spam / None (clear)
+    label: str | None = None   # Pending / Completed / Spam / None (clear)
 
 
 @router.patch("/inquiries/{inquiry_id}/label")
@@ -660,7 +668,7 @@ async def update_quick_replies(
 # ── Auto-reply message ────────────────────────────────────────────────────
 
 class AutoReplyUpdate(BaseModel):
-    message: Optional[str] = Field(None, max_length=500)
+    message: str | None = Field(None, max_length=500)
 
 
 @router.get("/auto-reply")
@@ -741,7 +749,7 @@ async def get_seller_scorecard(
 
 # ── Karma / Points ────────────────────────────────────────────────────────
 
-def _award_points(db: Session, user: User, amount: int, reason: str, listing_id: Optional[int] = None):
+def _award_points(db: Session, user: User, amount: int, reason: str, listing_id: int | None = None):
     """Award karma points and update trust tier."""
     user.seller_points = max(0, (user.seller_points or 0) + amount)
     tx = PointsTransaction(user_id=user.id, amount=amount, reason=reason, related_price_id=listing_id)
@@ -804,4 +812,272 @@ async def get_karma_history(
             }
             for t in txs
         ],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Section 4 — Orders & Leads
+# ══════════════════════════════════════════════════════════════════════════════
+
+class OrderCreate(BaseModel):
+    listing_id: int = Field(..., gt=0)
+    meetup_location: str | None = None
+
+
+class OrderStatusUpdate(BaseModel):
+    status: str  # met_up / completed / cancelled
+
+
+def _order_dict(o: Order) -> dict:
+    return {
+        "id": o.id,
+        "listing_id": o.listing_id,
+        "listing_name": o.listing.name if o.listing else None,
+        "buyer_id": o.buyer_id,
+        "seller_id": o.seller_id,
+        "status": o.status,
+        "meetup_location": o.meetup_location,
+        "created_at": o.created_at.isoformat(),
+        "updated_at": o.updated_at.isoformat() if o.updated_at else None,
+    }
+
+
+@orders_router.post("", status_code=201)
+async def create_order(
+    body: OrderCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Buyer creates an order on a listing."""
+    listing = db.query(Price).filter(Price.id == body.listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.submitted_by == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot order your own listing")
+
+    order = Order(
+        listing_id=body.listing_id,
+        buyer_id=current_user.id,
+        seller_id=listing.submitted_by,
+        meetup_location=body.meetup_location,
+    )
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    # Notify seller
+    notif = Notification(
+        user_id=listing.submitted_by,
+        type="new_message",
+        title="New order",
+        body=f"{current_user.display_name or current_user.username} placed an order for '{listing.name}'.",
+        related_id=order.id,
+        related_type="Order",
+    )
+    db.add(notif)
+    db.commit()
+    return _order_dict(order)
+
+
+@orders_router.get("")
+async def get_buyer_orders(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Buyer sees their own orders."""
+    orders = (
+        db.query(Order)
+        .filter(Order.buyer_id == current_user.id)
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    return [_order_dict(o) for o in orders]
+
+
+@router.get("/orders")
+async def get_seller_orders(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Seller sees incoming orders."""
+    orders = (
+        db.query(Order)
+        .filter(Order.seller_id == current_user.id)
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    return [_order_dict(o) for o in orders]
+
+
+@orders_router.patch("/{order_id}/status")
+async def update_order_status(
+    order_id: int,
+    body: OrderStatusUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Buyer or seller updates order status."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if current_user.id not in (order.buyer_id, order.seller_id):
+        raise HTTPException(status_code=403, detail="Not your order")
+
+    valid = {"met_up", "completed", "cancelled"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"Status must be one of {valid}")
+
+    order.status = body.status
+    order.updated_at = datetime.utcnow()
+
+    # Decrement quantity and mark sold_out on completion
+    if body.status == "completed":
+        listing = db.query(Price).filter(Price.id == order.listing_id).first()
+        if listing:
+            listing.quantity = max(0, (listing.quantity or 1) - 1)
+            if listing.quantity == 0:
+                listing.listing_status = "sold_out"
+
+    db.commit()
+    return _order_dict(order)
+
+
+@router.post("/listings/{listing_id}/interested", status_code=201)
+async def log_interested(
+    listing_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Called when a buyer clicks 'Message Seller'. Logs a Lead record.
+    Works for both authenticated and anonymous users.
+    """
+    listing = db.query(Price).filter(Price.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    raw_ip = request.client.host if request.client else "unknown"
+    ip_hash = hashlib.sha256(raw_ip.encode()).hexdigest()[:16]
+
+    lead = Lead(
+        listing_id=listing_id,
+        buyer_id=current_user.id if current_user else None,
+        ip_hash=ip_hash,
+    )
+    db.add(lead)
+    db.commit()
+    return {"success": True}
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# BLOCK 5 — Seller self-service: pause / reactivation request / delete request
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class DeletionRequestBody(BaseModel):
+    reason: str | None = None
+
+
+@router.post("/pause-account")
+async def seller_pause_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Block 5A — Seller pauses their own account and hides all listings."""
+    current_user.is_paused  = True
+    current_user.paused_at  = datetime.utcnow()
+    current_user.paused_by  = "self"
+    current_user.pause_reason = "Paused by seller"
+
+    db.query(Price).filter(
+        Price.submitted_by == current_user.id, Price.listing_status == "active"
+    ).update({"listing_status": "paused"})
+
+    db.commit()
+
+    from app.services.admin_notifications import notify_admin, send_user_email_bg
+    from app.services.email_templates import SELLER_SELF_PAUSED_EMAIL
+    await notify_admin(db, "account_paused", current_user.id,
+                       current_user.email or "", "seller", {"paused_by": "self"})
+    asyncio.create_task(send_user_email_bg(
+        current_user.email or "",
+        "Your Campify seller account is now paused",
+        SELLER_SELF_PAUSED_EMAIL(current_user.display_name or current_user.username or "Seller"),
+    ))
+
+    return {"success": True, "message": "Account paused. All listings are now hidden."}
+
+
+@router.post("/request-reactivate")
+async def seller_request_reactivate(
+    current_user: User = Depends(get_user_allow_paused),
+    db: Session = Depends(get_db),
+):
+    """
+    Block 5B — Paused seller requests reactivation.
+    Uses get_user_allow_paused so paused users can still hit this endpoint.
+    """
+    current_user.reactivation_requested_at = datetime.utcnow()
+    db.commit()
+
+    from app.services.admin_notifications import notify_admin, send_user_email_bg
+    from app.services.email_templates import REACTIVATION_REQUEST_EMAIL
+    await notify_admin(
+        db, "reactivation_requested", current_user.id,
+        current_user.email or "", current_user.role,
+        {"requested_at": datetime.utcnow().isoformat()},
+        requires_action=True,
+    )
+    asyncio.create_task(send_user_email_bg(
+        current_user.email or "",
+        "Reactivation request received — Campify",
+        REACTIVATION_REQUEST_EMAIL(current_user.display_name or current_user.username or "Seller"),
+    ))
+
+    return {
+        "success": True,
+        "message": "Reactivation request submitted. Admin will review within 24 hours.",
+    }
+
+
+@router.post("/request-deletion")
+async def seller_request_deletion(
+    body: DeletionRequestBody,
+    current_user: User = Depends(get_user_allow_paused),
+    db: Session = Depends(get_db),
+):
+    """
+    Block 5C — Seller requests account deletion.
+    Uses get_user_allow_paused so paused users can still submit.
+    """
+    current_user.deletion_requested_at    = datetime.utcnow()
+    current_user.deletion_request_reason  = body.reason or "No reason provided"
+    db.commit()
+
+    listing_count = db.query(Price).filter(Price.submitted_by == current_user.id).count()
+
+    from app.services.admin_notifications import notify_admin, send_user_email_bg
+    from app.services.email_templates import DELETION_REQUEST_EMAIL
+    await notify_admin(
+        db, "account_delete_request",
+        current_user.id, current_user.email or "", current_user.role,
+        {
+            "reason":       current_user.deletion_request_reason,
+            "requested_at": datetime.utcnow().isoformat(),
+            "listing_count": listing_count,
+        },
+        requires_action=True,
+    )
+    asyncio.create_task(send_user_email_bg(
+        current_user.email or "",
+        "Account deletion request received — Campify",
+        DELETION_REQUEST_EMAIL(current_user.display_name or current_user.username or "Seller"),
+    ))
+
+    return {
+        "success": True,
+        "message": (
+            "Deletion request submitted. Admin will process within 48 hours. "
+            "You will receive a confirmation email."
+        ),
     }

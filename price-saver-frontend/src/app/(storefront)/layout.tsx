@@ -34,8 +34,8 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
             <div>
               <h4 className="font-semibold text-sm text-gray-900 dark:text-white mb-4">Quick Links</h4>
               <ul className="space-y-2.5">
-                {[["Home", "/"], ["Browse Products", "/search"], ["Categories", "/search"], ["Top Deals", "/deals"]].map(([label, href]) => (
-                  <li key={href}>
+                {[["Home", "/"], ["Browse Products", "/search"], ["Categories", "/categories"], ["Top Deals", "/deals"]].map(([label, href]) => (
+                  <li key={label}>
                     <Link href={href} className="text-sm text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors">{label}</Link>
                   </li>
                 ))}
@@ -46,8 +46,8 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
             <div>
               <h4 className="font-semibold text-sm text-gray-900 dark:text-white mb-4">Account</h4>
               <ul className="space-y-2.5">
-                {[["Sign In", "/signin"], ["Create Account", "/signup"], ["Sell on Campus", "/signup"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
-                  <li key={href}>
+                {[["Sign In", "/signin"], ["Create Account", "/signup"], ["Sell on Campus", "/seller/register"], ["Dashboard", "/dashboard"]].map(([label, href]) => (
+                  <li key={label}>
                     <Link href={href} className="text-sm text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors">{label}</Link>
                   </li>
                 ))}

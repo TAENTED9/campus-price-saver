@@ -39,6 +39,16 @@ class User(Base):
     suspended_until = Column(DateTime, nullable=True)
     ban_reason = Column(Text, nullable=True)
     suspension_reason = Column(Text, nullable=True)
+    # ── Block 4A: account lifecycle ──────────────────────────────────────────
+    is_paused   = Column(Boolean, default=False, nullable=True)
+    paused_at   = Column(DateTime, nullable=True)
+    paused_by   = Column(String, nullable=True)    # "admin" | "self"
+    pause_reason = Column(String, nullable=True)
+    reactivation_requested_at = Column(DateTime, nullable=True)
+    deletion_requested_at     = Column(DateTime, nullable=True)
+    deletion_request_reason   = Column(String, nullable=True)
+    is_deleted  = Column(Boolean, default=False, nullable=True)
+    deleted_at  = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     pending_prices = relationship("PendingPrice", back_populates="submitter")
@@ -626,3 +636,89 @@ class BlockedUser(Base):
     blocked = relationship("User", foreign_keys=[blocked_id])
 
     __table_args__ = (UniqueConstraint("blocker_id", "blocked_id", name="uq_block"),)
+
+
+# ── Section 4: Orders & Leads ─────────────────────────────────────────────
+
+class Order(Base):
+    """
+    Buyer places an order on a listing. Status flows:
+    pending → met_up → completed → cancelled
+    """
+    __tablename__ = "orders"
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
+    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="pending", index=True)  # pending / met_up / completed / cancelled
+    meetup_location = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    listing = relationship("Price")
+    buyer   = relationship("User", foreign_keys=[buyer_id])
+    seller  = relationship("User", foreign_keys=[seller_id])
+
+
+class Lead(Base):
+    """
+    Tracks 'interested' clicks — logged when a buyer clicks 'Message Seller'.
+    ip_hash enables anonymous tracking without storing raw IPs.
+    """
+    __tablename__ = "leads"
+    id = Column(Integer, primary_key=True, index=True)
+    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
+    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    ip_hash = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    listing = relationship("Price")
+    buyer   = relationship("User")
+
+
+# ── Block 1B: Cloudinary asset tracking ──────────────────────────────────────
+
+class CloudinaryAsset(Base):
+    """Tracks every file uploaded to Cloudinary for a user."""
+    __tablename__ = "cloudinary_assets"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    public_id  = Column(String, nullable=False, unique=True)
+    url        = Column(String, nullable=False)
+    folder     = Column(String, nullable=False)
+    asset_type = Column(String, nullable=False)
+    # avatar | banner | id_card | portal_screenshot | listing_photo
+    bytes      = Column(Integer, nullable=True)
+    format     = Column(String, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=True)
+
+    owner   = relationship("User")
+    listing = relationship("Price")
+
+
+# ── Block 2A: Admin event feed ────────────────────────────────────────────────
+
+class AdminEvent(Base):
+    """
+    Persistent log of platform events that require admin visibility.
+    Drives the admin portal notification center.
+    """
+    __tablename__ = "admin_events"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    event_type  = Column(String, nullable=False, index=True)
+    # new_user | new_seller_application | verification_docs_uploaded |
+    # new_listing | account_pause_request | account_delete_request |
+    # account_paused | account_deleted | account_reactivated |
+    # reactivation_requested | verification_approved | verification_rejected
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_email  = Column(String, nullable=True)
+    user_role   = Column(String, nullable=True)
+    payload     = Column(Text, nullable=True)       # JSON string — doc URLs, listing details, etc.
+    is_read     = Column(Boolean, default=False, index=True)
+    requires_action = Column(Boolean, default=False, index=True)
+    created_at  = Column(DateTime, default=datetime.utcnow, index=True)
+
+    user = relationship("User")

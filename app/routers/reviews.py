@@ -1,37 +1,19 @@
-"""Reviews & Ratings router — Day 3."""
+"""Reviews & Ratings router."""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import List, Optional
 
-from app.database import SessionLocal
+from fastapi import APIRouter, Depends, HTTPException, Body
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
+from pydantic import BaseModel, Field
+
+from app.database import get_db
 from app.models import Review, User, Price, Inquiry, Notification, PointsTransaction
+from app.routers.auth import get_current_user, get_current_admin
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_current_user(token: str, db: Session) -> User:
-    from app.routers.auth import decode_access_token
-    payload = decode_access_token(token)
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-
-def _award_points(db: Session, user_id: int, amount: int, reason: str, listing_id: Optional[int] = None):
+def _award_points(db: Session, user_id: int, amount: int, reason: str, listing_id: int | None = None):
     """Award or deduct karma points and log the transaction."""
     user = db.query(User).filter(User.id == user_id).first()
     if user:
@@ -55,7 +37,7 @@ def _recalc_trust_tier(user: User):
 
 
 def _push_notification(db: Session, user_id: int, ntype: str, title: str, body: str,
-                        related_id: Optional[int] = None, related_type: Optional[str] = None):
+                        related_id: int | None = None, related_type: str | None = None):
     notif = Notification(
         user_id=user_id, type=ntype, title=title, body=body,
         related_id=related_id, related_type=related_type,
@@ -63,66 +45,62 @@ def _push_notification(db: Session, user_id: int, ntype: str, title: str, body: 
     db.add(notif)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /reviews — submit a review
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ReviewCreate:
-    def __init__(self, rating: int, comment: Optional[str] = None, photo_url: Optional[str] = None):
-        self.rating = rating
-        self.comment = comment
-        self.photo_url = photo_url
-
-
-from pydantic import BaseModel, Field
-
-
 class ReviewCreateBody(BaseModel):
     rating: int = Field(..., ge=1, le=5)
-    comment: Optional[str] = None
-    photo_url: Optional[str] = None
+    comment: str | None = None
+    photo_url: str | None = None
 
 
 class ReviewResponseBody(BaseModel):
     response: str = Field(..., min_length=1)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /reviews — submit a review
+# ─────────────────────────────────────────────────────────────────────────────
+
 @router.post("/listing/{listing_id}", status_code=201)
 async def submit_review(
     listing_id: int,
     body: ReviewCreateBody,
-    token: str = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Buyer submits a review for a listing after interaction."""
-    user = get_current_user(token, db)
-
     listing = db.query(Price).filter(Price.id == listing_id).first()
     if not listing or not listing.submitted_by:
         raise HTTPException(status_code=404, detail="Listing not found")
 
     seller_id = listing.submitted_by
-    if seller_id == user.id:
+    if seller_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot review your own listing")
 
-    # Check for duplicate
+    msg_count = db.query(Inquiry).filter(
+        Inquiry.listing_id == listing_id,
+        Inquiry.buyer_id == current_user.id,
+    ).count()
+    if msg_count < 3:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only review after at least 3 messages have been exchanged",
+        )
+
     existing = db.query(Review).filter(
-        Review.reviewer_id == user.id,
+        Review.reviewer_id == current_user.id,
         Review.listing_id == listing_id,
     ).first()
     if existing:
-        raise HTTPException(status_code=409, detail="You already reviewed this listing")
+        raise HTTPException(status_code=409, detail="You have already reviewed this seller")
 
-    # Check if verified interaction (completed inquiry exists)
     verified = db.query(Inquiry).filter(
         Inquiry.listing_id == listing_id,
-        Inquiry.buyer_id == user.id,
+        Inquiry.buyer_id == current_user.id,
         Inquiry.label == "Completed",
     ).first() is not None
 
     review = Review(
         listing_id=listing_id,
-        reviewer_id=user.id,
+        reviewer_id=current_user.id,
         seller_id=seller_id,
         rating=body.rating,
         comment=body.comment,
@@ -131,12 +109,10 @@ async def submit_review(
     )
     db.add(review)
 
-    # Award points to seller for 5-star review
     if body.rating == 5:
         _award_points(db, seller_id, 20, "five_star_review", listing_id)
 
-    # Notify seller
-    reviewer_name = user.display_name or user.username or "Someone"
+    reviewer_name = current_user.display_name or current_user.username or "Someone"
     _push_notification(
         db, seller_id, "review",
         f"New {body.rating}★ review",
@@ -146,7 +122,7 @@ async def submit_review(
 
     db.commit()
     db.refresh(review)
-    return _review_dict(review, db)
+    return _review_dict(review)
 
 
 @router.get("/listing/{listing_id}")
@@ -159,6 +135,7 @@ async def get_listing_reviews(
     """Public: get all reviews for a listing."""
     reviews = (
         db.query(Review)
+        .options(joinedload(Review.reviewer))
         .filter(Review.listing_id == listing_id, Review.is_flagged == False)
         .order_by(Review.created_at.desc())
         .offset(skip)
@@ -174,7 +151,7 @@ async def get_listing_reviews(
     return {
         "total": total,
         "avg_rating": round(float(avg), 1) if avg else None,
-        "reviews": [_review_dict(r, db) for r in reviews],
+        "reviews": [_review_dict(r) for r in reviews],
     }
 
 
@@ -188,6 +165,7 @@ async def get_seller_reviews(
     """Public: get all reviews for a seller (across all listings)."""
     reviews = (
         db.query(Review)
+        .options(joinedload(Review.reviewer))
         .filter(Review.seller_id == seller_id, Review.is_flagged == False)
         .order_by(Review.created_at.desc())
         .offset(skip)
@@ -212,7 +190,7 @@ async def get_seller_reviews(
         "total": total,
         "avg_rating": round(float(avg), 1) if avg else None,
         "rating_distribution": dist,
-        "reviews": [_review_dict(r, db) for r in reviews],
+        "reviews": [_review_dict(r) for r in reviews],
     }
 
 
@@ -220,15 +198,14 @@ async def get_seller_reviews(
 async def seller_respond(
     review_id: int,
     body: ReviewResponseBody,
-    token: str = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Seller publicly responds to a review."""
-    user = get_current_user(token, db)
     review = db.query(Review).filter(Review.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
-    if review.seller_id != user.id:
+    if review.seller_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your listing's review")
     review.seller_response = body.response
     review.seller_response_at = datetime.utcnow()
@@ -240,11 +217,10 @@ async def seller_respond(
 async def flag_review(
     review_id: int,
     body: dict = Body(default={}),
-    token: str = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Flag a review to go to admin queue."""
-    user = get_current_user(token, db)
     review = db.query(Review).filter(Review.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
@@ -260,25 +236,25 @@ async def flag_review(
 
 @router.get("/admin/flagged")
 async def list_flagged_reviews(
-    token: str = Query(...),
+    current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    user = get_current_user(token, db)
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-    reviews = db.query(Review).filter(Review.is_flagged == True).order_by(Review.created_at.desc()).all()
-    return [_review_dict(r, db) for r in reviews]
+    reviews = (
+        db.query(Review)
+        .options(joinedload(Review.reviewer))
+        .filter(Review.is_flagged == True)
+        .order_by(Review.created_at.desc())
+        .all()
+    )
+    return [_review_dict(r) for r in reviews]
 
 
 @router.delete("/admin/{review_id}")
 async def admin_delete_review(
     review_id: int,
-    token: str = Query(...),
+    current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    user = get_current_user(token, db)
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
     review = db.query(Review).filter(Review.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
@@ -290,12 +266,9 @@ async def admin_delete_review(
 @router.patch("/admin/{review_id}/unflag")
 async def admin_unflag_review(
     review_id: int,
-    token: str = Query(...),
+    current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    user = get_current_user(token, db)
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
     review = db.query(Review).filter(Review.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
@@ -309,8 +282,8 @@ async def admin_unflag_review(
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _review_dict(r: Review, db: Session) -> dict:
-    reviewer = db.query(User).filter(User.id == r.reviewer_id).first()
+def _review_dict(r: Review) -> dict:
+    reviewer = r.reviewer  # loaded via joinedload or lazy-load
     return {
         "id": r.id,
         "listing_id": r.listing_id,

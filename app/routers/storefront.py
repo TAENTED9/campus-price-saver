@@ -2,26 +2,17 @@
 Public storefront endpoints — listing detail, seller pages, follow, inquiry, report, stats.
 No auth required for read endpoints; auth required for follow/inquiry/report.
 """
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from typing import Optional
 import json
 
-from app.database import SessionLocal
-from app.models import Price, User, Category, Follow, Inquiry, Report, BlockedUser, Review, Notification
+from app.database import get_db
+from app.models import Price, User, Category, Follow, Inquiry, Report, BlockedUser, Review, Notification, SellerVerification, Announcement
 from app.routers.auth import get_current_user
 from sqlalchemy import func
 
 router = APIRouter(prefix="/storefront", tags=["Storefront"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 def _seller_info(seller: User, db: Session) -> dict:
@@ -32,6 +23,22 @@ def _seller_info(seller: User, db: Session) -> dict:
     review_count = db.query(Review).filter(
         Review.seller_id == seller.id, Review.is_flagged == False
     ).count()
+
+    # 3b — Verified badge: role is seller AND has an approved verification record
+    verification = (
+        db.query(SellerVerification)
+        .filter(
+            SellerVerification.user_id == seller.id,
+            SellerVerification.status == "Approved",
+        )
+        .first()
+    )
+    is_verified = seller.role == "seller" and verification is not None
+
+    # 3c — Departmental trust signal from verification record
+    faculty = verification.faculty if verification else getattr(seller, "department", None)
+    trust_signal = f"Seller is in {faculty}" if faculty else None
+
     return {
         "id": seller.id,
         "username": seller.username,
@@ -41,7 +48,12 @@ def _seller_info(seller: User, db: Session) -> dict:
         "availability_status": seller.availability_status or "open",
         "vacation_mode": seller.vacation_mode or False,
         "auto_reply_message": seller.auto_reply_message,
+        # Legacy field kept for backward compat — prefer is_verified
         "verified": seller.role == "seller",
+        # 3b
+        "is_verified": is_verified,
+        # 3c
+        "trust_signal": trust_signal,
         "follower_count": follower_count,
         "trust_tier": seller.trust_tier or "new_seller",
         "seller_points": seller.seller_points or 0,
@@ -147,28 +159,33 @@ async def get_similar_listings(
 @router.get("/store/{username}")
 async def get_seller_storefront(
     username: str,
+    skip: int = 0,
+    limit: int = 20,
     db: Session = Depends(get_db),
 ):
-    """Seller's public storefront page — user info + active listings."""
+    """Seller's public storefront page — user info + active listings (paginated)."""
     seller = db.query(User).filter(User.username == username).first()
     if not seller:
         raise HTTPException(status_code=404, detail="Seller not found")
 
+    base_query = db.query(Price).filter(
+        Price.submitted_by == seller.id,
+        Price.status == "approved",
+        Price.listing_status == "active",
+    )
+    total = base_query.count()
     listings = (
-        db.query(Price)
-        .filter(
-            Price.submitted_by == seller.id,
-            Price.status == "approved",
-            Price.listing_status == "active",
-        )
+        base_query
         .order_by(Price.submitted_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
 
     return {
         "seller": _seller_info(seller, db),
         "listings": [_price_to_dict(p) for p in listings],
-        "listing_count": len(listings),
+        "listing_count": total,
     }
 
 
@@ -283,7 +300,7 @@ async def send_inquiry(
 
 class ReportCreate(BaseModel):
     reason: str = Field(..., min_length=3, max_length=200)
-    note: Optional[str] = Field(None, max_length=500)
+    note: str | None = Field(None, max_length=500)
 
 
 @router.post("/listing/{listing_id}/report", status_code=201)
@@ -318,7 +335,7 @@ async def report_listing(
 
 class UserReportCreate(BaseModel):
     reason: str = Field(..., min_length=3, max_length=200)
-    note: Optional[str] = Field(None, max_length=500)
+    note: str | None = Field(None, max_length=500)
 
 
 @router.post("/user/{user_id}/report", status_code=201)
@@ -401,6 +418,49 @@ async def get_block_status(
 
 
 # ── Buyer inbox (their sent inquiries) ────────────────────────────────────
+
+# ── Section 6: ISR slug list ───────────────────────────────────────────────
+
+@router.get("/slugs")
+async def get_seller_slugs(db: Session = Depends(get_db)):
+    """
+    Returns the 50 most recent active seller usernames.
+    Used by Next.js generateStaticParams() to pre-build storefront pages at deploy time.
+    """
+    rows = (
+        db.query(User.username)
+        .filter(User.role == "seller", User.username.isnot(None))
+        .order_by(User.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return {"slugs": [r[0] for r in rows]}
+
+
+# ── Public banners (active announcements for HeroCarousel) ────────────────
+
+@router.get("/banners")
+async def get_banners(db: Session = Depends(get_db)):
+    """Returns active announcements for display in the homepage hero carousel."""
+    items = (
+        db.query(Announcement)
+        .filter(Announcement.is_active == True)
+        .order_by(Announcement.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    return {
+        "data": [
+            {
+                "id": a.id,
+                "title": a.title,
+                "message": a.message,
+                "type": a.type,
+                "banner_url": None,
+            }
+            for a in items
+        ]
+    }
 
 @router.get("/buyer/inbox")
 async def get_buyer_inbox(

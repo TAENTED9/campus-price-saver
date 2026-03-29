@@ -40,8 +40,9 @@ htmlcov/
 # Logs
 # =====================================================
 *.log
-logs/
 logs/*.log
+# Keep the logs/ directory itself (tracked via logs/.gitkeep)
+!logs/.gitkeep
 
 # =====================================================
 # Build / cache

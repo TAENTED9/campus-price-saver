@@ -1,33 +1,15 @@
 """Wishlist router — save listings, price-drop / restock / new-listing email alerts."""
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from typing import List
+import json
 
-from app.database import SessionLocal
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.database import get_db
 from app.models import Wishlist, Price, User, Follow, Notification
+from app.routers.auth import get_current_user
 from app.services import email as email_svc
 
 router = APIRouter(prefix="/wishlist", tags=["Wishlist"])
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_current_user(token: str, db: Session) -> User:
-    from app.routers.auth import decode_access_token
-    payload = decode_access_token(token)
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 
 def _push_notification(db: Session, user_id: int, ntype: str, title: str, body: str,
@@ -46,18 +28,16 @@ def _push_notification(db: Session, user_id: int, ntype: str, title: str, body: 
 @router.post("/toggle/{listing_id}")
 async def toggle_wishlist(
     listing_id: int,
-    token: str = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Add or remove a listing from the user's wishlist."""
-    user = get_current_user(token, db)
-
     listing = db.query(Price).filter(Price.id == listing_id, Price.listing_status == "active").first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
     existing = db.query(Wishlist).filter(
-        Wishlist.user_id == user.id,
+        Wishlist.user_id == current_user.id,
         Wishlist.listing_id == listing_id,
     ).first()
 
@@ -66,7 +46,7 @@ async def toggle_wishlist(
         db.commit()
         return {"wishlisted": False}
 
-    wish = Wishlist(user_id=user.id, listing_id=listing_id)
+    wish = Wishlist(user_id=current_user.id, listing_id=listing_id)
     db.add(wish)
     db.commit()
     return {"wishlisted": True}
@@ -75,12 +55,11 @@ async def toggle_wishlist(
 @router.get("/status/{listing_id}")
 async def wishlist_status(
     listing_id: int,
-    token: str = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    user = get_current_user(token, db)
     exists = db.query(Wishlist).filter(
-        Wishlist.user_id == user.id,
+        Wishlist.user_id == current_user.id,
         Wishlist.listing_id == listing_id,
     ).first() is not None
     return {"wishlisted": exists}
@@ -88,14 +67,13 @@ async def wishlist_status(
 
 @router.get("/")
 async def get_wishlist(
-    token: str = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Get the current user's full wishlist."""
-    user = get_current_user(token, db)
     items = (
         db.query(Wishlist)
-        .filter(Wishlist.user_id == user.id)
+        .filter(Wishlist.user_id == current_user.id)
         .order_by(Wishlist.created_at.desc())
         .all()
     )
@@ -104,7 +82,6 @@ async def get_wishlist(
         listing = w.listing
         if not listing:
             continue
-        import json
         photos = []
         if listing.photos:
             try:
@@ -131,8 +108,12 @@ async def get_wishlist(
 def notify_price_drop(db: Session, listing: Price, old_price: float):
     """Send email + in-app notification to everyone who wishlisted this listing."""
     wishers = db.query(Wishlist).filter(Wishlist.listing_id == listing.id).all()
+    buyer_ids = [w.user_id for w in wishers]
+    if not buyer_ids:
+        return
+    buyers = {u.id: u for u in db.query(User).filter(User.id.in_(buyer_ids)).all()}
     for w in wishers:
-        buyer = db.query(User).filter(User.id == w.user_id).first()
+        buyer = buyers.get(w.user_id)
         if not buyer:
             continue
         _push_notification(
@@ -155,8 +136,12 @@ def notify_price_drop(db: Session, listing: Price, old_price: float):
 def notify_restock(db: Session, listing: Price):
     """Send email + in-app notification when a sold/paused listing goes active again."""
     wishers = db.query(Wishlist).filter(Wishlist.listing_id == listing.id).all()
+    buyer_ids = [w.user_id for w in wishers]
+    if not buyer_ids:
+        return
+    buyers = {u.id: u for u in db.query(User).filter(User.id.in_(buyer_ids)).all()}
     for w in wishers:
-        buyer = db.query(User).filter(User.id == w.user_id).first()
+        buyer = buyers.get(w.user_id)
         if not buyer:
             continue
         _push_notification(
@@ -178,8 +163,12 @@ def notify_restock(db: Session, listing: Price):
 def notify_new_listing(db: Session, listing: Price, seller: User):
     """Send email + in-app notification to seller's followers when they post a new listing."""
     followers = db.query(Follow).filter(Follow.seller_id == seller.id).all()
+    follower_ids = [f.follower_id for f in followers]
+    if not follower_ids:
+        return
+    follower_map = {u.id: u for u in db.query(User).filter(User.id.in_(follower_ids)).all()}
     for f in followers:
-        follower = db.query(User).filter(User.id == f.follower_id).first()
+        follower = follower_map.get(f.follower_id)
         if not follower:
             continue
         _push_notification(

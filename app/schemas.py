@@ -2,6 +2,18 @@ from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import Optional, List
 
+_XSS_PATTERNS = ("<script", "javascript:")
+
+
+def _reject_xss(value: str) -> str:
+    """Strip whitespace and block obvious XSS payloads in any text field."""
+    v = value.strip()
+    lower = v.lower()
+    for pattern in _XSS_PATTERNS:
+        if pattern in lower:
+            raise ValueError(f"Invalid content detected in field")
+    return v
+
 # ============ Category System (Simplified - 3 Categories Only) ============
 
 class CategoryBase(BaseModel):
@@ -11,12 +23,11 @@ class CategoryBase(BaseModel):
     
     @validator('name')
     def validate_category_name(cls, v):
-        """Validate category name is not empty"""
         if not v or len(v.strip()) == 0:
             raise ValueError('Category name cannot be empty')
         if len(v) > 100:
             raise ValueError('Category name cannot exceed 100 characters')
-        return v.strip()
+        return _reject_xss(v)
 
 class CategoryCreate(CategoryBase):
     pass
@@ -43,10 +54,9 @@ class PriceBase(BaseModel):
     
     @validator('name')
     def validate_name(cls, v):
-        """Validate item name is not empty or just whitespace"""
         if not v or len(v.strip()) == 0:
             raise ValueError('Item name cannot be empty')
-        return v.strip()
+        return _reject_xss(v)
     
     @validator('price')
     def validate_price(cls, v):
@@ -140,7 +150,7 @@ class ItemBase(BaseModel):
     def validate_item_name(cls, v):
         if not v or len(v.strip()) == 0:
             raise ValueError('Item name cannot be empty')
-        return v.strip()
+        return _reject_xss(v)
 
 class ItemCreate(ItemBase):
     pass

@@ -177,6 +177,46 @@ def send_new_listing_alert(to: str, buyer_name: str, seller_name: str,
     return _send(to, f"New listing from {seller_name}: {listing_name} — Campify", html)
 
 
+def send_weekly_report(to: str, seller_name: str, stats: dict) -> bool:
+    """
+    Weekly digest email sent every Monday at 08:00 WAT.
+    stats keys: views (int), inquiries (int)
+    """
+    views = stats.get("views", 0)
+    inquiries = stats.get("inquiries", 0)
+    html = f"""
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+      <h2 style="color:#2563eb;margin-bottom:4px">Your weekly summary 📊</h2>
+      <p style="color:#6b7280;margin-top:0">Here's how your Campify store performed this week.</p>
+      <p style="color:#374151">Hi <strong>{seller_name}</strong>,</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0">
+        <tr>
+          <td style="background:#eff6ff;border-radius:12px;padding:16px 20px;text-align:center;width:50%">
+            <p style="margin:0;font-size:32px;font-weight:900;color:#2563eb">{views:,}</p>
+            <p style="margin:4px 0 0;color:#6b7280;font-size:13px">Listing views</p>
+          </td>
+          <td style="width:16px"></td>
+          <td style="background:#f0fdf4;border-radius:12px;padding:16px 20px;text-align:center;width:50%">
+            <p style="margin:0;font-size:32px;font-weight:900;color:#16a34a">{inquiries:,}</p>
+            <p style="margin:4px 0 0;color:#6b7280;font-size:13px">Buyer inquiries</p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:20px 0">
+        <a href="{APP_URL}/seller/analytics"
+           style="background:#2563eb;color:white;text-decoration:none;padding:12px 24px;border-radius:99px;font-weight:700;font-size:14px">
+          View Full Analytics &rarr;
+        </a>
+      </p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+      <p style="color:#9ca3af;font-size:12px">Campify &middot; Lagos, Nigeria &middot;
+        <a href="{APP_URL}/seller/settings" style="color:#9ca3af">Unsubscribe</a>
+      </p>
+    </div>
+    """
+    return _send(to, "Your Campify weekly summary", html)
+
+
 def send_seller_rejected_email(to: str, seller_name: str, reason: str) -> bool:
     """Sent to seller when their verification is rejected."""
     reason_html = f"<p style=\"color:#374151\"><strong>Reason:</strong> {reason}</p>" if reason else ""

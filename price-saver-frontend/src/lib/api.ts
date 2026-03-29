@@ -98,7 +98,7 @@ export const authApi = {
       method: "POST",
     }),
 
-  updateProfile: (token: string, data: { display_name?: string; phone?: string; department?: string; level?: string }) =>
+  updateProfile: (token: string, data: { display_name?: string; phone?: string; department?: string; level?: string; avatar_url?: string }) =>
     request<{ success: boolean; message: string; display_name?: string; phone?: string; department?: string; level?: string }>(
       "/api/auth/me",
       { method: "PUT", headers: authHeaders(token), body: JSON.stringify(data) }
@@ -973,6 +973,110 @@ export type AdminVerification = {
   reviewed_by: number | null;
 };
 
+// ===================== ADMIN NOTIFICATION / LIFECYCLE TYPES =====================
+
+export type AdminEvent = {
+  id: number;
+  event_type: string;
+  user_id: number | null;
+  user_email: string;
+  user_role: string;
+  payload: Record<string, unknown>;
+  is_read: boolean;
+  requires_action: boolean;
+  created_at: string | null;
+};
+
+export type AdminUserSummary = {
+  id: number;
+  username: string | null;
+  email: string | null;
+  display_name: string | null;
+  role: string;
+  is_paused: boolean;
+  is_deleted: boolean;
+  is_banned: boolean;
+  created_at: string | null;
+};
+
+export type AdminUserDetail = {
+  id: number;
+  username: string | null;
+  email: string | null;
+  display_name: string | null;
+  role: string;
+  phone: string | null;
+  avatar_url: string | null;
+  department: string | null;
+  level: string | null;
+  bio: string | null;
+  seller_points: number;
+  balance: number;
+  is_paused: boolean;
+  paused_at: string | null;
+  paused_by: string | null;
+  pause_reason: string | null;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  is_banned: boolean;
+  is_suspended: boolean;
+  deletion_requested_at: string | null;
+  deletion_request_reason: string | null;
+  reactivation_requested_at: string | null;
+  created_at: string | null;
+  listings: {
+    id: number;
+    name: string;
+    price: number;
+    listing_status: string;
+    status: string;
+    created_at: string | null;
+  }[];
+  verification: {
+    id: number;
+    status: string;
+    seller_name: string;
+    matric_no: string;
+    document_url: string | null;
+    portal_screenshot_url: string | null;
+    submitted_at: string | null;
+  } | null;
+  cloudinary_assets: {
+    id: number;
+    asset_type: string;
+    url: string;
+    folder: string;
+    bytes: number | null;
+    format: string | null;
+    uploaded_at: string | null;
+  }[];
+  admin_events: AdminEvent[];
+};
+
+export type AdminAnalytics = {
+  success: boolean;
+  totals: {
+    total_users: number;
+    total_buyers: number;
+    total_sellers: number;
+    total_listings: number;
+    total_views: number;
+    paused_accounts: number;
+    pending_verifications: number;
+    delete_requests: number;
+  };
+  daily_signups: { day: string; count: number }[];
+  daily_listings: { day: string; count: number }[];
+  top_categories: { category: string; count: number }[];
+  top_sellers: {
+    display_name: string | null;
+    email: string | null;
+    total_views: number;
+    listing_count: number;
+  }[];
+  recent_events: AdminEvent[];
+};
+
 // ===================== ADMIN API =====================
 
 export const adminApi = {
@@ -987,8 +1091,8 @@ export const adminApi = {
       headers: authHeaders(token),
     }),
 
-  // Users
-  getUsers: (token: string, role?: string) =>
+  // Users (legacy — kept for existing admin pages; Block 3B getUsers below supersedes this)
+  getUsersLegacy: (token: string, role?: string) =>
     request<{ success: boolean; total: number; data: AdminUser[] }>(`/api/admin/users${role ? `?role=${role}` : ""}`, {
       headers: authHeaders(token),
     }),
@@ -1171,6 +1275,74 @@ export const adminApi = {
       method: "PATCH",
       headers: authHeaders(token),
     }),
+
+  // Block 3A — Admin events
+  getEvents: (token: string, params?: { type?: string; unread?: boolean; requires_action?: boolean; skip?: number; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.type)             q.set("type", params.type);
+    if (params?.unread)           q.set("unread", "true");
+    if (params?.requires_action)  q.set("requires_action", "true");
+    if (params?.skip != null)     q.set("skip", String(params.skip));
+    if (params?.limit != null)    q.set("limit", String(params.limit));
+    return request<{ success: boolean; total: number; unread_count: number; data: AdminEvent[] }>(
+      `/api/admin/events${q.toString() ? "?" + q.toString() : ""}`,
+      { headers: authHeaders(token) },
+    );
+  },
+
+  markEventRead: (token: string, id: number) =>
+    request<{ success: boolean }>(`/api/admin/events/${id}/read`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+    }),
+
+  markAllEventsRead: (token: string) =>
+    request<{ success: boolean }>("/api/admin/events/read-all", {
+      method: "PATCH",
+      headers: authHeaders(token),
+    }),
+
+  // Block 3B — User management
+  getUsers: (token: string, params?: { role?: string; status?: string; skip?: number; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.role)          q.set("role", params.role);
+    if (params?.status)        q.set("status", params.status);
+    if (params?.skip != null)  q.set("skip", String(params.skip));
+    if (params?.limit != null) q.set("limit", String(params.limit));
+    return request<{ success: boolean; total: number; data: AdminUserSummary[] }>(
+      `/api/admin/users${q.toString() ? "?" + q.toString() : ""}`,
+      { headers: authHeaders(token) },
+    );
+  },
+
+  getUserDetail: (token: string, userId: number) =>
+    request<{ success: boolean; data: AdminUserDetail }>(`/api/admin/users/${userId}`, {
+      headers: authHeaders(token),
+    }),
+
+  // Block 4 — Lifecycle
+  pauseUser: (token: string, userId: number, reason: string) =>
+    request<{ success: boolean; message: string }>(`/api/admin/users/${userId}/pause`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ reason }),
+    }),
+
+  deleteUser: (token: string, userId: number) =>
+    request<{ success: boolean; message: string }>(`/api/admin/users/${userId}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    }),
+
+  reactivateUser: (token: string, userId: number) =>
+    request<{ success: boolean; message: string }>(`/api/admin/users/${userId}/reactivate`, {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+
+  // Block 6A — Analytics
+  getAnalytics: (token: string) =>
+    request<AdminAnalytics>("/api/admin/analytics", { headers: authHeaders(token) }),
 };
 
 // ===================== NOTIFICATIONS API =====================
