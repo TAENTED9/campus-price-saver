@@ -2,9 +2,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Dropdown } from "../ui/dropdown/Dropdown";
-import { Bell, X, Check, Megaphone, ShoppingBag, MessageCircle, Star, AlertCircle } from "lucide-react";
+import { Bell, X, Check, Megaphone, ShoppingBag, MessageCircle, Star, AlertCircle, BadgeCheck, BadgeX } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { notificationsApi, type AppNotification } from "@/lib/api";
+import { useRouter as _useRouter } from "next/navigation";
 
 function timeAgo(iso: string) {
   // Treat naive ISO strings (no Z / offset) as UTC
@@ -20,17 +21,20 @@ function timeAgo(iso: string) {
 
 function NotifIcon({ type }: { type: string }) {
   const base = "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0";
-  if (type === "new_message") return <div className={`${base} bg-blue-100 text-blue-600`}><MessageCircle size={16} /></div>;
-  if (type === "price_drop") return <div className={`${base} bg-green-100 text-green-600`}><ShoppingBag size={16} /></div>;
-  if (type === "restock") return <div className={`${base} bg-cyan-100 text-cyan-600`}><ShoppingBag size={16} /></div>;
-  if (type === "new_listing") return <div className={`${base} bg-purple-100 text-purple-600`}><Megaphone size={16} /></div>;
-  if (type === "review") return <div className={`${base} bg-yellow-100 text-yellow-600`}><Star size={16} /></div>;
-  if (type === "sale") return <div className={`${base} bg-brand-100 text-brand-600`}><AlertCircle size={16} /></div>;
+  if (type === "new_message")           return <div className={`${base} bg-blue-100 text-blue-600`}><MessageCircle size={16} /></div>;
+  if (type === "price_drop")            return <div className={`${base} bg-green-100 text-green-600`}><ShoppingBag size={16} /></div>;
+  if (type === "restock")               return <div className={`${base} bg-cyan-100 text-cyan-600`}><ShoppingBag size={16} /></div>;
+  if (type === "new_listing")           return <div className={`${base} bg-purple-100 text-purple-600`}><Megaphone size={16} /></div>;
+  if (type === "review")                return <div className={`${base} bg-yellow-100 text-yellow-600`}><Star size={16} /></div>;
+  if (type === "sale")                  return <div className={`${base} bg-brand-100 text-brand-600`}><AlertCircle size={16} /></div>;
+  if (type === "verification_approved") return <div className={`${base} bg-green-100 text-green-600`}><BadgeCheck size={16} /></div>;
+  if (type === "verification_rejected") return <div className={`${base} bg-red-100 text-red-500`}><BadgeX size={16} /></div>;
   return <div className={`${base} bg-gray-100 text-gray-500`}><Bell size={16} /></div>;
 }
 
 export default function NotificationDropdown({ scope }: { scope?: string }) {
   const { token } = useAuth();
+  const router    = _useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -125,26 +129,41 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
               <span className="text-sm">No notifications yet</span>
             </li>
           )}
-          {!loading && notifications.map((n) => (
-            <li key={n.id}>
-              <button
-                type="button"
-                aria-label={n.title}
-                onClick={() => markOneRead(n)}
-                className={`w-full flex gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors text-left ${!n.is_read ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}
-              >
-                <NotifIcon type={n.type} />
-                <span className="flex-1 min-w-0">
-                  <span className={`block text-sm font-medium truncate ${!n.is_read ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"}`}>
-                    {n.title}
+          {!loading && notifications.map((n) => {
+            const isApproved = n.type === "verification_approved";
+            const isRejected = n.type === "verification_rejected";
+            const accentBorder = isApproved
+              ? "border-l-4 border-l-green-400"
+              : isRejected
+              ? "border-l-4 border-l-red-400"
+              : "";
+            // action_url comes from the API notification object
+            const actionUrl = (n as AppNotification & { action_url?: string }).action_url;
+
+            return (
+              <li key={n.id}>
+                <button
+                  type="button"
+                  aria-label={n.title}
+                  onClick={() => {
+                    markOneRead(n);
+                    if (actionUrl) router.push(actionUrl);
+                  }}
+                  className={`w-full flex gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors text-left ${accentBorder} ${!n.is_read ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}
+                >
+                  <NotifIcon type={n.type} />
+                  <span className="flex-1 min-w-0">
+                    <span className={`block text-sm font-medium truncate ${!n.is_read ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"}`}>
+                      {n.title}
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</span>
+                    <span className="block text-xs text-gray-400 mt-1">{timeAgo(n.created_at)}</span>
                   </span>
-                  <span className="block text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</span>
-                  <span className="block text-xs text-gray-400 mt-1">{timeAgo(n.created_at)}</span>
-                </span>
-                {!n.is_read && <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0 mt-1.5" />}
-              </button>
-            </li>
-          ))}
+                  {!n.is_read && <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0 mt-1.5" />}
+                </button>
+              </li>
+            );
+          })}
         </ul>
 
         <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700">

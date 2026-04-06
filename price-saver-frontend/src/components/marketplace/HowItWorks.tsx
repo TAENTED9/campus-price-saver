@@ -1,3 +1,5 @@
+"use client";
+
 import { Package, MessageCircle, CheckCircle } from "lucide-react";
 import HowItWorksAnimated from "./HowItWorksAnimated";
 

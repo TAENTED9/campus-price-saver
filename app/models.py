@@ -50,6 +50,10 @@ class User(Base):
     is_deleted  = Column(Boolean, default=False, nullable=True)
     deleted_at  = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Block 1A — link-based email verification
+    email_verify_token     = Column(String, nullable=True)
+    email_verify_token_exp = Column(DateTime, nullable=True)
+    email_verified_at      = Column(DateTime, nullable=True)
 
     pending_prices = relationship("PendingPrice", back_populates="submitter")
     transactions = relationship("Transaction", back_populates="user")
@@ -620,6 +624,25 @@ class Notification(Base):
     related_type = Column(String, nullable=True)       # Listing, Review, Inquiry
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    action_url = Column(String, nullable=True)   # Block 3B — deep link on tap
+
+    user = relationship("User")
+
+
+# ── Block 2A: Login history ───────────────────────────────────────────────────
+
+class LoginHistory(Base):
+    """Records every successful login for security audit and session display."""
+    __tablename__ = "login_history"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    ip_address   = Column(String, nullable=True)
+    user_agent   = Column(String, nullable=True)
+    device       = Column(String, nullable=True)   # e.g. "Chrome on Windows"
+    location     = Column(String, nullable=True)   # best-effort city/country
+    logged_in_at = Column(DateTime, default=datetime.utcnow)
+    was_notified = Column(Boolean, default=False)
 
     user = relationship("User")
 

@@ -10,12 +10,33 @@ from app.database import get_db
 from app.limiter import limiter
 from app.models import Price, Category, Store, Item, User, PointsTransaction
 from app.schemas import PriceCreate, PriceOut, CategoryCreate, CategoryOut
+from sqlalchemy import func
 
 router = APIRouter(prefix="/items", tags=["Items"])
 
 BOOST_COST_7_DAYS = 50
 BOOST_COST_30_DAYS = 150
 POINTS_PER_CONFIRMED_PURCHASE = 10
+
+
+# ═══════════════════════════════════════════════════════
+# PLATFORM ITEM STATS
+# ═══════════════════════════════════════════════════════
+
+@router.get("/stats")
+@limiter.limit("60/minute")
+def get_item_stats(request: Request, db: Session = Depends(get_db)):
+    """Quick item-level stats for the homepage and dashboards."""
+    total_items = db.query(Price).filter(Price.status == "approved").count()
+    total_categories = db.query(Category).count()
+    avg_price = db.query(func.avg(Price.price)).filter(Price.status == "approved").scalar()
+    total_views = db.query(func.sum(Price.view_count)).filter(Price.status == "approved").scalar()
+    return {
+        "total_items": total_items,
+        "total_categories": total_categories,
+        "avg_price": round(float(avg_price), 2) if avg_price else 0,
+        "total_views": total_views or 0,
+    }
 
 
 # ═══════════════════════════════════════════════════════

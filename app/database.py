@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
 
@@ -30,6 +30,16 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# Block 5 — Enable SQLite cascade deletes and WAL on every new connection
+if DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+
 
 def get_db():
     db = SessionLocal()
@@ -56,6 +66,17 @@ def _apply_migrations(eng) -> None:
         ("users", "deletion_request_reason",     "TEXT"),
         ("users", "is_deleted",                  "INTEGER DEFAULT 0"),
         ("users", "deleted_at",                  "TEXT"),
+        # Block 1A — link-based email verification
+        ("users", "email_verify_token",          "TEXT"),
+        ("users", "email_verify_token_exp",      "TEXT"),
+        ("users", "email_verified_at",           "TEXT"),
+        # Block 3B — notification deep link
+        ("notifications", "action_url",          "TEXT"),
+        # Block 6 — profile & cover photos
+        ("users", "banner_url",                  "TEXT"),
+        ("users", "bio",                         "TEXT"),
+        ("users", "faculty",                     "TEXT"),
+        ("users", "karma_tier",                  "TEXT DEFAULT 'Bronze'"),
     ]
 
     with eng.connect() as conn:
@@ -98,6 +119,24 @@ def _apply_migrations(eng) -> None:
         """))
 
         # ── Indexes ──────────────────────────────────────────────────────────
+        # Block 2A — login history table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS login_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                ip_address   TEXT,
+                user_agent   TEXT,
+                device       TEXT,
+                location     TEXT,
+                logged_in_at TEXT DEFAULT (datetime('now')),
+                was_notified INTEGER DEFAULT 0
+            )
+        """))
+
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_login_history_user "
+            "ON login_history(user_id, logged_in_at DESC)"
+        ))
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_admin_events_created "
             "ON admin_events(created_at)"
@@ -110,6 +149,22 @@ def _apply_migrations(eng) -> None:
             "CREATE INDEX IF NOT EXISTS idx_cloudinary_user "
             "ON cloudinary_assets(user_id)"
         ))
+        # Homepage speed indexes
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_listings_views "
+            "ON prices(view_count DESC)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_users_role_active "
+            "ON users(role, is_deleted)"
+        ))
+
+        # Mark all existing users as already email-verified so they aren't locked out.
+        # New users registered after this migration must verify normally.
+        conn.execute(text("""
+            UPDATE users SET email_verified = 1
+            WHERE email_verified IS NULL OR email_verified = 0
+        """))
 
         conn.commit()
 

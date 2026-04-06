@@ -3,6 +3,7 @@ Authentication Router — JWT + Argon2
 Handles register, login, admin login, profile, OTP email verification.
 """
 
+import asyncio
 import os
 import json
 import logging
@@ -58,6 +59,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 ADMIN_USERNAMES_STR = os.getenv("ADMIN_USERNAMES", '["admin"]')
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://campify.ng")
 
 try:
     ADMIN_USERNAMES = json.loads(ADMIN_USERNAMES_STR)
@@ -341,16 +343,104 @@ class OTPVerifyRequest(BaseModel):
     email: str
     otp: str
 
+
+class ResendVerifyRequest(BaseModel):
+    email: str
+
+
+class SettingsUpdateRequest(BaseModel):
+    dark_mode: Optional[bool] = None
+    profile_visibility: Optional[str] = None
+    show_dept: Optional[bool] = None
+    read_receipts: Optional[bool] = None
+
+
+class NotifPrefsUpdateRequest(BaseModel):
+    msg_email: Optional[bool] = None
+    msg_push: Optional[bool] = None
+    price_email: Optional[bool] = None
+    price_push: Optional[bool] = None
+    announce_email: Optional[bool] = None
+    announce_push: Optional[bool] = None
+
+
+# ── Login notification helpers ────────────────────────────────────────────────
+
+def _parse_device(ua: str) -> str:
+    ua = ua.lower()
+    browser = (
+        "Chrome"  if "chrome"   in ua else
+        "Firefox" if "firefox"  in ua else
+        "Safari"  if "safari"   in ua else
+        "Browser"
+    )
+    os_ = (
+        "iPhone"  if "iphone"  in ua else
+        "Android" if "android" in ua else
+        "Windows" if "windows" in ua else
+        "Mac"     if "mac"     in ua else
+        "Linux"   if "linux"   in ua else
+        "Unknown device"
+    )
+    return f"{browser} on {os_}"
+
+
+async def _post_login_tasks(
+    user_id: int,
+    email: str,
+    name: str,
+    ip: str,
+    user_agent: str,
+) -> None:
+    """Runs in background after a successful login: records history + emails user."""
+    from app.database import SessionLocal
+    from app.models import LoginHistory
+    from app.services.admin_notifications import send_user_email_bg
+    from app.services.email_templates import NEW_LOGIN_EMAIL
+
+    db = SessionLocal()
+    try:
+        device = _parse_device(user_agent)
+        record = LoginHistory(
+            user_id=user_id,
+            ip_address=ip,
+            user_agent=user_agent,
+            device=device,
+            logged_in_at=datetime.utcnow(),
+            was_notified=True,
+        )
+        db.add(record)
+        db.commit()
+
+        if email:
+            await send_user_email_bg(
+                email,
+                "New login to your Campify account",
+                NEW_LOGIN_EMAIL(
+                    name=name,
+                    device=device,
+                    ip=ip,
+                    time=datetime.utcnow().strftime("%d %b %Y at %H:%M UTC"),
+                ),
+            )
+    except Exception as e:
+        logger.warning(f"[post_login_tasks] failed for user {user_id}: {e}")
+    finally:
+        db.close()
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.post("/register", response_model=LoginResponse)
+@router.post("/register")
 @limiter.limit("3/15minutes")
 async def register_user(
     request: Request,
     body: UserRegisterRequest,
     db: Session = Depends(get_db),
 ):
-    """Register new user. Password minimum 8 characters."""
+    """
+    Register new user. Returns a pending-verification response — NO JWT.
+    A verification link is emailed; user must click it before they can log in.
+    """
     existing_user = db.query(User).filter(User.username == body.username).first()
     if existing_user:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
@@ -362,19 +452,72 @@ async def register_user(
 
     try:
         password_hash = hash_password(body.password)
+
+        # If no email supplied, mark immediately verified (settings-page OTP can verify later)
+        no_email = not body.email
         new_user = User(
             username=body.username,
             password_hash=password_hash,
             email=body.email,
             display_name=body.username,
             role="user",
+            email_verified=no_email,          # verified=True only when no email
             created_at=datetime.utcnow(),
         )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
 
-        # Block 2D — notify admin of new registration (fire-and-forget)
+        # Block 4B — create per-user isolated tables and seed defaults
+        try:
+            from app.services.user_db import create_user_tables, upsert_user_data, log_user_activity
+            from app.database import engine as _engine
+            create_user_tables(new_user.id, _engine)
+            upsert_user_data(new_user.id, "profile", {
+                "username":   new_user.username,
+                "email":      new_user.email or "",
+                "role":       new_user.role,
+                "created_at": new_user.created_at.isoformat(),
+            }, _engine)
+            upsert_user_data(new_user.id, "settings", {
+                "dark_mode":          "false",
+                "profile_visibility": "unilag",
+                "show_dept":          "true",
+                "read_receipts":      "true",
+            }, _engine)
+            upsert_user_data(new_user.id, "notif_prefs", {
+                "msg_email":      "true",
+                "msg_push":       "true",
+                "price_email":    "true",
+                "price_push":     "false",
+                "announce_email": "true",
+                "announce_push":  "true",
+            }, _engine)
+            log_user_activity(new_user.id, "account_created",
+                              {"email": new_user.email}, None, _engine)
+        except Exception as ue:
+            logger.warning(f"[register] per-user table setup failed for {new_user.id}: {ue}")
+
+        # Block 1B — generate verification token and send email
+        if body.email:
+            verify_token = secrets.token_urlsafe(32)
+            new_user.email_verify_token = verify_token
+            new_user.email_verify_token_exp = datetime.utcnow() + timedelta(hours=24)
+            db.commit()
+
+            link = f"{FRONTEND_URL}/verify-email?token={verify_token}"
+            try:
+                from app.services.admin_notifications import send_user_email_bg
+                from app.services.email_templates import EMAIL_VERIFY_TEMPLATE
+                await send_user_email_bg(
+                    body.email,
+                    "Verify your Campify email to get started",
+                    EMAIL_VERIFY_TEMPLATE(body.username, link),
+                )
+            except Exception as ee:
+                logger.warning(f"[register] verification email failed: {ee}")
+
+        # Block 2D — notify admin (fire-and-forget)
         try:
             from app.services.admin_notifications import notify_admin
             await notify_admin(
@@ -384,20 +527,33 @@ async def register_user(
                  "registered_at": new_user.created_at.isoformat()},
             )
         except Exception:
-            pass  # never crash registration on notification failure
+            pass
 
-        access_token = create_access_token(
-            data={"sub": str(new_user.id), "username": new_user.username, "role": "user"}
-        )
-        return LoginResponse(
-            success=True,
-            user_id=new_user.id,
-            user_name=new_user.username,
-            user_role="user",
-            access_token=access_token,
-            token_type="bearer",
-            message=f"Welcome to Campify, {body.username}!",
-        )
+        if no_email:
+            # No email — issue JWT immediately (verified by default)
+            access_token = create_access_token(
+                data={"sub": str(new_user.id), "username": new_user.username, "role": "user"}
+            )
+            return LoginResponse(
+                success=True,
+                user_id=new_user.id,
+                user_name=new_user.username,
+                user_role="user",
+                access_token=access_token,
+                token_type="bearer",
+                message=f"Welcome to Campify, {body.username}!",
+            )
+
+        return {
+            "success": True,
+            "verified": False,
+            "email": body.email,
+            "message": (
+                "Account created. Check your email to verify "
+                "your account before logging in."
+            ),
+        }
+
     except HTTPException:
         db.rollback()
         raise
@@ -431,6 +587,20 @@ async def login_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="Invalid username or password")
 
+        # Block 1E — block login until email is verified
+        if not getattr(user, "email_verified", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "EMAIL_NOT_VERIFIED",
+                    "message": (
+                        "Please verify your email before logging in. "
+                        "Check your inbox for the verification link."
+                    ),
+                    "email": user.email,
+                },
+            )
+
         if needs_rehash(user.password_hash):
             try:
                 user.password_hash = hash_password(body.password)
@@ -442,6 +612,19 @@ async def login_user(
         access_token = create_access_token(
             data={"sub": str(user.id), "username": user.username, "role": user.role}
         )
+
+        # Block 2B — record login history and send security email (fire-and-forget)
+        if user.role != "admin":
+            client_ip = request.client.host if request.client else "Unknown"
+            ua = request.headers.get("user-agent", "Unknown")
+            asyncio.create_task(_post_login_tasks(
+                user.id,
+                user.email or "",
+                user.display_name or user.username or "",
+                client_ip,
+                ua,
+            ))
+
         return LoginResponse(
             success=True,
             user_id=user.id,
@@ -517,21 +700,152 @@ async def logout():
     return {"success": True, "message": "Logged out successfully. Please delete your token."}
 
 
-@router.get("/me")
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+# Block 1C — verify email via link token
+@router.get("/verify-email")
+async def verify_email(token: str, db: Session = Depends(get_db)):
+    """Called when user clicks the verification link in their email."""
+    user = db.query(User).filter(User.email_verify_token == token).first()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
+
+    if user.email_verify_token_exp and user.email_verify_token_exp < datetime.utcnow():
+        raise HTTPException(
+            status_code=400,
+            detail="Verification link has expired. Request a new one.",
+        )
+
+    if getattr(user, "email_verified", False):
+        return {
+            "message": "Already verified. Please log in.",
+            "redirect": "/signin",
+        }
+
+    user.email_verified = True
+    user.email_verified_at = datetime.utcnow()
+    user.email_verify_token = None
+    user.email_verify_token_exp = None
+    db.commit()
+
+    # Send welcome email with platform stats
+    try:
+        from app.services.admin_notifications import send_user_email_bg
+        from app.services.email_templates import WELCOME_WITH_STATS
+        from app.models import Price, Category
+
+        total_listings = db.query(Price).filter(Price.status == "approved").count()
+        total_sellers = db.query(User).filter(User.role == "seller", User.is_deleted == False).count()
+        total_categories = db.query(Category).count()
+
+        await send_user_email_bg(
+            user.email or "",
+            "Welcome to Campify!",
+            WELCOME_WITH_STATS(
+                name=user.display_name or user.username or "there",
+                total_listings=total_listings,
+                total_sellers=total_sellers,
+                total_categories=total_categories,
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"[verify-email] welcome email failed: {e}")
+
     return {
-        "id": current_user.id,
-        "username": current_user.username,
-        "email": current_user.email,
+        "message": "Email verified successfully. You can now log in.",
+        "redirect": f"/signin?verified=true&email={user.email or ''}",
+        "email": user.email or "",
+    }
+
+
+# Block 1D — resend verification link
+@router.post("/resend-verification")
+@limiter.limit("3/hour")
+async def resend_verification(
+    request: Request,
+    body: ResendVerifyRequest,
+    db: Session = Depends(get_db),
+):
+    """Rate-limited: 3 requests per hour. Never reveals whether the email exists."""
+    _silent = {"message": "If that email exists, a new link was sent."}
+
+    user = db.query(User).filter(User.email == body.email.strip().lower()).first()
+    if not user:
+        return _silent
+    if getattr(user, "email_verified", False):
+        return {"message": "Email is already verified. Please log in."}
+
+    verify_token = secrets.token_urlsafe(32)
+    user.email_verify_token = verify_token
+    user.email_verify_token_exp = datetime.utcnow() + timedelta(hours=24)
+    db.commit()
+
+    link = f"{FRONTEND_URL}/verify-email?token={verify_token}"
+    try:
+        from app.services.admin_notifications import send_user_email_bg
+        from app.services.email_templates import EMAIL_VERIFY_TEMPLATE
+        await send_user_email_bg(
+            user.email,
+            "New verification link - Campify",
+            EMAIL_VERIFY_TEMPLATE(user.display_name or user.username or "there", link),
+        )
+    except Exception:
+        pass
+
+    return _silent
+
+
+@router.get("/me")
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.user_db import get_user_data
+    from app.database import engine as _engine
+    from app.models import SellerVerification
+
+    profile_data  = get_user_data(current_user.id, "profile",      _engine)
+    settings_data = get_user_data(current_user.id, "settings",     _engine)
+    notif_data    = get_user_data(current_user.id, "notif_prefs",  _engine)
+
+    # Seller verification status
+    verification_status = None
+    if current_user.role == "seller":
+        sv = (
+            db.query(SellerVerification)
+            .filter(SellerVerification.user_id == current_user.id)
+            .order_by(SellerVerification.submitted_at.desc())
+            .first()
+        )
+        if sv:
+            verification_status = sv.status  # Pending / Under Review / Approved / Rejected
+
+    return {
+        "id":           current_user.id,
+        "username":     current_user.username,
+        "email":        current_user.email,
         "email_verified": getattr(current_user, "email_verified", False),
         "display_name": current_user.display_name,
-        "role": current_user.role,
-        "balance": current_user.balance,
-        "phone": getattr(current_user, "phone", None),
-        "avatar_url": getattr(current_user, "avatar_url", None),
-        "department": getattr(current_user, "department", None),
-        "level": getattr(current_user, "level", None),
-        "created_at": current_user.created_at,
+        "role":         current_user.role,
+        "balance":      current_user.balance,
+        "seller_points": getattr(current_user, "seller_points", 0),
+        "phone":        getattr(current_user, "phone", None),
+        "avatar_url":   getattr(current_user, "avatar_url", None),
+        "department":   getattr(current_user, "department", None),
+        "level":        getattr(current_user, "level", None),
+        "bio":          getattr(current_user, "bio", None),
+        "banner_url":   getattr(current_user, "banner_url", None),
+        "availability_status": getattr(current_user, "availability_status", "open"),
+        "trust_tier":   getattr(current_user, "trust_tier", "new_seller"),
+        "response_rate": getattr(current_user, "response_rate", 100.0),
+        "avg_response_hours": getattr(current_user, "avg_response_hours", 0.0),
+        "completion_rate": getattr(current_user, "completion_rate", 100.0),
+        "vacation_mode": getattr(current_user, "vacation_mode", False),
+        "verification_status": verification_status,
+        "created_at":   current_user.created_at,
+        # Per-user persisted preferences
+        "profile":      profile_data,
+        "settings":     settings_data,
+        "notif_prefs":  notif_data,
     }
 
 
@@ -559,6 +873,25 @@ async def update_profile(
         current_user.avatar_url = data.avatar_url.strip() or None
     db.commit()
     db.refresh(current_user)
+
+    # Block 4C — sync to per-user profile table
+    try:
+        from app.services.user_db import upsert_user_data, log_user_activity
+        from app.database import engine as _engine
+        upsert_user_data(current_user.id, "profile", {
+            k: v for k, v in {
+                "display_name": data.display_name,
+                "phone":        data.phone,
+                "department":   data.department,
+                "level":        str(data.level) if data.level else None,
+                "updated_at":   datetime.utcnow().isoformat(),
+            }.items() if v is not None
+        }, _engine)
+        log_user_activity(current_user.id, "profile_updated",
+                          data.model_dump(exclude_none=True), None, _engine)
+    except Exception as pe:
+        logger.warning(f"[update_profile] per-user sync failed: {pe}")
+
     return {
         "success": True,
         "message": "Profile updated",
@@ -568,8 +901,39 @@ async def update_profile(
         "level": current_user.level,
         "bio": current_user.bio,
         "banner_url": current_user.banner_url,
+        "avatar_url": current_user.avatar_url,
         "availability_status": current_user.availability_status,
     }
+
+
+# Block 4C — settings and notification-preferences sync endpoints
+
+@router.patch("/settings")
+async def update_settings(
+    request: Request,
+    body: SettingsUpdateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Persist user settings to per-user table."""
+    from app.services.user_db import upsert_user_data, log_user_activity
+    from app.database import engine as _engine
+    data = {k: str(v) for k, v in body.model_dump(exclude_none=True).items()}
+    upsert_user_data(current_user.id, "settings", data, _engine)
+    log_user_activity(current_user.id, "settings_updated", data, None, _engine)
+    return {"message": "Settings saved"}
+
+
+@router.patch("/notification-preferences")
+async def update_notification_preferences(
+    body: NotifPrefsUpdateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Persist notification preferences to per-user table."""
+    from app.services.user_db import upsert_user_data
+    from app.database import engine as _engine
+    data = {k: str(v) for k, v in body.model_dump(exclude_none=True).items()}
+    upsert_user_data(current_user.id, "notif_prefs", data, _engine)
+    return {"message": "Notification preferences saved"}
 
 
 @router.post("/change-password")
@@ -589,16 +953,30 @@ async def change_password(
 
 
 @router.get("/sessions")
-async def get_sessions(current_user: User = Depends(get_current_user)):
-    """Returns active sessions. Currently returns the active session only."""
+async def get_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Block 2C — Returns real login history from login_history table."""
+    from app.models import LoginHistory
+    records = (
+        db.query(LoginHistory)
+        .filter(LoginHistory.user_id == current_user.id)
+        .order_by(LoginHistory.logged_in_at.desc())
+        .limit(10)
+        .all()
+    )
     return {
-        "sessions": [{
-            "id": "current",
-            "device": "Current session",
-            "location": "Unknown",
-            "last_active": "Now",
-            "current": True,
-        }]
+        "sessions": [
+            {
+                "id": str(r.id),
+                "device": r.device or "Unknown device",
+                "ip_address": r.ip_address,
+                "logged_in_at": r.logged_in_at.isoformat() if r.logged_in_at else None,
+                "current": i == 0,
+            }
+            for i, r in enumerate(records)
+        ]
     }
 
 
@@ -763,6 +1141,44 @@ async def delete_alert(
     return {"success": True, "message": "Alert removed"}
 
 
+# ── Dashboard stats (Block 4C) ───────────────────────────────────────────────
+
+import time as _time
+_stats_cache: dict[int, tuple[float, dict]] = {}
+
+@router.get("/me/dashboard-stats")
+async def get_dashboard_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """All buyer stat card values in one call. Cached 30s per user."""
+    uid = current_user.id
+    now = _time.time()
+    cached = _stats_cache.get(uid)
+    if cached and (now - cached[0]) < 30:
+        return cached[1]
+
+    from app.models import Price, PriceAlert, Wishlist
+    karma_points = current_user.balance or 0
+    submissions = db.query(Price).filter(Price.submitted_by == uid).count()
+    price_alerts = db.query(PriceAlert).filter(
+        PriceAlert.user_id == uid, PriceAlert.is_active == True
+    ).count()
+    wishlist_count = db.query(Wishlist).filter(Wishlist.user_id == uid).count()
+
+    tier = "Gold" if karma_points >= 2000 else ("Silver" if karma_points >= 500 else "Bronze")
+
+    result = {
+        "karma_points": karma_points,
+        "karma_tier": tier,
+        "submissions": submissions,
+        "price_alerts": price_alerts,
+        "wishlist_count": wishlist_count,
+    }
+    _stats_cache[uid] = (now, result)
+    return result
+
+
 # ── Email OTP verification ────────────────────────────────────────────────────
 
 def _generate_otp(length: int = 6) -> str:
@@ -840,3 +1256,77 @@ async def verify_otp(
         current_user.email = email
     db.commit()
     return {"success": True, "message": "Email verified successfully!"}
+
+
+# ── Recently viewed listings ─────────────────────────────────────────────────
+
+@router.get("/recently-viewed")
+async def get_recently_viewed(
+    limit: int = 12,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns listings the user recently viewed, pulled from the per-user
+    activity log (action = 'listing_viewed'). Falls back to empty list if
+    the activity table doesn't exist or has no view records.
+    """
+    from app.services.user_db import get_user_data
+    from app.database import engine as _engine
+    from sqlalchemy import text
+    import json as _json
+
+    try:
+        with _engine.connect() as conn:
+            rows = conn.execute(text(f"""
+                SELECT details FROM user_{current_user.id}_activity
+                WHERE action = 'listing_viewed'
+                ORDER BY created_at DESC
+                LIMIT :lim
+            """), {"lim": limit * 2}).fetchall()  # fetch extra to dedup
+    except Exception:
+        return []
+
+    # Extract unique listing IDs from activity details
+    seen_ids: list[int] = []
+    seen_set: set[int] = set()
+    for row in rows:
+        try:
+            detail = _json.loads(row[0]) if row[0] else {}
+            lid = int(detail.get("listing_id", 0))
+            if lid and lid not in seen_set:
+                seen_ids.append(lid)
+                seen_set.add(lid)
+        except (ValueError, TypeError, KeyError):
+            continue
+        if len(seen_ids) >= limit:
+            break
+
+    if not seen_ids:
+        return []
+
+    # Fetch the actual listings
+    listings = (
+        db.query(Price)
+        .filter(Price.id.in_(seen_ids), Price.status == "approved")
+        .all()
+    )
+
+    # Preserve the recently-viewed order
+    listing_map = {p.id: p for p in listings}
+    result = []
+    for lid in seen_ids:
+        p = listing_map.get(lid)
+        if p:
+            result.append({
+                "id": p.id,
+                "name": p.name,
+                "brand": p.brand,
+                "price": p.price,
+                "location": p.location,
+                "category_id": p.category_id,
+                "photos": _json.loads(p.photos) if p.photos else [],
+                "view_count": p.view_count,
+                "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
+            })
+    return result

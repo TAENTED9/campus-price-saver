@@ -135,6 +135,15 @@ const SellerSidebar: React.FC = () => {
             </div>
           </div>
 
+          {/* Back to Marketplace link */}
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-1"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
+            Back to Marketplace
+          </Link>
+
           {/* Nav items */}
           <nav className="flex flex-col gap-0.5">
             {NAV_ITEMS.map((item) => {

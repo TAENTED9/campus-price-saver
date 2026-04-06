@@ -280,20 +280,32 @@ async def approve_verification(
                 user.trust_tier = "rising"
             else:
                 user.trust_tier = "new_seller"
-            # In-app notification
+            # Block 3A — typed in-app notification with deep link
             db.add(Notification(
-                user_id=user.id, type="sale",
-                title="You're verified! +100 points",
-                body="Congratulations! Your seller account is now verified. You earned 100 karma points.",
+                user_id=user.id,
+                type="verification_approved",
+                title="Seller account verified",
+                body=(
+                    "Congratulations! Your UNILAG seller badge is now live. "
+                    "You earned 100 karma points. Start listing products."
+                ),
+                action_url="/seller/listings/new",
             ))
 
     log_action(db, current_admin, "Approved seller verification",
                "Verification", v.id, v.seller_name)
     db.commit()
 
+    # Block 3A — email via template (fire-and-forget)
     try:
-        from app.services.email import send_seller_approved_email
-        send_seller_approved_email(v.email, v.seller_name)
+        import asyncio as _asyncio
+        from app.services.admin_notifications import send_user_email_bg
+        from app.services.email_templates import VERIFICATION_APPROVED_EMAIL
+        _asyncio.create_task(send_user_email_bg(
+            v.email,
+            "Seller account approved — Campify",
+            VERIFICATION_APPROVED_EMAIL(v.seller_name),
+        ))
     except Exception:
         pass
 
@@ -330,13 +342,37 @@ async def reject_verification(
     if body.admin_notes:
         v.admin_notes = body.admin_notes
 
+    # Block 3B — typed in-app notification with deep link
+    if v.user_id:
+        _user = db.query(User).filter(User.id == v.user_id).first()
+        if _user:
+            from app.models import Notification as _Notif
+            db.add(_Notif(
+                user_id=_user.id,
+                type="verification_rejected",
+                title="Seller verification update",
+                body=(
+                    f"Your verification was not approved. "
+                    f"Reason: {body.admin_notes or 'See admin notes'}. "
+                    "You can resubmit documents in Settings."
+                ),
+                action_url="/seller/settings?tab=verification",
+            ))
+
     log_action(db, current_admin, "Rejected seller verification",
                "Verification", v.id, v.seller_name, {"notes": body.admin_notes})
     db.commit()
 
+    # Block 3B — email via template (fire-and-forget)
     try:
-        from app.services.email import send_seller_rejected_email
-        send_seller_rejected_email(v.email, v.seller_name, body.admin_notes or "")
+        import asyncio as _asyncio
+        from app.services.admin_notifications import send_user_email_bg
+        from app.services.email_templates import VERIFICATION_REJECTED_EMAIL
+        _asyncio.create_task(send_user_email_bg(
+            v.email,
+            "Seller verification update — Campify",
+            VERIFICATION_REJECTED_EMAIL(v.seller_name, body.admin_notes or ""),
+        ))
     except Exception:
         pass
 
@@ -729,7 +765,15 @@ async def admin_delete_user(
     except Exception:
         pass
 
-    # 9. Soft-delete the user record
+    # 9. Block 5 — drop per-user isolated tables (total data wipe)
+    try:
+        from app.services.user_db import drop_user_tables
+        from app.database import engine as _engine
+        drop_user_tables(user_id, _engine)
+    except Exception as e:
+        print(f"[admin_delete] per-user table drop failed for {user_id}: {e}")
+
+    # 10. Soft-delete the user record
     ts = int(datetime.utcnow().timestamp())
     u.is_deleted     = True
     u.deleted_at     = datetime.utcnow()
@@ -740,10 +784,10 @@ async def admin_delete_user(
     u.phone          = None
     u.avatar_url     = None
 
-    # 10. Commit
+    # 11. Commit
     db.commit()
 
-    # 11. Confirm email to saved address
+    # 12. Confirm email to saved address
     from app.services.admin_notifications import notify_admin, send_user_email_bg
     from app.services.email_templates import ACCOUNT_DELETED_EMAIL
     asyncio.create_task(send_user_email_bg(
@@ -752,7 +796,7 @@ async def admin_delete_user(
         ACCOUNT_DELETED_EMAIL(saved_name),
     ))
 
-    # 12. Log event
+    # 13. Log event
     await notify_admin(db, "account_deleted", user_id, saved_email, "deleted",
                        {"deleted_by": "admin", "deleted_at": datetime.utcnow().isoformat()})
     log_action(db, current_admin, "Deleted account", "User", user_id, saved_email)

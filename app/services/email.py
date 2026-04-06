@@ -7,30 +7,39 @@ Set RESEND_API_KEY in .env to enable. Without it, emails are skipped silently.
 import os
 import requests as _requests
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-RESEND_FROM = os.getenv("RESEND_FROM", "Campify <noreply@campify.app>")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 APP_URL = os.getenv("APP_URL", "http://localhost:3000")
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _get_config():
+    """Read email config fresh from env each call so dotenv order doesn't matter."""
+    api_key = os.getenv("RESEND_API_KEY", "")
+    resend_from = os.getenv("RESEND_FROM", "Campify <noreply@campify.app>")
+    from_addr = os.getenv("EMAIL_FROM", resend_from)
+    return api_key, from_addr
+
+
 def _send(to: str, subject: str, html: str) -> bool:
     """Low-level Resend API call. Returns True on success."""
-    if not RESEND_API_KEY:
-        print(f"[email] No RESEND_API_KEY — skipped: {subject} → {to}")
+    api_key, from_addr = _get_config()
+    if not api_key:
+        print(f"[email] No RESEND_API_KEY -- skipped: {subject} -> {to}")
         return False
+    print(f"[email] Sending '{subject}' to {to} from {from_addr}")
     try:
         resp = _requests.post(
             "https://api.resend.com/emails",
             headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json={"from": RESEND_FROM, "to": [to], "subject": subject, "html": html},
+            json={"from": from_addr, "to": [to], "subject": subject, "html": html},
             timeout=10,
         )
         if resp.status_code in (200, 201):
+            print(f"[email] Sent OK: {resp.json()}")
             return True
         print(f"[email] Resend error {resp.status_code}: {resp.text}")
         return False

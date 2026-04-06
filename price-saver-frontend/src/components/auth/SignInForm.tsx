@@ -1,24 +1,46 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { Eye, EyeOff } from "lucide-react";
+import { authApi } from "@/lib/api";
+import { Eye, EyeOff, CheckCircle, MailCheck } from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function SignInForm() {
-  const router = useRouter();
-  const { login } = useAuth();
+  const router       = useRouter();
+  const params       = useSearchParams();
+  const { login }    = useAuth();
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [username,    setUsername]    = useState("");
+  const [password,    setPassword]    = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading,   setIsLoading]   = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+
+  // verified=true banner
+  const [verifiedBanner, setVerifiedBanner] = useState(false);
+
+  // EMAIL_NOT_VERIFIED state
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [resent,          setResent]          = useState(false);
+  const [resending,       setResending]       = useState(false);
+
+  useEffect(() => {
+    const v = params.get("verified");
+    const e = params.get("email");
+    if (v === "true") {
+      setVerifiedBanner(true);
+      if (e) setUsername(e);   // pre-fill so user just types password
+    }
+  }, [params]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setUnverifiedEmail(null);
 
     if (!username.trim()) {
       setError("Please enter your matric number or username.");
@@ -40,21 +62,64 @@ export default function SignInForm() {
         router.push("/dashboard");
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Sign in failed. Please try again.");
+      // Parse EMAIL_NOT_VERIFIED structured error
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.code === "EMAIL_NOT_VERIFIED") {
+            setUnverifiedEmail(parsed.email || username.trim());
+            setError(parsed.message);
+            return;
+          }
+        } catch {
+          // not JSON — fall through to plain error
+        }
+        setError(err.message);
+      } else {
+        setError("Sign in failed. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  async function handleResendVerification() {
+    const emailToUse = unverifiedEmail || username.trim();
+    if (!emailToUse || resending) return;
+    setResending(true);
+    try {
+      await fetch(`${API_BASE}/api/auth/resend-verification`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ email: emailToUse }),
+      });
+      setResent(true);
+    } catch {
+      setResent(true);
+    } finally {
+      setResending(false);
+    }
+  }
+
   return (
     <div className="max-w-[570px] w-full mx-auto rounded-xl bg-white shadow-md p-4 sm:p-7 xl:p-11 dark:bg-gray-800">
-      {/* Centered heading */}
+      {/* Heading */}
       <div className="text-center mb-8">
         <h2 className="font-semibold text-xl sm:text-2xl text-gray-900 dark:text-white mb-1.5">
           Sign In to Your Account
         </h2>
         <p className="text-gray-500 dark:text-gray-400">Enter your details below</p>
       </div>
+
+      {/* Verified banner */}
+      {verifiedBanner && (
+        <div className="mb-5 flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-500/10 dark:border-green-500/20">
+          <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
+          <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+            Email verified — you can now log in.
+          </p>
+        </div>
+      )}
 
       {/* Error alert */}
       {error && (
@@ -63,8 +128,29 @@ export default function SignInForm() {
         </div>
       )}
 
+      {/* EMAIL_NOT_VERIFIED action */}
+      {unverifiedEmail && (
+        <div className="mb-5 p-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20">
+          {resent ? (
+            <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+              A new verification link was sent — check your inbox.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resending}
+              className="inline-flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400 hover:underline disabled:opacity-60"
+            >
+              <MailCheck size={15} />
+              {resending ? "Sending…" : "Resend verification email"}
+            </button>
+          )}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit}>
-        {/* Matric / Username */}
+        {/* Username */}
         <div className="mb-5">
           <label htmlFor="username" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
             Matric Number / Username
@@ -117,7 +203,6 @@ export default function SignInForm() {
           {isLoading ? "Signing in..." : "Sign In"}
         </button>
 
-        {/* Forgot password */}
         <Link
           href="/forgot-password"
           className="block text-center text-gray-400 mt-4 text-sm ease-out duration-200 hover:text-gray-700 dark:hover:text-gray-300"
@@ -126,7 +211,6 @@ export default function SignInForm() {
         </Link>
       </form>
 
-      {/* Sign up link */}
       <div className="mt-6 text-center">
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Don&apos;t have an account?{" "}

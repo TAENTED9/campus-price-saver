@@ -6,7 +6,10 @@ import AppHeader from "@/layout/AppHeader";
 import SellerSidebar from "@/components/seller/SellerSidebar";
 import Backdrop from "@/layout/Backdrop";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Store } from "lucide-react";
 import React, { useEffect } from "react";
+import BottomNav from "@/components/layout/BottomNav";
 
 export default function SellerDashboardLayout({ children }: { children: React.ReactNode }) {
   const { isMobileOpen } = useSidebar();
@@ -36,8 +39,20 @@ export default function SellerDashboardLayout({ children }: { children: React.Re
       <Backdrop />
       <div className="flex-1 lg:ml-[220px]">
         <AppHeader notificationScope="seller" />
-        <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6">{children}</div>
+        <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6 pb-20 md:pb-6">{children}</div>
       </div>
+
+      {/* Floating "View Marketplace" button (desktop only) */}
+      <Link
+        href="/"
+        className="hidden md:flex fixed bottom-6 right-6 z-40 bg-blue-600 text-white rounded-full px-5 py-3 font-bold text-sm shadow-lg shadow-blue-200 dark:shadow-blue-900/30 hover:bg-blue-700 hover:scale-105 transition-all items-center gap-2 min-h-[44px]"
+      >
+        <Store size={16} />
+        View Marketplace
+      </Link>
+
+      {/* Mobile bottom navigation */}
+      <BottomNav />
     </div>
   );
 }

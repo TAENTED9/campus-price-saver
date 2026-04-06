@@ -1,67 +1,54 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { itemsApi, type Category } from "@/lib/api";
-import { getCategoryConfig } from "@/lib/categoryIcons";
+import {
+  UtensilsCrossed,
+  Shirt,
+  Smartphone,
+  BookOpen,
+  Sparkles,
+  Palette,
+  Wrench,
+  Home,
+  Settings2,
+} from "lucide-react";
 
-function SkeletonPill() {
-  return (
-    <div className="flex flex-col items-center animate-pulse">
-      <div className="w-[90px] h-[90px] rounded-full bg-gray-100 dark:bg-gray-800 mb-3" />
-      <div className="h-3.5 w-20 rounded bg-gray-100 dark:bg-gray-800" />
-    </div>
-  );
-}
+const CATEGORIES = [
+  { icon: UtensilsCrossed, label: "Food",         slug: "food" },
+  { icon: Shirt,           label: "Fashion",      slug: "fashion" },
+  { icon: Smartphone,      label: "Tech",         slug: "tech" },
+  { icon: BookOpen,        label: "Books",        slug: "books" },
+  { icon: Sparkles,        label: "Beauty",       slug: "beauty" },
+  { icon: Palette,         label: "Services",     slug: "services" },
+  { icon: Wrench,          label: "Handmade",     slug: "handmade" },
+  { icon: Home,            label: "Hostel Items", slug: "hostel-items" },
+  { icon: Settings2,       label: "Other",        slug: "other" },
+];
 
 export default function CategoriesSection() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    itemsApi.getCategories()
-      .then(setCategories)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
   return (
-    <section className="py-12 xl:py-15">
+    <section className="py-10 xl:py-14">
       <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
-        <div className="flex items-center justify-between mb-8">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
-            Browse by Category
-          </h2>
-          <Link
-            href="/search"
-            className="text-sm font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400 transition-colors"
-          >
-            View all →
-          </Link>
-        </div>
+        <h2 className="text-base md:text-lg font-bold text-gray-900 dark:text-white mb-6">
+          Shop by Category
+        </h2>
 
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-4">
-          {loading
-            ? Array.from({ length: 7 }).map((_, i) => <SkeletonPill key={i} />)
-            : categories.map((cat) => {
-                const { icon: Icon, bg, color } = getCategoryConfig(cat.id);
-                return (
-                  <Link
-                    key={cat.id}
-                    href={`/search?category_id=${cat.id}`}
-                    className="group flex flex-col items-center"
-                  >
-                    <div
-                      className={`w-full aspect-square max-w-[90px] ${bg} rounded-full flex items-center justify-center mb-3 mx-auto group-hover:scale-105 transition-transform duration-200`}
-                    >
-                      <Icon size={28} className={color} strokeWidth={1.5} />
-                    </div>
-                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300 text-center group-hover:text-brand-500 transition-colors leading-snug">
-                      {cat.name}
-                    </span>
-                  </Link>
-                );
-              })}
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-9 gap-3 md:gap-4">
+          {CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            return (
+              <Link
+                key={cat.slug}
+                href={`/search?category=${cat.slug}`}
+                className="flex flex-col items-center gap-2 p-3 md:p-4 bg-white dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-800 rounded-2xl cursor-pointer hover:border-blue-500 hover:shadow-md hover:shadow-blue-100/50 hover:-translate-y-0.5 transition-all duration-200 active:scale-95 min-h-[44px]"
+              >
+                <Icon size={24} className="text-blue-600 dark:text-blue-400 md:w-7 md:h-7" strokeWidth={1.75} />
+                <span className="text-[10px] md:text-xs font-bold text-gray-600 dark:text-gray-400 text-center leading-tight">
+                  {cat.label}
+                </span>
+              </Link>
+            );
+          })}
         </div>
       </div>
     </section>

@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import StorefrontHeader from "@/components/storefront/StorefrontHeader";
+import BottomNav from "@/components/layout/BottomNav";
 
 export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -8,10 +9,13 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
       {/* ── Interactive header (client component) ── */}
       <StorefrontHeader />
 
-      {/* ── Main content (offset for fixed header) ── */}
-      <main className="pt-[90px] sm:pt-[76px] lg:pt-[72px] xl:pt-[90px]">
+      {/* ── Main content (offset for fixed header + bottom nav on mobile) ── */}
+      <main className="pt-[90px] sm:pt-[76px] lg:pt-[72px] xl:pt-[90px] pb-[70px] md:pb-0">
         {children}
       </main>
+
+      {/* ── Mobile bottom navigation ── */}
+      <BottomNav />
 
       {/* ── Footer ── */}
       <footer className="mt-16 bg-white border-t border-gray-200 dark:bg-gray-dark dark:border-gray-700">

@@ -32,6 +32,20 @@ export type ApiError = {
   detail: string;
 };
 
+/** Returned by POST /api/auth/register when email is provided (no JWT). */
+export type RegisterResponse = {
+  success: boolean;
+  verified: boolean;
+  email: string;
+  message: string;
+  /** Present only when no email was supplied at registration (backward compat). */
+  access_token?: string;
+  user_id?: number;
+  user_name?: string;
+  user_role?: string;
+  token_type?: string;
+};
+
 // ===================== HELPERS =====================
 
 async function request<T>(
@@ -67,6 +81,31 @@ function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
+// ===================== API CLIENT (default export for sellerApi / buyerApi) ====
+
+const apiClient = {
+  get: <T = unknown>(url: string, opts?: RequestInit) =>
+    request<T>(url.startsWith("/api") ? url : `/api${url}`, opts),
+  post: <T = unknown>(url: string, body?: unknown, opts?: RequestInit) =>
+    request<T>(url.startsWith("/api") ? url : `/api${url}`, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    }),
+  put: <T = unknown>(url: string, body?: unknown, opts?: RequestInit) =>
+    request<T>(url.startsWith("/api") ? url : `/api${url}`, {
+      method: "PUT",
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    }),
+  delete: <T = unknown>(url: string, opts?: RequestInit) =>
+    request<T>(url.startsWith("/api") ? url : `/api${url}`, {
+      method: "DELETE",
+      ...opts,
+    }),
+};
+export default apiClient;
+
 // ===================== AUTH API =====================
 
 export const authApi = {
@@ -77,9 +116,20 @@ export const authApi = {
     }),
 
   register: (username: string, password: string, email?: string) =>
-    request<LoginResponse>("/api/auth/register", {
+    request<RegisterResponse>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify({ username, password, ...(email ? { email } : {}) }),
+    }),
+
+  verifyEmailToken: (token: string) =>
+    request<{ message: string; redirect: string; email?: string }>(
+      `/api/auth/verify-email?token=${encodeURIComponent(token)}`
+    ),
+
+  resendVerification: (email: string) =>
+    request<{ message: string }>("/api/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ email }),
     }),
 
   me: (token: string) =>

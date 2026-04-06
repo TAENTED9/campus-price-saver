@@ -2,10 +2,10 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api";
-import { Eye, EyeOff, ChevronLeft, ShoppingBag, Store, Check } from "lucide-react";
+import { Eye, EyeOff, ChevronLeft, ShoppingBag, Store, Check, MailCheck } from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // ─── Shared input style ───────────────────────────────────────────────────────
 
@@ -123,9 +123,6 @@ function RoleSelector({ onSelect }: { onSelect: (role: Role) => void }) {
 // ─── Buyer Form ───────────────────────────────────────────────────────────────
 
 function BuyerForm({ onBack }: { onBack: () => void }) {
-  const router = useRouter();
-  const { register, token } = useAuth();
-
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -134,20 +131,12 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // OTP step
-  const [step, setStep] = useState<"form" | "otp">("form");
-  const [otp, setOtp] = useState("");
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  // After registration: show "check email" screen
+  const [step, setStep] = useState<"form" | "check_email">("form");
+  const [resent, setResent] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const strength = getStrength(password);
-
-  React.useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [resendCooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,15 +148,8 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
 
     setIsLoading(true);
     try {
-      const res = await register(username.trim(), password, email.trim());
-      // Send OTP immediately after account creation
-      try {
-        await authApi.sendOtp(res.access_token, email.trim());
-      } catch {
-        // Non-critical — account created, OTP can be resent
-      }
-      setStep("otp");
-      setResendCooldown(60);
+      await authApi.register(username.trim(), password, email.trim());
+      setStep("check_email");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
@@ -175,89 +157,54 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otp.trim()) { setOtpError("Please enter the code."); return; }
-    setOtpLoading(true);
-    setOtpError(null);
+  async function handleResend() {
+    if (resending) return;
+    setResending(true);
     try {
-      const currentToken = token!;
-      await authApi.verifyOtp(currentToken, email.trim(), otp.trim());
-      router.push("/dashboard");
-    } catch (err: unknown) {
-      setOtpError(err instanceof Error ? err.message : "Incorrect code. Please try again.");
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  const handleResendOtp = async () => {
-    if (!token || resendCooldown > 0) return;
-    try {
-      await authApi.sendOtp(token, email.trim());
-      setResendCooldown(60);
-      setOtpError(null);
+      await fetch(`${API_BASE}/api/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setResent(true);
     } catch {
-      setOtpError("Could not resend code. Please try again.");
+      setResent(true);
+    } finally {
+      setResending(false);
     }
-  };
+  }
 
-  const handleSkipOtp = () => router.push("/dashboard");
-
-  if (step === "otp") {
+  if (step === "check_email") {
     return (
       <Card>
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center mx-auto mb-4 text-2xl">✉️</div>
+          <div className="w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center mx-auto mb-4">
+            <MailCheck size={28} className="text-brand-500" />
+          </div>
           <h2 className="font-semibold text-xl sm:text-2xl text-gray-900 dark:text-white mb-1.5">Check your email</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
-            We sent a 6-digit code to <strong>{email}</strong>
+            We sent a verification link to <strong>{email}</strong>.<br />
+            Click the link in the email to activate your account.
           </p>
         </div>
 
-        {otpError && (
-          <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
-            <p className="text-sm text-red-600 dark:text-red-400">{otpError}</p>
-          </div>
-        )}
-
-        <form onSubmit={handleVerifyOtp}>
-          <div className="mb-5">
-            <label htmlFor="buyer-otp" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-              Verification Code <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="buyer-otp"
-              type="text"
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="• • • • • •"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              className="rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 outline-none focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-center text-xl tracking-[0.5em] font-bold"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={otpLoading || otp.length < 6}
-            className="w-full flex justify-center items-center font-medium text-white bg-gray-900 py-3 px-6 rounded-full ease-out duration-200 hover:bg-brand-500 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-gray-700 dark:hover:bg-brand-500 mb-3"
-          >
-            {otpLoading ? "Verifying…" : "Verify Email"}
-          </button>
-          <div className="flex items-center justify-between text-sm text-gray-500">
-            <button type="button" onClick={handleSkipOtp} className="hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
-              Skip for now →
-            </button>
+        <div className="flex flex-col items-center gap-3">
+          {resent ? (
+            <p className="text-sm text-green-600 dark:text-green-400 font-medium">New link sent — check your inbox.</p>
+          ) : (
             <button
               type="button"
-              onClick={handleResendOtp}
-              disabled={resendCooldown > 0}
-              className="text-brand-500 hover:text-brand-600 disabled:text-gray-400 transition-colors"
+              onClick={handleResend}
+              disabled={resending}
+              className="text-sm text-brand-500 hover:text-brand-600 disabled:opacity-60 transition-colors"
             >
-              {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend code"}
+              {resending ? "Sending…" : "Resend verification email"}
             </button>
-          </div>
-        </form>
+          )}
+          <Link href="/signin" className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+            Back to Sign In
+          </Link>
+        </div>
       </Card>
     );
   }
@@ -391,9 +338,6 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
 // ─── Seller Form ──────────────────────────────────────────────────────────────
 
 function SellerForm({ onBack }: { onBack: () => void }) {
-  const router = useRouter();
-  const { register } = useAuth();
-
   const [matric, setMatric] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -403,6 +347,9 @@ function SellerForm({ onBack }: { onBack: () => void }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [matricError, setMatricError] = useState<string | null>(null);
+  const [step, setStep] = useState<"form" | "check_email">("form");
+  const [resent, setResent] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const strength = getStrength(password);
 
@@ -424,15 +371,64 @@ function SellerForm({ onBack }: { onBack: () => void }) {
 
     setIsLoading(true);
     try {
-      await register(username.trim(), password, email.trim());
+      await authApi.register(username.trim(), password, email.trim());
       localStorage.setItem("pendingMatric", matric.trim().toUpperCase());
-      router.push("/seller/verification?ref=welcome");
+      setStep("check_email");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
+
+  async function handleResend() {
+    if (resending) return;
+    setResending(true);
+    try {
+      await fetch(`${API_BASE}/api/auth/resend-verification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setResent(true);
+    } catch {
+      setResent(true);
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (step === "check_email") {
+    return (
+      <Card>
+        <div className="text-center mb-8">
+          <div className="w-14 h-14 rounded-full bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center mx-auto mb-4">
+            <MailCheck size={28} className="text-brand-500" />
+          </div>
+          <h2 className="font-semibold text-xl sm:text-2xl text-gray-900 dark:text-white mb-1.5">
+            Check your email
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
+            We sent a verification link to <strong>{email}</strong>.<br />
+            After verifying, sign in and complete your seller verification.
+          </p>
+        </div>
+        <div className="flex flex-col items-center gap-3">
+          {resent ? (
+            <p className="text-sm text-green-600 dark:text-green-400 font-medium">New link sent — check your inbox.</p>
+          ) : (
+            <button type="button" onClick={handleResend} disabled={resending}
+              className="text-sm text-brand-500 hover:text-brand-600 disabled:opacity-60 transition-colors">
+              {resending ? "Sending…" : "Resend verification email"}
+            </button>
+          )}
+          <Link href="/signin" className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+            Back to Sign In
+          </Link>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card>

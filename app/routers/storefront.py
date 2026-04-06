@@ -2,14 +2,16 @@
 Public storefront endpoints — listing detail, seller pages, follow, inquiry, report, stats.
 No auth required for read endpoints; auth required for follow/inquiry/report.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 import json
+from typing import Optional
 
 from app.database import get_db
 from app.models import Price, User, Category, Follow, Inquiry, Report, BlockedUser, Review, Notification, SellerVerification, Announcement
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, decode_access_token
 from sqlalchemy import func
 
 router = APIRouter(prefix="/storefront", tags=["Storefront"])
@@ -95,25 +97,65 @@ def _price_to_dict(p: Price) -> dict:
 @router.get("/stats")
 async def get_platform_stats(db: Session = Depends(get_db)):
     """Real platform stats for the homepage strip."""
-    from sqlalchemy import func
+    from datetime import datetime
     total_users = db.query(User).count()
     active_listings = db.query(Price).filter(
         Price.status == "approved", Price.listing_status == "active"
     ).count()
+    total_sellers = db.query(User).filter(User.role == "seller").count()
     total_categories = db.query(Category).count()
     return {
         "total_users": total_users,
+        "total_sellers": total_sellers,
         "active_listings": active_listings,
         "total_categories": total_categories,
+        "last_updated": datetime.utcnow().isoformat(),
     }
 
 
+@router.get("/featured")
+async def get_featured_sellers(limit: int = 6, db: Session = Depends(get_db)):
+    """Top sellers ordered by listing count. Used on homepage."""
+    sellers = (
+        db.query(User)
+        .filter(User.role == "seller")
+        .order_by(User.seller_points.desc().nullslast(), User.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    results = []
+    for s in sellers:
+        listing_count = db.query(Price).filter(
+            Price.submitted_by == s.id,
+            Price.status == "approved",
+            Price.listing_status == "active",
+        ).count()
+        avg_rating = db.query(func.avg(Review.rating)).filter(
+            Review.seller_id == s.id, Review.is_flagged == False
+        ).scalar()
+        results.append({
+            "id": s.id,
+            "display_name": s.display_name or s.username,
+            "avatar_url": s.avatar_url,
+            "banner_url": getattr(s, "banner_url", None),
+            "slug": s.username,
+            "category": getattr(s, "category", None),
+            "listing_count": listing_count,
+            "avg_rating": round(float(avg_rating), 1) if avg_rating else None,
+        })
+    return results
+
+
 # ── Listing detail ─────────────────────────────────────────────────────────
+
+_optional_bearer = HTTPBearer(auto_error=False)
+
 
 @router.get("/listing/{listing_id}")
 async def get_listing_detail(
     listing_id: int,
     db: Session = Depends(get_db),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_optional_bearer),
 ):
     """Full listing detail. Increments view_count on every call."""
     p = db.query(Price).filter(Price.id == listing_id).first()
@@ -123,6 +165,18 @@ async def get_listing_detail(
     # Increment view count
     p.view_count = (p.view_count or 0) + 1
     db.commit()
+
+    # Log view to user's activity table (best-effort, no auth required)
+    if credentials:
+        try:
+            payload = decode_access_token(credentials.credentials)
+            uid = int(payload.get("sub", 0))
+            if uid:
+                from app.services.user_db import log_user_activity
+                from app.database import engine as _engine
+                log_user_activity(uid, "listing_viewed", {"listing_id": listing_id}, None, _engine)
+        except Exception:
+            pass  # Don't break listing view for logging failures
 
     seller = db.query(User).filter(User.id == p.submitted_by).first()
     data = _price_to_dict(p)

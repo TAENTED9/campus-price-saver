@@ -1,29 +1,51 @@
 import Image from "next/image";
 import React from "react";
+import { ShieldCheck } from "lucide-react";
 
 interface AvatarProps {
-  src: string; // URL of the avatar image
-  alt?: string; // Alt text for the avatar
-  size?: "xsmall" | "small" | "medium" | "large" | "xlarge" | "xxlarge"; // Avatar size
-  status?: "online" | "offline" | "busy" | "none"; // Status indicator
+  src?: string | null;
+  alt?: string;
+  name?: string;
+  size?: "xs" | "sm" | "md" | "lg" | "xl" | "xxl";
+  status?: "online" | "offline" | "busy" | "none";
+  verified?: boolean;
+  className?: string;
 }
 
 const sizeClasses = {
-  xsmall: "h-6 w-6 max-w-6",
-  small: "h-8 w-8 max-w-8",
-  medium: "h-10 w-10 max-w-10",
-  large: "h-12 w-12 max-w-12",
-  xlarge: "h-14 w-14 max-w-14",
-  xxlarge: "h-16 w-16 max-w-16",
+  xs: "h-6 w-6",
+  sm: "h-8 w-8",
+  md: "h-10 w-10",
+  lg: "h-12 w-12",
+  xl: "h-14 w-14",
+  xxl: "h-16 w-16",
+};
+
+const textSizeClasses = {
+  xs: "text-[9px]",
+  sm: "text-[10px]",
+  md: "text-sm",
+  lg: "text-base",
+  xl: "text-lg",
+  xxl: "text-xl",
 };
 
 const statusSizeClasses = {
-  xsmall: "h-1.5 w-1.5 max-w-1.5",
-  small: "h-2 w-2 max-w-2",
-  medium: "h-2.5 w-2.5 max-w-2.5",
-  large: "h-3 w-3 max-w-3",
-  xlarge: "h-3.5 w-3.5 max-w-3.5",
-  xxlarge: "h-4 w-4 max-w-4",
+  xs: "h-1.5 w-1.5",
+  sm: "h-2 w-2",
+  md: "h-2.5 w-2.5",
+  lg: "h-3 w-3",
+  xl: "h-3.5 w-3.5",
+  xxl: "h-4 w-4",
+};
+
+const badgeSizeClasses = {
+  xs: "h-3 w-3 -bottom-0.5 -right-0.5",
+  sm: "h-3.5 w-3.5 -bottom-0.5 -right-0.5",
+  md: "h-4 w-4 -bottom-0.5 -right-0.5",
+  lg: "h-5 w-5 -bottom-0.5 -right-0.5",
+  xl: "h-5 w-5 -bottom-0.5 -right-0.5",
+  xxl: "h-6 w-6 -bottom-0.5 -right-0.5",
 };
 
 const statusColorClasses = {
@@ -32,31 +54,57 @@ const statusColorClasses = {
   busy: "bg-warning-500",
 };
 
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 const Avatar: React.FC<AvatarProps> = ({
   src,
-  alt = "User Avatar",
-  size = "medium",
+  alt = "User",
+  name,
+  size = "md",
   status = "none",
+  verified = false,
+  className = "",
 }) => {
-  return (
-    <div className={`relative  rounded-full ${sizeClasses[size]}`}>
-      {/* Avatar Image */}
-      <Image
-        width="0"
-        height="0"
-        sizes="100vw"
-        src={src}
-        alt={alt}
-        className="object-cover w-full rounded-full"
-      />
+  const initials = name ? getInitials(name) : alt.charAt(0).toUpperCase();
 
-      {/* Status Indicator */}
-      {status !== "none" && (
+  return (
+    <div className={`relative shrink-0 rounded-full ${sizeClasses[size]} ${className}`}>
+      {src ? (
+        <Image
+          width={0}
+          height={0}
+          sizes="100vw"
+          src={src}
+          alt={alt}
+          className="object-cover w-full h-full rounded-full"
+        />
+      ) : (
+        <div className="w-full h-full rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white font-bold">
+          <span className={textSizeClasses[size]}>{initials}</span>
+        </div>
+      )}
+
+      {/* Verified badge */}
+      {verified && (
         <span
-          className={`absolute bottom-0 right-0 rounded-full border-[1.5px] border-white dark:border-gray-900 ${
-            statusSizeClasses[size]
-          } ${statusColorClasses[status] || ""}`}
-        ></span>
+          className={`absolute flex items-center justify-center rounded-full bg-brand-500 text-white border-2 border-white dark:border-gray-900 ${badgeSizeClasses[size]}`}
+        >
+          <ShieldCheck size={size === "xs" || size === "sm" ? 8 : 10} />
+        </span>
+      )}
+
+      {/* Status indicator */}
+      {status !== "none" && !verified && (
+        <span
+          className={`absolute bottom-0 right-0 rounded-full border-[1.5px] border-white dark:border-gray-900 ${statusSizeClasses[size]} ${statusColorClasses[status] || ""}`}
+        />
       )}
     </div>
   );

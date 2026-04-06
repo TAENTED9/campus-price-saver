@@ -16,7 +16,9 @@ import {
   LogOut,
   Sun,
   Moon,
+  Store,
 } from "lucide-react";
+import BottomNav from "@/components/layout/BottomNav";
 import { useTheme } from "@/context/ThemeContext";
 
 const WL_KEY = "ps_wishlist";
@@ -239,11 +241,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 min-w-0 pb-10">
+        <main className="flex-1 min-w-0 pb-20 md:pb-10">
           {children}
         </main>
 
       </div>
+
+      {/* 2E -- Floating "Browse Market" button (desktop only) */}
+      <Link
+        href="/"
+        className="hidden md:flex fixed bottom-6 right-6 z-40 bg-blue-600 text-white rounded-full px-5 py-3 font-bold text-sm shadow-lg shadow-blue-200 dark:shadow-blue-900/30 hover:bg-blue-700 hover:scale-105 transition-all items-center gap-2 min-h-[44px]"
+      >
+        <Store size={16} />
+        Browse Market
+      </Link>
+
+      {/* Mobile bottom navigation */}
+      <BottomNav />
     </div>
   );
 }

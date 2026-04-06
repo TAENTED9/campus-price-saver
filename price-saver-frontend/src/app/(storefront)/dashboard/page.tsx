@@ -5,10 +5,16 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { userApi, itemsApi, flashSalesApi, type FlashSale } from "@/lib/api";
-import { Star, Bell, Heart, ClipboardList, Zap, TrendingUp } from "lucide-react";
-import Banner from "@/components/marketplace/Banner";
+import { Star, Bell, Heart, ClipboardList, Zap, TrendingUp, Store } from "lucide-react";
 import MarketplaceFeed from "@/components/marketplace/MarketplaceFeed";
 import HowItWorks from "@/components/marketplace/HowItWorks";
+
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
 
 const WL_KEY = "ps_wishlist";
 function getWlCount(): number {
@@ -35,7 +41,7 @@ interface TrendingItem {
 }
 
 export default function BrowseMarketPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const searchParams = useSearchParams();
   const verifiedPending = searchParams.get("verified") === "pending";
 
@@ -64,30 +70,44 @@ export default function BrowseMarketPage() {
     }
   }, [token]);
 
+  const karmaPoints = balance ?? 0;
+  const karmaTier = karmaPoints >= 2000 ? "Gold" : karmaPoints >= 500 ? "Silver" : "Bronze";
+  const tierColors: Record<string, string> = {
+    Bronze: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+    Silver: "bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300",
+    Gold:   "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+  };
+
   const stats = [
     {
       label: "Karma Points",
-      value: loading ? "—" : (balance ?? 0).toLocaleString(),
+      value: loading ? "---" : (balance ?? 0).toLocaleString(),
       icon: <Star size={18} />,
       iconBg: "bg-warning-50 dark:bg-warning-500/10",
       iconColor: "text-warning-500",
       href: "/dashboard/settings",
+      badge: loading ? null : karmaTier,
+      badgeClass: tierColors[karmaTier] || "",
     },
     {
       label: "Submissions",
-      value: loading ? "—" : (submissionsCount ?? 0).toString(),
+      value: loading ? "---" : (submissionsCount ?? 0).toString(),
       icon: <ClipboardList size={18} />,
       iconBg: "bg-[#06b6d4]/10",
       iconColor: "text-[#06b6d4]",
       href: "/dashboard/submissions",
+      badge: null as string | null,
+      badgeClass: "",
     },
     {
       label: "Price Alerts",
-      value: loading ? "—" : (alertsCount ?? 0).toString(),
+      value: loading ? "---" : (alertsCount ?? 0).toString(),
       icon: <Bell size={18} />,
       iconBg: "bg-brand-50 dark:bg-brand-500/10",
       iconColor: "text-brand-500",
       href: "/dashboard/alerts",
+      badge: null as string | null,
+      badgeClass: "",
     },
     {
       label: "Wishlist",
@@ -96,6 +116,8 @@ export default function BrowseMarketPage() {
       iconBg: "bg-error-50 dark:bg-error-500/10",
       iconColor: "text-error-500",
       href: "/dashboard/wishlist",
+      badge: null as string | null,
+      badgeClass: "",
     },
   ];
 
@@ -103,6 +125,25 @@ export default function BrowseMarketPage() {
 
   return (
     <div className="bg-slate-50 dark:bg-gray-950 -mx-4 px-0 pb-0 rounded-2xl overflow-hidden">
+
+      {/* 2A -- Dashboard Header Row */}
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 md:px-6 py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="font-bold text-base md:text-lg text-gray-900 dark:text-white">
+              {getGreeting()}, {user?.display_name || user?.username || "there"} &#128075;
+            </p>
+            <p className="text-xs md:text-sm text-gray-400">Here&apos;s what&apos;s happening today</p>
+          </div>
+          <Link
+            href="/"
+            className="bg-blue-600 text-white font-bold px-4 py-2 rounded-xl text-sm hover:bg-blue-700 transition-all flex items-center gap-2 min-h-[44px]"
+          >
+            <Store size={16} />
+            <span className="hidden sm:inline">Go to Homepage</span>
+          </Link>
+        </div>
+      </div>
 
       {/* Seller verification pending banner */}
       {verifiedPending && (
@@ -119,37 +160,28 @@ export default function BrowseMarketPage() {
         </div>
       )}
 
-      {/* 1. Hero Banner */}
       <div className="px-4 pt-4">
-        <Banner
-          imageUrl="https://res.cloudinary.com/demo/image/upload/campify-banner.jpg"
-          title="Smart Shopping Starts Here."
-          description="100% verified UNILAG sellers · Real-time price tracking"
-          ctaLabel="Explore Deals"
-          ctaHref="/search"
-          secondaryCtaLabel="Set Price Alert"
-          secondaryCtaHref="/dashboard/alerts"
-          overlayVariant="gradient-center"
-          height="md"
-          priority
-        />
-      </div>
-
-      <div className="px-4">
 
         {/* 2. Stats grid */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
           {stats.map((s) => (
             <Link
               key={s.label}
               href={s.href}
-              className={`${CARD} p-5 hover:border-brand-300 dark:hover:border-brand-700 transition-colors`}
+              className={`${CARD} p-5 hover:border-brand-300 dark:hover:border-brand-700 transition-colors min-h-[44px]`}
             >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${s.iconBg} ${s.iconColor}`}>
-                {s.icon}
+              <div className="flex items-center justify-between mb-4">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${s.iconBg} ${s.iconColor}`}>
+                  {s.icon}
+                </div>
+                {s.badge && (
+                  <span className={`text-[10px] md:text-xs font-bold px-2 py-0.5 rounded-full ${s.badgeClass}`}>
+                    {s.badge}
+                  </span>
+                )}
               </div>
-              <p className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">{s.value}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">{s.label}</p>
+              <p className="text-xl md:text-2xl font-black text-gray-800 dark:text-white tracking-tight">{s.value}</p>
+              <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">{s.label}</p>
             </Link>
           ))}
         </div>
