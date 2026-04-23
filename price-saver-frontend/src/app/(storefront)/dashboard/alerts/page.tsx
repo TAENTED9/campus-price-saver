@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { userApi, itemsApi, type PriceAlert, type Category } from "@/lib/api";
 import { Bell, Trash2, Plus } from "lucide-react";
+import { formatPrice } from "@/lib/formatPrice";
+import NumberInput from "@/components/ui/NumberInput";
 
 const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]";
 
@@ -120,12 +122,10 @@ export default function AlertsPage() {
             </div>
             <div>
               <label className="block mb-1.5 text-xs font-semibold text-gray-600 dark:text-gray-400">Alert below (₦) *</label>
-              <input
+              <NumberInput
                 required
-                type="number"
-                min="1"
-                value={targetPrice}
-                onChange={(e) => setTargetPrice(e.target.value)}
+                value={targetPrice === "" ? "" : Number(targetPrice)}
+                onValueChange={(v) => setTargetPrice(v === "" ? "" : String(v))}
                 placeholder="e.g. 5000"
                 className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/[0.03] text-gray-800 dark:text-white px-3.5 py-2.5 text-sm outline-none focus:border-brand-400 dark:focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-colors"
               />
@@ -196,7 +196,7 @@ export default function AlertsPage() {
                 <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
                   Alert when below{" "}
                   <span className="font-bold text-brand-600 dark:text-brand-400">
-                    ₦{a.target_price.toLocaleString()}
+                    {formatPrice(a.target_price)}
                   </span>
                   {a.trigger_count > 0 && (
                     <span className="ml-2 text-success-600 dark:text-success-400">
@@ -206,7 +206,7 @@ export default function AlertsPage() {
                 </p>
               </div>
               <div className="text-right flex-shrink-0 text-[11px] text-gray-400">
-                {new Date(a.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
+                {new Date(a.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", timeZone: "Africa/Lagos" })}
               </div>
               <button
                 type="button"

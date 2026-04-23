@@ -1,13 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import Link from "next/link";
-import {
-  Users, Package, MapPin, ShoppingBag, BadgeCheck, Clock,
-} from "lucide-react";
-
-import { storefrontApi, type SellerStorefront, type ListingDetail } from "@/lib/api";
-import { CategoryIcon } from "@/lib/categoryIcons";
-import StorefrontFollowButton from "@/components/StorefrontFollowButton";
+import { storefrontApi, type SellerStorefront } from "@/lib/api";
+import StorePageClient from "@/components/storefront/StorePageClient";
 
 // ── ISR: revalidate every 60 seconds ──────────────────────────────────────
 export const revalidate = 60;
@@ -27,10 +21,11 @@ export async function generateStaticParams() {
 
 // ── Page metadata ──────────────────────────────────────────────────────────
 export async function generateMetadata(
-  { params }: { params: { username: string } }
+  { params }: { params: Promise<{ username: string }> }
 ): Promise<Metadata> {
+  const { username } = await params;
   try {
-    const data: SellerStorefront = await storefrontApi.getSellerPage(params.username);
+    const data: SellerStorefront = await storefrontApi.getSellerPage(username);
     const name = data.seller.display_name || data.seller.username;
     return {
       title: `${name} — Campify`,
@@ -48,115 +43,17 @@ export async function generateMetadata(
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function Initials({ name, size = "lg" }: { name: string; size?: "sm" | "lg" }) {
-  const parts = name.trim().split(" ");
-  const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
-  const cls =
-    size === "lg"
-      ? "w-20 h-20 text-2xl font-black border-4 border-white dark:border-gray-900"
-      : "w-10 h-10 text-sm font-bold";
-  return (
-    <div
-      className={`rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white flex-shrink-0 ${cls}`}
-    >
-      {letters.toUpperCase()}
-    </div>
-  );
-}
-
-function AvailabilityChip({ status }: { status: string }) {
-  const map: Record<string, { label: string; color: string }> = {
-    open: {
-      label: "Open for orders",
-      color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    },
-    limited: {
-      label: "Limited availability",
-      color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-    },
-    closed: {
-      label: "Not taking orders",
-      color: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    },
-  };
-  const { label, color } = map[status] ?? map.open;
-  return (
-    <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${color}`}>{label}</span>
-  );
-}
-
-function ConditionChip({ condition }: { condition: string }) {
-  const map: Record<string, string> = {
-    New: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    "Fairly Used": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-    Used: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  };
-  return (
-    <span
-      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ${map[condition] ?? map.Used}`}
-    >
-      {condition}
-    </span>
-  );
-}
-
-function ListingCard({ listing }: { listing: ListingDetail }) {
-  const photo = listing.photos?.[0];
-  return (
-    <Link
-      href={`/listing/${listing.id}`}
-      className="group rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] overflow-hidden hover:border-brand-300 dark:hover:border-brand-500/40 transition-colors"
-    >
-      <div className="aspect-square bg-gray-50 dark:bg-gray-900 relative overflow-hidden">
-        {photo ? (
-          <img
-            src={photo}
-            alt={listing.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-brand-50 to-cyan-50 dark:from-brand-900/20 dark:to-cyan-900/20">
-            <CategoryIcon id={listing.category_id} size={36} containerSize="w-20 h-20" />
-          </div>
-        )}
-      </div>
-      <div className="p-3 space-y-1.5">
-        <p className="text-sm font-semibold text-gray-800 dark:text-white line-clamp-2 leading-snug">
-          {listing.name}
-        </p>
-        <div className="flex items-center gap-1.5">
-          <ConditionChip condition={listing.condition} />
-          {listing.is_negotiable && (
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 dark:bg-brand-900/20 dark:text-brand-400 uppercase tracking-wide">
-              Negotiable
-            </span>
-          )}
-        </div>
-        <p className="text-base font-black text-brand-600 dark:text-brand-400">
-          ₦{listing.price.toLocaleString()}
-        </p>
-        {listing.location && (
-          <p className="text-xs text-gray-400 flex items-center gap-1">
-            <MapPin size={10} /> {listing.location}
-          </p>
-        )}
-      </div>
-    </Link>
-  );
-}
-
 // ── Page (Server Component) ────────────────────────────────────────────────
 
 export default async function SellerStorefrontPage({
   params,
 }: {
-  params: { username: string };
+  params: Promise<{ username: string }>;
 }) {
+  const { username } = await params;
   let data: SellerStorefront;
   try {
-    data = await storefrontApi.getSellerPage(params.username);
+    data = await storefrontApi.getSellerPage(username);
   } catch {
     notFound();
   }
@@ -165,129 +62,12 @@ export default async function SellerStorefrontPage({
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Banner */}
-      <div className="relative h-44 md:h-56">
-        {(seller as any).banner_url ? (
-          <img
-            src={(seller as any).banner_url}
-            alt="banner"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-brand-500 via-brand-600 to-[#06b6d4]" />
-        )}
-        <div className="absolute inset-0 bg-black/20" />
-      </div>
-
-      {/* Profile header */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 -mt-10 pb-6 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-end gap-4">
-            {seller.avatar_url ? (
-              <img
-                src={seller.avatar_url}
-                alt={seller.display_name}
-                className="w-20 h-20 rounded-full object-cover border-4 border-white dark:border-gray-900 flex-shrink-0"
-              />
-            ) : (
-              <Initials name={seller.display_name || seller.username} size="lg" />
-            )}
-            <div className="pb-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-black text-gray-900 dark:text-white">
-                  {seller.display_name || seller.username}
-                </h1>
-                {seller.verified && (
-                  <BadgeCheck
-                    size={18}
-                    className="text-brand-500 flex-shrink-0"
-                    aria-label="Verified seller"
-                  />
-                )}
-              </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">@{seller.username}</p>
-              {(seller as any).trust_signal && (
-                <p className="text-xs text-gray-400 mt-0.5">{(seller as any).trust_signal}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Client component for follow (needs auth state) */}
-          <div className="sm:pb-1">
-            <StorefrontFollowButton
-              sellerId={seller.id}
-              initialCount={seller.follower_count}
-            />
-          </div>
-        </div>
-
-        {/* Chips row */}
-        <div className="flex flex-wrap items-center gap-3 py-4 border-b border-gray-200 dark:border-gray-800">
-          <AvailabilityChip
-            status={seller.vacation_mode ? "closed" : seller.availability_status}
-          />
-          {seller.vacation_mode && (
-            <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-              <Clock size={12} /> On vacation — not accepting orders
-            </span>
-          )}
-          <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-            <Package size={13} /> {listing_count}{" "}
-            {listing_count === 1 ? "listing" : "listings"}
-          </span>
-          <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-            <Users size={13} /> {seller.follower_count.toLocaleString()}{" "}
-            {seller.follower_count === 1 ? "follower" : "followers"}
-          </span>
-        </div>
-
-        {/* Bio */}
-        {seller.bio && (
-          <div className="py-5 border-b border-gray-200 dark:border-gray-800">
-            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed whitespace-pre-line max-w-2xl">
-              {seller.bio}
-            </p>
-          </div>
-        )}
-
-        {/* Listings */}
-        <div className="py-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-black text-gray-800 dark:text-white">Active Listings</h2>
-            {listing_count > 0 && (
-              <span className="text-xs text-gray-400">{listing_count} total</span>
-            )}
-          </div>
-
-          {listings.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-                <ShoppingBag size={28} className="text-gray-400" />
-              </div>
-              <p className="font-bold text-gray-700 dark:text-white mb-1">No active listings</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                This seller hasn&apos;t posted any listings yet.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {listings.map((l) => (
-                <ListingCard key={l.id} listing={l} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Footer nav */}
-        <div className="py-4 border-t border-gray-200 dark:border-gray-800 mb-8">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-brand-500 transition-colors"
-          >
-            ← Browse all listings
-          </Link>
-        </div>
-      </div>
+      {/* Cover photo + profile + tabs are all inside StorePageClient for edit-in-place support */}
+      <StorePageClient
+        seller={seller}
+        listings={listings}
+        listingCount={listing_count}
+      />
     </div>
   );
 }

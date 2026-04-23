@@ -1,30 +1,25 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { itemsApi, type Price } from "@/lib/api";
-import { Heart, Trash2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { wishlistApi } from "@/lib/api";
+import { thumbnailImage } from "@/lib/cloudinary";
+import { Heart, Trash2, MapPin, TrendingDown, Search } from "lucide-react";
 
-const WL_KEY = "ps_wishlist";
-
-function getWishlistIds(): number[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem(WL_KEY) || "[]"); } catch { return []; }
-}
-
-export function removeFromWishlist(id: number) {
-  const ids = getWishlistIds().filter((i) => i !== id);
-  localStorage.setItem(WL_KEY, JSON.stringify(ids));
-}
-
-export function addToWishlist(id: number) {
-  const ids = getWishlistIds();
-  if (!ids.includes(id)) { ids.push(id); localStorage.setItem(WL_KEY, JSON.stringify(ids)); }
-}
-
-export function isInWishlist(id: number): boolean {
-  return getWishlistIds().includes(id);
-}
+type WishlistItem = {
+  wishlist_id: number;
+  listing_id: number;
+  name: string;
+  price: number;
+  saved_price?: number | null;
+  location?: string | null;
+  listing_status: string;
+  photos: string[];
+  uuid?: string | null;
+  saved_at: string;
+};
 
 function formatPrice(n: number) {
   return new Intl.NumberFormat("en-NG", {
@@ -36,58 +31,68 @@ function formatPrice(n: number) {
 const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]";
 
 export default function WishlistPage() {
-  const [ids, setIds]     = useState<number[]>([]);
-  const [items, setItems] = useState<Price[]>([]);
+  const { token } = useAuth();
+  const [items, setItems]   = useState<WishlistItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState<number | null>(null);
 
-  useEffect(() => {
-    const saved = getWishlistIds();
-    setIds(saved);
-    if (saved.length === 0) { setLoading(false); return; }
-    itemsApi.getPrices(0, 200)
-      .then((all) => setItems(all.filter((p) => saved.includes(p.id))))
-      .catch(() => {})
+  const fetchWishlist = useCallback(() => {
+    if (!token) { setLoading(false); return; }
+    setLoading(true);
+    wishlistApi.list(token)
+      .then((data) => setItems(data as unknown as WishlistItem[]))
+      .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [token]);
 
-  const handleRemove = (id: number) => {
-    removeFromWishlist(id);
-    setItems((prev) => prev.filter((p) => p.id !== id));
-    setIds((prev) => prev.filter((i) => i !== id));
-  };
+  useEffect(() => { fetchWishlist(); }, [fetchWishlist]);
+
+  async function handleRemove(listingId: number) {
+    if (!token) return;
+    setRemoving(listingId);
+    try {
+      await wishlistApi.toggle(token, listingId);
+      setItems((prev) => prev.filter((i) => i.listing_id !== listingId));
+    } catch { /* silent */ }
+    finally { setRemoving(null); }
+  }
 
   return (
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">Wishlist</h2>
+          <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight flex items-center gap-2">
+            <Heart size={22} className="text-error-500" /> My Wishlist
+            {items.length > 0 && (
+              <span className="bg-error-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                {items.length}
+              </span>
+            )}
+          </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            {ids.length} saved {ids.length === 1 ? "item" : "items"}
+            {loading ? "Loading…" : `${items.length} saved ${items.length === 1 ? "item" : "items"}`}
           </p>
         </div>
         <Link
           href="/search"
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-4 py-2 text-sm font-bold hover:opacity-90 transition-opacity min-h-[40px]"
         >
-          Browse Prices
+          <Search size={14} /> Browse
         </Link>
       </div>
 
       {/* Loading skeletons */}
       {loading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className={`${CARD} p-5 animate-pulse`}>
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-gray-700 flex-shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-3/4 rounded bg-gray-100 dark:bg-gray-700" />
-                  <div className="h-3 w-1/2 rounded bg-gray-100 dark:bg-gray-700" />
-                </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className={`${CARD} animate-pulse`}>
+              <div className="aspect-square bg-gray-100 dark:bg-gray-800 rounded-t-2xl" />
+              <div className="p-3 space-y-2">
+                <div className="h-3 w-3/4 bg-gray-100 dark:bg-gray-700 rounded" />
+                <div className="h-4 w-1/2 bg-gray-100 dark:bg-gray-700 rounded" />
               </div>
-              <div className="h-5 w-1/3 rounded bg-gray-100 dark:bg-gray-700" />
             </div>
           ))}
         </div>
@@ -107,66 +112,79 @@ export default function WishlistPage() {
             href="/search"
             className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
           >
-            Browse Prices
+            Start Browsing
           </Link>
         </div>
       )}
 
       {/* Items grid */}
       {!loading && items.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {items.map((item) => (
-              <div key={item.id} className={`${CARD} p-5 flex flex-col`}>
-
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 font-black text-xl flex-shrink-0">
-                    {item.name.charAt(0).toUpperCase()}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {items.map((item) => {
+            const photo = item.photos?.[0];
+            const priceDrop = item.saved_price != null && item.price < item.saved_price;
+            return (
+              <div key={item.wishlist_id} className={`${CARD} relative overflow-hidden flex flex-col`}>
+                {/* Price drop banner */}
+                {priceDrop && (
+                  <div className="absolute top-0 left-0 right-0 z-10 bg-green-500 text-white text-[10px] font-bold px-2 py-1 flex items-center gap-1">
+                    <TrendingDown size={10} /> Price dropped!
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-[14px] text-gray-800 dark:text-white line-clamp-2">{item.name}</p>
-                    {item.brand && <p className="text-[11px] text-gray-400 mt-0.5">{item.brand}</p>}
-                    {item.location && <p className="text-[11px] text-gray-400 mt-0.5 truncate">📍 {item.location}</p>}
+                )}
+
+                {/* Remove button */}
+                <button
+                  type="button"
+                  onClick={() => handleRemove(item.listing_id)}
+                  disabled={removing === item.listing_id}
+                  aria-label="Remove from wishlist"
+                  className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm flex items-center justify-center text-error-500 hover:bg-white dark:hover:bg-gray-900 transition-colors shadow-sm"
+                >
+                  {removing === item.listing_id
+                    ? <span className="w-3 h-3 border border-error-500 border-t-transparent rounded-full animate-spin" />
+                    : <Trash2 size={12} />}
+                </button>
+
+                <Link href={`/listing/${item.uuid ?? item.listing_id}`} className="flex-1 group">
+                  <div className={`aspect-square bg-gray-100 dark:bg-gray-800 relative overflow-hidden ${priceDrop ? "mt-6" : ""}`}>
+                    {photo ? (
+                      <Image
+                        src={thumbnailImage(photo, 400)}
+                        alt={item.name}
+                        fill
+                        className="object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-3xl font-black text-gray-200 dark:text-gray-700">
+                          {item.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(item.id)}
-                    title="Remove from wishlist"
-                    className="w-8 h-8 rounded-lg border border-error-200 dark:border-error-500/30 bg-error-50 dark:bg-error-500/10 flex items-center justify-center text-error-500 hover:bg-error-100 transition-colors flex-shrink-0"
-                  >
-                    <Heart size={13} className="fill-current" />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between mt-auto">
-                  <p className="font-extrabold text-[18px] text-gray-800 dark:text-white">{formatPrice(item.price)}</p>
-                  {item.retailer && <p className="text-[11px] text-gray-400">{item.retailer}</p>}
-                </div>
-
-                <div className="flex gap-2 mt-3">
-                  <Link
-                    href={`/search?q=${encodeURIComponent(item.name)}`}
-                    className="flex-1 text-center py-2 text-xs font-bold text-brand-600 dark:text-brand-400 border border-brand-200 dark:border-brand-700 rounded-xl hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors"
-                  >
-                    Compare prices
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(item.id)}
-                    title="Remove"
-                    className="w-9 h-9 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-400 hover:text-error-500 hover:border-error-200 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                  <div className="p-3">
+                    <p className="text-sm font-semibold text-gray-800 dark:text-white line-clamp-2 leading-snug mb-1">
+                      {item.name}
+                    </p>
+                    {item.location && (
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mb-1">
+                        <MapPin size={10} /> {item.location}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <p className="text-base font-black text-brand-600 dark:text-brand-400">
+                        {formatPrice(item.price)}
+                      </p>
+                      {priceDrop && item.saved_price && (
+                        <p className="text-xs line-through text-gray-400">{formatPrice(item.saved_price)}</p>
+                      )}
+                    </div>
+                  </div>
+                </Link>
               </div>
-            ))}
-          </div>
-
-          <p className="text-xs text-center text-gray-400">
-            Wishlist saved locally on this device. Sync across browsers coming soon.
-          </p>
-        </>
+            );
+          })}
+        </div>
       )}
     </div>
   );

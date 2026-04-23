@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Heart, Eye, ShieldCheck, ShoppingBag } from "lucide-react";
+import { Heart, Eye, ShieldCheck, ShoppingBag, Zap, Star } from "lucide-react";
 import { thumbnailImage } from "@/lib/cloudinary";
+import { useOptimisticToggle } from "@/hooks/useOptimistic";
 
 export interface ListingCardProps {
   id: string | number;
+  uuid?: string | null;
   title: string;
   price: number;
   condition: "new" | "fairly_used" | "used";
@@ -19,6 +21,11 @@ export interface ListingCardProps {
   viewsCount?: number;
   isWishlisted?: boolean;
   onWishlistToggle?: (id: string | number) => void;
+  flashSale?: boolean;
+  flashSaleLabel?: string;
+  isFeatured?: boolean;
+  sellerAvatarUrl?: string | null;
+  isNegotiable?: boolean;
 }
 
 const CONDITION_BADGE: Record<
@@ -50,6 +57,7 @@ function formatPrice(n: number) {
 
 export default function ListingCard({
   id,
+  uuid,
   title,
   price,
   condition,
@@ -60,20 +68,32 @@ export default function ListingCard({
   viewsCount,
   isWishlisted = false,
   onWishlistToggle,
+  flashSale = false,
+  flashSaleLabel,
+  isFeatured = false,
+  sellerAvatarUrl,
+  isNegotiable = false,
 }: ListingCardProps) {
-  const [wishlisted, setWishlisted] = useState(isWishlisted);
   const badge = CONDITION_BADGE[condition] ?? CONDITION_BADGE.used;
   const thumb = imageUrl ? thumbnailImage(imageUrl, 400) : "";
   const initial = (sellerName[0] ?? "S").toUpperCase();
 
+  const wishlistAction = useCallback(async () => {
+    onWishlistToggle?.(id);
+  }, [id, onWishlistToggle]);
+
+  const [wishlisted, toggleWishlist, wishlistBusy] = useOptimisticToggle(
+    isWishlisted,
+    wishlistAction
+  );
+
   function handleWishlist(e: React.MouseEvent) {
     e.preventDefault();
-    setWishlisted((prev) => !prev); // optimistic
-    onWishlistToggle?.(id);
+    if (!wishlistBusy) toggleWishlist();
   }
 
   return (
-    <Link href={`/store/listing/${id}`} className="block">
+    <Link href={`/listing/${uuid ?? id}`} className="block">
       <div className="bg-white dark:bg-gray-900 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 hover:shadow-lg hover:shadow-blue-100/50 dark:hover:shadow-blue-950/30 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group">
 
         {/* Image area */}
@@ -99,6 +119,21 @@ export default function ListingCard({
             {badge.label}
           </span>
 
+          {/* Flash sale badge */}
+          {flashSale && (
+            <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">
+              <Zap size={9} className="fill-white" />
+              {flashSaleLabel || "Flash Sale"}
+            </span>
+          )}
+
+          {/* Featured star */}
+          {isFeatured && (
+            <span className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-full bg-yellow-400">
+              <Star size={11} className="fill-white text-white" />
+            </span>
+          )}
+
           {/* Wishlist button */}
           <button
             type="button"
@@ -115,9 +150,15 @@ export default function ListingCard({
 
         {/* Card body */}
         <div className="p-3.5">
-          <h3 className="font-semibold text-sm text-gray-900 dark:text-white line-clamp-2 mb-2 leading-snug">
+          <h3 className="font-semibold text-sm text-gray-900 dark:text-white line-clamp-2 mb-1.5 leading-snug">
             {title}
           </h3>
+
+          {isNegotiable && (
+            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 mb-1.5">
+              NEGOTIABLE
+            </span>
+          )}
 
           <p className="text-lg font-black text-blue-600 dark:text-blue-400">
             {formatPrice(price)}
@@ -125,9 +166,19 @@ export default function ListingCard({
 
           {/* Seller row */}
           <div className="flex items-center gap-1.5 mt-2">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[9px] font-black flex-shrink-0">
-              {initial}
-            </div>
+            {sellerAvatarUrl ? (
+              <Image
+                src={sellerAvatarUrl}
+                alt={sellerName}
+                width={20}
+                height={20}
+                className="rounded-full object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[9px] font-black flex-shrink-0">
+                {initial}
+              </div>
+            )}
             <span className="text-xs text-gray-500 dark:text-gray-400 truncate flex-1">
               {sellerName}
             </span>

@@ -25,6 +25,7 @@ interface MarketplaceItem {
   retailer?: string | null;
   location?: string | null;
   listing_status?: string | null;
+  is_negotiable?: boolean | null;
   seller?: {
     username?: string;
     display_name?: string;
@@ -148,6 +149,7 @@ export default function ListingsGrid({ category = "all" }: ListingsGridProps) {
                   category={String(item.category_id ?? "")}
                   createdAt={item.submitted_at ?? new Date().toISOString()}
                   viewsCount={item.view_count ?? 0}
+                  isNegotiable={item.is_negotiable ?? false}
                 />
               </motion.div>
             ))}

@@ -11,4 +11,6 @@ __all__ = [
     "auth",
     "google_maps",
     "compare",
+    "listings",
+    "messages",
 ]

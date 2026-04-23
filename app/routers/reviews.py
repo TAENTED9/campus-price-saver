@@ -110,7 +110,12 @@ async def submit_review(
     db.add(review)
 
     if body.rating == 5:
-        _award_points(db, seller_id, 20, "five_star_review", listing_id)
+        _award_points(db, seller_id, 15, "five_star_review", listing_id)
+        try:
+            from app.services.karma import award_karma
+            award_karma(seller_id, 15, "five_star_review", db, reference_id=str(review.id))
+        except Exception:
+            pass
 
     reviewer_name = current_user.display_name or current_user.username or "Someone"
     _push_notification(

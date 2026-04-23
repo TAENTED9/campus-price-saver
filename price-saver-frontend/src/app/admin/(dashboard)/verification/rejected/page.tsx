@@ -52,7 +52,7 @@ export default function RejectedVerificationsPage() {
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{v.faculty}</td>
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{v.business_name}</td>
                 <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{v.admin_notes || "—"}</td>
-                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{v.reviewed_at ? new Date(v.reviewed_at).toLocaleDateString() : "—"}</td>
+                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{v.reviewed_at ? new Date(v.reviewed_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" }) : "—"}</td>
               </tr>
             ))}
           </tbody>

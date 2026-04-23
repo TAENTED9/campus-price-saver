@@ -4,6 +4,8 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { userApi, itemsApi, type MySubmission, type Category } from "@/lib/api";
+import { formatPrice } from "@/lib/formatPrice";
+import NumberInput from "@/components/ui/NumberInput";
 
 const STATUS_STYLES: Record<string, string> = {
   approved: "bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400",
@@ -112,12 +114,10 @@ export default function SubmissionsPage() {
               </div>
               <div>
                 <label className="block mb-1.5 text-xs font-medium text-gray-700 dark:text-gray-300">Price (₦) *</label>
-                <input
+                <NumberInput
                   required
-                  type="number"
-                  min="1"
-                  value={formPrice}
-                  onChange={(e) => setFormPrice(e.target.value)}
+                  value={formPrice === "" ? "" : Number(formPrice)}
+                  onValueChange={(v) => setFormPrice(v === "" ? "" : String(v))}
                   placeholder="e.g. 150"
                   className="w-full rounded-lg border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20"
                 />
@@ -203,7 +203,7 @@ export default function SubmissionsPage() {
                       {s.brand && <p className="text-xs text-gray-400">{s.brand}</p>}
                     </td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">
-                      ₦{s.price.toLocaleString()}
+                      {formatPrice(s.price)}
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-[140px] truncate">
                       {s.location ?? "—"}
@@ -215,7 +215,7 @@ export default function SubmissionsPage() {
                     </td>
                     <td className="px-4 py-3 text-right text-gray-500 dark:text-gray-400">{s.view_count}</td>
                     <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
-                      {new Date(s.submitted_at).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
+                      {new Date(s.submitted_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", timeZone: "Africa/Lagos" })}
                     </td>
                   </tr>
                 ))}

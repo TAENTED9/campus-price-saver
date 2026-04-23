@@ -71,7 +71,7 @@ export default function ApprovedVerificationsPage() {
                 <td className="px-5 py-4 font-mono text-gray-600 dark:text-gray-300">{v.matric_no}</td>
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{v.faculty}</td>
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{v.business_name}</td>
-                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{v.reviewed_at ? new Date(v.reviewed_at).toLocaleDateString() : "—"}</td>
+                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{v.reviewed_at ? new Date(v.reviewed_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" }) : "—"}</td>
                 <td className="px-5 py-4">
                   <button type="button" onClick={() => handleSuspend(v)} disabled={actionLoading === v.id} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50">
                     <ShieldOff size={14} /> Suspend

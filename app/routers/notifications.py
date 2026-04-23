@@ -1,5 +1,5 @@
 """Notification center router — in-app bell, mark read, clear."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -41,13 +41,69 @@ async def unread_count(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Lightweight endpoint for the notification bell badge."""
-    count = (
-        db.query(Notification)
-        .filter(Notification.user_id == current_user.id, Notification.is_read == False)
-        .count()
+    """Lightweight endpoint — returns total + per-category breakdown."""
+    base = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
     )
-    return {"unread_count": count}
+    total = base.count()
+    messages = base.filter(Notification.type == "new_message").count()
+    orders = base.filter(Notification.type.like("order%")).count()
+    system = max(0, total - messages - orders)
+    return {
+        "unread_count": total,
+        "total": total,
+        "messages": messages,
+        "orders": orders,
+        "system": system,
+    }
+
+
+@router.post("/mark-read")
+async def mark_category_read(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark all notifications in a category as read."""
+    category = (body.get("category") or "all").strip()
+    q = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
+    )
+    if category == "messages":
+        q = q.filter(Notification.type == "new_message")
+    elif category == "orders":
+        q = q.filter(Notification.type.like("order%"))
+    elif category == "system":
+        q = q.filter(
+            Notification.type != "new_message",
+            ~Notification.type.like("order%"),
+        )
+    # "all" marks everything
+    q.update({"is_read": True}, synchronize_session=False)
+    db.commit()
+    total = db.query(Notification).filter(
+        Notification.user_id == current_user.id, Notification.is_read == False
+    ).count()
+    messages_c = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
+        Notification.type == "new_message",
+    ).count()
+    orders_c = db.query(Notification).filter(
+        Notification.user_id == current_user.id,
+        Notification.is_read == False,
+        Notification.type.like("order%"),
+    ).count()
+    return {
+        "success": True,
+        "unread_count": total,
+        "total": total,
+        "messages": messages_c,
+        "orders": orders_c,
+        "system": max(0, total - messages_c - orders_c),
+    }
 
 
 @router.patch("/{notification_id}/read")

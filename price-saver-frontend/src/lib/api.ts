@@ -8,24 +8,36 @@ export type LoginResponse = {
   user_name?: string;
   admin_id?: number;
   admin_name?: string;
-  user_role: string;
-  access_token: string;
-  token_type: string;
+  user_role?: string;
+  access_token?: string;  // absent when mfa_required
+  token_type?: string;
   message: string;
+  // Block 10 — MFA two-step login
+  mfa_required?: boolean;
+  temp_token?: string;
+  // Block 4A — settings rehydration on login
+  settings?: import("@/lib/settingsApi").UserSettingsData;
 };
 
 export type UserInfo = {
   id: number;
+  /** Integer DB primary key — always a number, safe to compare with message.sender_id */
+  numeric_id?: number;
   username: string;
   email?: string;
   email_verified?: boolean;
   display_name?: string;
   role: string;
   balance?: number;
+  seller_points?: number;
+  avg_rating?: number | null;
+  availability_status?: string;
   phone?: string | null;
   avatar_url?: string | null;
   department?: string | null;
   level?: string | null;
+  // Block 4B — settings embedded in /me response
+  settings?: import("@/lib/settingsApi").UserSettingsData;
 };
 
 export type ApiError = {
@@ -46,19 +58,84 @@ export type RegisterResponse = {
   token_type?: string;
 };
 
+// ===================== IN-MEMORY TOKEN STORE (Block 13A) =====================
+
+let _accessToken: string | null = null;
+let _refreshPromise: Promise<string | null> | null = null;
+
+export function setAccessToken(token: string | null): void {
+  _accessToken = token;
+}
+
+export function getAccessToken(): string | null {
+  return _accessToken;
+}
+
+async function _silentRefresh(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) { _accessToken = null; return null; }
+      const data = await res.json();
+      _accessToken = data.access_token ?? null;
+      return _accessToken;
+    } catch {
+      _accessToken = null;
+      return null;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  return _refreshPromise;
+}
+
 // ===================== HELPERS =====================
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const supplied = (options.headers ?? {}) as Record<string, string>;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...supplied,
+  };
+
+  // Auto-inject in-memory access token when the caller hasn't set one
+  if (!headers["Authorization"] && _accessToken) {
+    headers["Authorization"] = `Bearer ${_accessToken}`;
+  }
+
   const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
+    credentials: "include", // always send the HttpOnly refresh cookie
   });
+
+  // ── 401 → silent refresh → retry once ─────────────────────────────────────
+  if (res.status === 401) {
+    const newToken = await _silentRefresh();
+    if (newToken) {
+      const retryRes = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers: { ...headers, Authorization: `Bearer ${newToken}` },
+        credentials: "include",
+      });
+      if (!retryRes.ok) {
+        const b = await retryRes.json().catch(() => ({ detail: "Request failed" }));
+        throw new Error(typeof b.detail === "string" ? b.detail : "Request failed");
+      }
+      return retryRes.json() as Promise<T>;
+    }
+    // Refresh failed — session truly expired
+    _accessToken = null;
+    const b = await res.json().catch(() => ({ detail: "Session expired" }));
+    throw new Error(typeof b.detail === "string" ? b.detail : "Session expired");
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: "Request failed" }));
@@ -66,7 +143,6 @@ async function request<T>(
     if (typeof body.detail === "string") {
       message = body.detail;
     } else if (Array.isArray(body.detail)) {
-      // FastAPI validation errors: detail is an array of { msg, loc, type }
       message = body.detail.map((e: { msg?: string }) => e.msg || "Validation error").join("; ");
     } else {
       message = "Request failed";
@@ -112,13 +188,13 @@ export const authApi = {
   login: (username: string, password: string) =>
     request<LoginResponse>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, remember_me: true }),
     }),
 
-  register: (username: string, password: string, email?: string) =>
+  register: (username: string, password: string, email?: string, role?: string) =>
     request<RegisterResponse>("/api/auth/register", {
       method: "POST",
-      body: JSON.stringify({ username, password, ...(email ? { email } : {}) }),
+      body: JSON.stringify({ username, password, ...(email ? { email } : {}), ...(role ? { role } : {}) }),
     }),
 
   verifyEmailToken: (token: string) =>
@@ -146,6 +222,50 @@ export const authApi = {
   logout: () =>
     request<{ success: boolean; message: string }>("/api/auth/logout", {
       method: "POST",
+    }),
+
+  refresh: () =>
+    request<{ access_token: string; token_type: string; settings?: import("@/lib/settingsApi").UserSettingsData }>("/api/auth/refresh", {
+      method: "POST",
+    }),
+
+  mfaVerify: (temp_token: string, code: string) =>
+    request<{ success: boolean; access_token: string; token_type: string; backup_used: boolean; remaining_backup_codes: number }>("/api/auth/mfa/verify", {
+      method: "POST",
+      body: JSON.stringify({ temp_token, code }),
+    }),
+
+  mfaSetup: (token: string, password: string) =>
+    request<{ qr_code: string; secret: string; manual_entry: string }>("/api/auth/mfa/setup", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ password }),
+    }),
+
+  mfaConfirm: (token: string, code: string) =>
+    request<{ backup_codes: string[]; message: string }>("/api/auth/mfa/confirm", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ code }),
+    }),
+
+  mfaDisable: (token: string, code: string) =>
+    request<{ success: boolean; message: string }>("/api/auth/mfa/disable", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ code }),
+    }),
+
+  forgotPassword: (email: string) =>
+    request<{ message: string }>("/api/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token: string, email: string, password: string) =>
+    request<{ success: boolean; message: string }>("/api/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, email, password }),
     }),
 
   updateProfile: (token: string, data: { display_name?: string; phone?: string; department?: string; level?: string; avatar_url?: string }) =>
@@ -198,6 +318,7 @@ export type Category = {
 
 export type Price = {
   id: number;
+  uuid?: string | null;
   category_id: number;
   store_id?: number | null;
   name: string;
@@ -209,6 +330,12 @@ export type Price = {
   retailer?: string | null;
   location?: string | null;
   status: string;
+  photos?: string[] | null;
+  condition?: string | null;
+  is_negotiable?: boolean | null;
+  submitted_at?: string | null;
+  view_count?: number | null;
+  description?: string | null;
 };
 
 // ─── Flash Sale type ──────────────────────────────────────────────────────────
@@ -256,6 +383,7 @@ export type SearchFilters = {
 
 export type SellerInfo = {
   id: number;
+  uuid?: string | null;
   username: string;
   display_name: string;
   avatar_url?: string | null;
@@ -265,7 +393,18 @@ export type SellerInfo = {
   vacation_mode: boolean;
   auto_reply_message?: string | null;
   verified: boolean;
+  is_verified?: boolean;
+  verification_status?: "approved" | "pending" | "rejected" | "none";
+  trust_signal?: string | null;
+  whatsapp?: string | null;
+  show_whatsapp?: boolean;
+  instagram?: string | null;
+  pickup_policy?: string | null;
+  return_policy?: string | null;
+  payment_policy?: string | null;
   follower_count: number;
+  view_count?: number | null;
+  confirmed_sales?: number | null;
   trust_tier?: string;
   seller_points?: number;
   avg_rating?: number | null;
@@ -276,6 +415,7 @@ export type SellerInfo = {
 
 export type ListingDetail = {
   id: number;
+  uuid?: string | null;
   name: string;
   brand?: string | null;
   price: number;
@@ -312,11 +452,13 @@ export type Inquiry = {
   listing_id: number;
   listing_name: string;
   buyer_id: number;
+  buyer_uuid: string | null;
   buyer_name: string;
   message: string;
   is_read: boolean;
   seller_reply: string | null;
   replied_at: string | null;
+  label: string | null;
   thread: ThreadMessage[] | null;
   created_at: string;
 };
@@ -611,9 +753,33 @@ export const uploadApi = {
     const data: { success: boolean; url: string } = await res.json();
     return data.url;
   },
+
+  uploadBannerSlide: async (token: string, file: File): Promise<string> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/upload/banner-slide`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
+      throw new Error(err.detail || "Upload failed");
+    }
+    const data: { success: boolean; url: string } = await res.json();
+    return data.url;
+  },
 };
 
 // ===================== SELLER DASHBOARD TYPES =====================
+
+export type KarmaEntry = {
+  id: number;
+  points: number;
+  reason: string;
+  reference_id: string | null;
+  created_at: string;
+};
 
 export type SellerStats = {
   totalListings: number;
@@ -626,10 +792,20 @@ export type SellerStats = {
   sellerPoints: number;
   vacationMode: boolean;
   verificationStatus: string;
+  totalInquiries?: number;
+  followersCount?: number;
+  availabilityStatus?: string;
+  responseRate?: number;
+  avgResponseTime?: string;
+  completionRate?: number;
+  noShowRate?: number;
+  avgRating?: number | null;
+  reviewCount?: number;
 };
 
 export type SellerListing = {
   id: number;
+  uuid?: string | null;
   name: string;
   brand?: string | null;
   price: number;
@@ -679,6 +855,13 @@ export type SellerVerificationData = {
 // ===================== SELLER API =====================
 
 export const sellerApi = {
+  apply: (token: string, data: { business_name: string; category: string; pickup_location: string; bio?: string }) =>
+    request<{ success: boolean; message: string }>("/api/seller/apply", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(data),
+    }),
+
   getStats: (token: string) =>
     request<{ success: boolean; data: SellerStats }>("/api/seller/stats", {
       headers: authHeaders(token),
@@ -714,9 +897,17 @@ export const sellerApi = {
       headers: authHeaders(token),
     }),
 
-  getAnalytics: (token: string) =>
-    request<{ success: boolean; data: SellerAnalytics }>("/api/seller/analytics", {
+  getAnalytics: (token: string, range?: string) =>
+    request<{ success: boolean; data: SellerAnalytics }>(
+      `/api/seller/analytics${range ? `?range=${range}` : ""}`,
+      { headers: authHeaders(token) }
+    ),
+
+  setAvailability: (token: string, status: string) =>
+    request<{ success: boolean; availability_status: string }>("/api/seller/availability", {
+      method: "PATCH",
       headers: authHeaders(token),
+      body: JSON.stringify({ availability_status: status }),
     }),
 
   getVerification: (token: string) =>
@@ -765,6 +956,26 @@ export const sellerApi = {
       method: "POST",
       headers: { ...authHeaders(token), "Content-Type": "application/json" },
       body: JSON.stringify({ reply }),
+    }),
+
+  setInquiryLabel: (token: string, inquiryId: number, label: string | null) =>
+    request<{ success: boolean; label: string | null }>(`/api/seller/inquiries/${inquiryId}/label`, {
+      method: "PATCH",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    }),
+
+  blockUser: (token: string, userId: number) =>
+    request<{ blocked: boolean }>(`/api/storefront/user/${userId}/block`, {
+      method: "POST",
+      headers: authHeaders(token),
+    }),
+
+  reportUser: (token: string, userUuid: string, reason: string) =>
+    request<{ ok: boolean; message: string }>(`/api/messages/report/${userUuid}`, {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
     }),
 
   getProfile: (token: string) =>
@@ -837,6 +1048,18 @@ export const sellerApi = {
       method: "POST",
       headers: authHeaders(token),
     }),
+
+  getKarmaHistory: (token: string, limit = 10) =>
+    request<{ success: boolean; total: number; history: KarmaEntry[] }>(
+      `/api/seller/karma-history?limit=${limit}`,
+      { headers: authHeaders(token) }
+    ),
+
+  checkProfileKarma: (token: string) =>
+    request<{ success: boolean; awarded: boolean; new_total: number }>(
+      "/api/seller/karma/check-profile",
+      { method: "POST", headers: authHeaders(token) }
+    ),
 };
 
 // ===================== LISTING API (public) =====================
@@ -844,6 +1067,15 @@ export const sellerApi = {
 export const listingApi = {
   getDetail: (id: number) =>
     request<ListingDetail>(`/api/storefront/listing/${id}`),
+
+  getDetailBySlug: (slug: string) =>
+    request<ListingDetail>(`/api/listings/${slug}`),
+
+  recordView: (uuid: string) =>
+    request<{ ok: boolean; view_count: number }>(`/api/listings/${uuid}/views`, { method: "POST" }),
+
+  recordInterest: (uuid: string) =>
+    request<{ ok: boolean }>(`/api/listings/${uuid}/interested`, { method: "POST" }),
 
   getSimilar: (id: number) =>
     request<ListingDetail[]>(`/api/storefront/listing/${id}/similar`),
@@ -891,6 +1123,20 @@ export const storefrontApi = {
       method: "POST",
       headers: authHeaders(token),
       body: JSON.stringify({ message }),
+    }),
+
+  updateCoverPhoto: (token: string, coverPhotoUrl: string) =>
+    request<{ success: boolean; banner_url: string }>("/api/storefront/cover-photo", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cover_photo_url: coverPhotoUrl }),
+    }),
+
+  updateAbout: (token: string, about: string) =>
+    request<{ success: boolean; bio: string }>("/api/storefront/about", {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify({ about }),
     }),
 };
 
@@ -944,6 +1190,21 @@ export type AdminListing = {
   flag_reason: string | null;
 };
 
+export type AdminListingDetail = AdminListing & {
+  description: string | null;
+  condition: string | null;
+  quantity: number | null;
+  is_negotiable: boolean | null;
+  delivery_options: string | null;
+  subcategory: string | null;
+  photos: string[];
+  listing_status: string | null;
+  pack_size: number | null;
+  pack_unit: string | null;
+  expires_at: string | null;
+  seller_username: string | null;
+};
+
 export type AdminAnnouncement = {
   id: number;
   title: string;
@@ -952,6 +1213,8 @@ export type AdminAnnouncement = {
   audience: string;
   is_active: boolean;
   banner_url: string | null;
+  cta_label: string | null;
+  cta_href: string | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -1014,8 +1277,11 @@ export type AdminVerification = {
   faculty: string;
   business_name: string;
   business_description: string | null;
+  business_category: string | null;
+  pickup_location: string | null;
   email: string;
   document_url: string | null;
+  portal_screenshot_url: string | null;
   status: string;
   admin_notes: string | null;
   submitted_at: string;
@@ -1173,6 +1439,11 @@ export const adminApi = {
       headers: authHeaders(token),
     }),
 
+  getListingDetail: (token: string, listingId: number) =>
+    request<{ success: boolean; data: AdminListingDetail }>(`/api/admin/listings/${listingId}`, {
+      headers: authHeaders(token),
+    }),
+
   approveListing: (token: string, listingId: number) =>
     request<{ success: boolean; message: string }>(`/api/admin/listings/${listingId}/approve`, {
       method: "PATCH",
@@ -1205,13 +1476,25 @@ export const adminApi = {
       headers: authHeaders(token),
     }),
 
+  featureListing: (token: string, listingId: number) =>
+    request<{ success: boolean; message: string }>(`/api/admin/listings/${listingId}/feature`, {
+      method: "PUT",
+      headers: authHeaders(token),
+    }),
+
+  unfeatureListing: (token: string, listingId: number) =>
+    request<{ success: boolean; message: string }>(`/api/admin/listings/${listingId}/unfeature`, {
+      method: "PUT",
+      headers: authHeaders(token),
+    }),
+
   // Announcements
   getAnnouncements: (token: string) =>
     request<{ success: boolean; data: AdminAnnouncement[] }>("/api/admin/announcements", {
       headers: authHeaders(token),
     }),
 
-  createAnnouncement: (token: string, data: { title: string; message: string; type?: string; audience?: string; banner_url?: string }) =>
+  createAnnouncement: (token: string, data: { title: string; message: string; type?: string; audience?: string; banner_url?: string; cta_label?: string; cta_href?: string }) =>
     request<{ success: boolean; id: number; message: string }>("/api/admin/announcements", {
       method: "POST",
       headers: authHeaders(token),
@@ -1224,7 +1507,7 @@ export const adminApi = {
       headers: authHeaders(token),
     }),
 
-  updateAnnouncement: (token: string, annId: number, data: Partial<{ title: string; message: string; type: string; audience: string; is_active: boolean; banner_url: string }>) =>
+  updateAnnouncement: (token: string, annId: number, data: Partial<{ title: string; message: string; type: string; audience: string; is_active: boolean; banner_url: string; cta_label: string; cta_href: string }>) =>
     request<{ success: boolean; message: string }>(`/api/admin/announcements/${annId}`, {
       method: "PATCH",
       headers: authHeaders(token),
@@ -1254,6 +1537,13 @@ export const adminApi = {
     request<{ success: boolean; message: string }>(`/api/admin/reports/${reportId}/review`, {
       method: "PATCH",
       headers: authHeaders(token),
+    }),
+
+  dismissReport: (token: string, reportId: number, reason?: string) =>
+    request<{ success: boolean; message: string }>(`/api/admin/reports/${reportId}/dismiss`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify({ reason }),
     }),
 
   // Disputes
@@ -1393,6 +1683,43 @@ export const adminApi = {
   // Block 6A — Analytics
   getAnalytics: (token: string) =>
     request<AdminAnalytics>("/api/admin/analytics", { headers: authHeaders(token) }),
+};
+
+// ===================== ORDERS API =====================
+
+export type Order = {
+  id: number;
+  uuid?: string | null;
+  listing_id: number;
+  listing_name: string;
+  listing_price: number;
+  listing_condition?: string | null;
+  listing_photos?: string[];
+  listing_uuid?: string | null;
+  seller_id: number;
+  seller_name: string;
+  seller_avatar?: string | null;
+  status: string;
+  meetup_location?: string | null;
+  created_at: string;
+};
+
+export const ordersApi = {
+  list: (token: string, status?: string) => {
+    const q = new URLSearchParams();
+    if (status) q.set("status", status);
+    return request<{ success: boolean; data: Order[] }>(
+      `/api/orders${q.toString() ? "?" + q.toString() : ""}`,
+      { headers: authHeaders(token) }
+    );
+  },
+
+  cancel: (token: string, uuid: string) =>
+    request<{ success: boolean; message: string }>(`/api/orders/${uuid}/status`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify({ status: "cancelled" }),
+    }),
 };
 
 // ===================== NOTIFICATIONS API =====================

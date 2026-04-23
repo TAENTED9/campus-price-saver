@@ -2,19 +2,19 @@
 Admin statistics and seller verification management router.
 All endpoints require a valid admin JWT token.
 """
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func, text as sa_text
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import asyncio
 import json
 import time
 
 from app.dependencies import get_db
-from app.models import User, Price, PendingPrice, SellerVerification, AdminEvent, CloudinaryAsset
+from app.models import User, Price, PendingPrice, SellerVerification, AdminEvent, CloudinaryAsset, Announcement, Report
 from app.routers.auth import get_current_admin, decode_access_token
 from app.routers.admin_users import log_action
 
@@ -25,6 +25,10 @@ router = APIRouter(prefix="/admin", tags=["admin-stats"])
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
+
+import re as _re
+_MATRIC_PATTERN = _re.compile(r"^\d{9}(/[A-Z]{2,4})?$")
+
 
 class SellerVerificationCreate(BaseModel):
     seller_name: str
@@ -38,6 +42,28 @@ class SellerVerificationCreate(BaseModel):
     document_url: Optional[str] = None
     portal_screenshot_url: Optional[str] = None
     user_id: Optional[int] = None
+
+    @field_validator("matric_no", mode="before")
+    @classmethod
+    def _normalise_matric(cls, v):
+        if v is None:
+            raise ValueError("Matric number is required")
+        s = str(v).strip().upper()
+        if not _MATRIC_PATTERN.match(s):
+            raise ValueError(
+                "Matric number must be 9 digits, optionally with '/XX' suffix (e.g. 190101001 or 190101001/ED)"
+            )
+        return s
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def _coerce_user_id(cls, v):
+        if v is None or v == "" or v == "null":
+            return None
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
 
 
 class RejectBody(BaseModel):
@@ -212,8 +238,11 @@ async def get_verification_detail(
             "faculty": v.faculty,
             "business_name": v.business_name,
             "business_description": v.business_description,
+            "business_category": getattr(v, "business_category", None),
+            "pickup_location": getattr(v, "pickup_location", None),
             "email": v.email,
             "document_url": v.document_url,
+            "portal_screenshot_url": getattr(v, "portal_screenshot_url", None),
             "status": v.status,
             "admin_notes": v.admin_notes,
             "submitted_at": v.submitted_at.isoformat() if v.submitted_at else None,
@@ -270,6 +299,11 @@ async def approve_verification(
             from app.models import PointsTransaction, Notification
             user.seller_points = (user.seller_points or 0) + 100
             db.add(PointsTransaction(user_id=user.id, amount=100, reason="seller_verified"))
+            try:
+                from app.services.karma import award_karma
+                award_karma(user.id, 100, "get_verified", db, reference_id=str(v.id))
+            except Exception:
+                pass
             # Recalc trust tier
             pts = user.seller_points
             if pts >= 500:
@@ -992,3 +1026,275 @@ async def admin_event_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# BLOCK 16 — Announcements CRUD
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+class AnnouncementCreate(BaseModel):
+    title: str
+    message: str
+    type: str = "System"
+    audience: str = "All"
+    is_active: bool = True
+
+
+class AnnouncementUpdate(BaseModel):
+    title: Optional[str] = None
+    message: Optional[str] = None
+    type: Optional[str] = None
+    audience: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/announcements")
+async def list_announcements(
+    audience: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """GET /api/admin/announcements — list all announcements."""
+    q = db.query(Announcement)
+    if audience:
+        q = q.filter(Announcement.audience == audience)
+    if is_active is not None:
+        q = q.filter(Announcement.is_active == is_active)
+    total = q.count()
+    items = q.order_by(Announcement.created_at.desc()).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "total": total,
+        "data": [_ann_dict(a) for a in items],
+    }
+
+
+@router.post("/announcements", status_code=201)
+async def create_announcement(
+    body: AnnouncementCreate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """POST /api/admin/announcements — create a new announcement."""
+    ann = Announcement(
+        title=body.title.strip(),
+        message=body.message.strip(),
+        type=body.type,
+        audience=body.audience,
+        is_active=body.is_active,
+        created_by=current_admin.id,
+    )
+    db.add(ann)
+    db.commit()
+    db.refresh(ann)
+    log_action(db, current_admin, "create_announcement", "Announcement", ann.id, ann.title)
+    return {"success": True, "id": ann.id, "message": "Announcement created", **_ann_dict(ann)}
+
+
+@router.patch("/announcements/{announcement_id}")
+async def update_announcement(
+    announcement_id: int,
+    body: AnnouncementUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """PATCH /api/admin/announcements/{id} — partial update."""
+    ann = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(ann, field, value)
+    ann.updated_at = datetime.utcnow()
+    db.commit()
+    log_action(db, current_admin, "update_announcement", "Announcement", ann.id, ann.title)
+    return {"success": True, "message": "Updated", **_ann_dict(ann)}
+
+
+@router.delete("/announcements/{announcement_id}")
+async def delete_announcement(
+    announcement_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """DELETE /api/admin/announcements/{id}."""
+    ann = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    title = ann.title
+    db.delete(ann)
+    db.commit()
+    log_action(db, current_admin, "delete_announcement", "Announcement", announcement_id, title)
+    return {"success": True, "message": "Deleted"}
+
+
+# Public endpoint — no auth required
+@router.get("/announcements/public", include_in_schema=True)
+async def public_announcements(
+    audience: Optional[str] = "All",
+    db: Session = Depends(get_db),
+):
+    """GET /api/admin/announcements/public — active announcements for the UI banner."""
+    items = (
+        db.query(Announcement)
+        .filter(
+            Announcement.is_active == True,
+            Announcement.audience.in_([audience, "All"]),
+        )
+        .order_by(Announcement.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    return {"announcements": [_ann_dict(a) for a in items]}
+
+
+def _ann_dict(a: Announcement) -> dict:
+    return {
+        "id": a.id,
+        "title": a.title,
+        "message": a.message,
+        "type": a.type,
+        "audience": a.audience,
+        "is_active": a.is_active,
+        "created_by": a.created_by,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+    }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# BLOCK 16 — Reports management
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.get("/reports")
+async def list_reports(
+    status: Optional[str] = None,
+    target_type: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """GET /api/admin/reports — list all user reports."""
+    q = db.query(Report)
+    if status:
+        q = q.filter(Report.status == status)
+    if target_type:
+        q = q.filter(Report.target_type == target_type)
+    total = q.count()
+    items = q.order_by(Report.created_at.desc()).offset(skip).limit(limit).all()
+    return {
+        "success": True,
+        "total": total,
+        "data": [_report_dict(r) for r in items],
+    }
+
+
+@router.patch("/reports/{report_id}/resolve")
+async def resolve_report(
+    report_id: int,
+    body: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """PATCH /api/admin/reports/{id}/resolve — mark report resolved."""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    report.status = "Resolved"
+    report.resolved_by = current_admin.id
+    report.resolved_at = datetime.utcnow()
+    if body and body.get("admin_notes"):
+        report.admin_notes = body["admin_notes"]
+    db.commit()
+    log_action(db, current_admin, "resolve_report", "Report", report_id, f"{report.target_type}:{report.target_id}")
+    return {"success": True, "message": "Report resolved", **_report_dict(report)}
+
+
+@router.patch("/reports/{report_id}/review")
+async def mark_report_under_review(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """PATCH /api/admin/reports/{id}/review — mark report Under Review."""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    report.status = "Under Review"
+    db.commit()
+    return {"success": True, "message": "Report marked under review", **_report_dict(report)}
+
+
+def _report_dict(r: Report) -> dict:
+    return {
+        "id": r.id,
+        "reporter_id": r.reporter_id,
+        "reporter_name": None,
+        "target_type": r.target_type,
+        "target_id": r.target_id,
+        "target_name": r.target_name,
+        "reason": r.reason,
+        "status": r.status,
+        "admin_notes": r.admin_notes,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+    }
+
+
+@router.patch("/reports/{report_id}/dismiss")
+async def dismiss_report(
+    report_id: int,
+    body: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """PATCH /api/admin/reports/{id}/dismiss — dismiss (close without action)."""
+    report = db.query(Report).filter(Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    report.status = "Dismissed"
+    report.resolved_by = current_admin.id
+    report.resolved_at = datetime.utcnow()
+    if body and body.get("reason"):
+        report.admin_notes = body["reason"]
+    db.commit()
+    log_action(db, current_admin, "dismiss_report", "Report", report_id,
+               f"{report.target_type}:{report.target_id}")
+    return {"success": True, "message": "Report dismissed"}
+
+
+@router.post("/announcements/{announcement_id}/broadcast")
+async def broadcast_announcement(
+    announcement_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """POST /api/admin/announcements/{id}/broadcast — push as notification to audience."""
+    from app.models import Notification
+    ann = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    q = db.query(User).filter(User.role != "admin", User.is_deleted.isnot(True))
+    if ann.audience == "Sellers":
+        q = q.filter(User.role == "seller")
+    elif ann.audience == "Buyers":
+        q = q.filter(User.role == "buyer")
+
+    users = q.all()
+    for u in users:
+        db.add(Notification(
+            user_id=u.id,
+            type="system",
+            title=ann.title,
+            body=ann.message[:500],
+            related_id=ann.id,
+            related_type="Announcement",
+        ))
+    db.commit()
+    log_action(db, current_admin, "broadcast_announcement",
+               "Announcement", ann.id, ann.title)
+    return {"success": True, "sent_to": len(users), "message": f"Sent to {len(users)} users"}

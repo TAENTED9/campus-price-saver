@@ -1,11 +1,15 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { listingApi, storefrontApi, wishlistApi, reviewsApi, type ListingDetail, type FollowStatus, type Review } from "@/lib/api";
-import { Heart, Flag, Eye, MapPin, Package, Truck, ChevronRight, ArrowLeft, X, Star } from "lucide-react";
+import { messageApi } from "@/lib/messageApi";
+import { optimizeImage, thumbnailImage } from "@/lib/cloudinary";
+import { formatPrice } from "@/lib/formatPrice";
+import { Heart, Flag, Eye, MapPin, Package, Truck, ChevronRight, ArrowLeft, X, Star, ShieldCheck, MessageCircle, Award, Check, CheckCircle2 } from "lucide-react";
 
 function Initials({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const letters = name.trim().slice(0, 2).toUpperCase();
@@ -69,6 +73,7 @@ export default function ListingDetailPage() {
   const [inquiryMsg, setInquiryMsg] = useState("");
   const [sendingInquiry, setSendingInquiry] = useState(false);
   const [inquirySent, setInquirySent] = useState(false);
+  const [startingDM, setStartingDM] = useState(false);
 
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>(REPORT_REASONS[0]);
@@ -77,16 +82,27 @@ export default function ListingDetailPage() {
   const [reportSent, setReportSent] = useState(false);
 
   useEffect(() => {
-    const numId = Number(id);
-    if (!numId) return;
+    if (!id) return;
+    const isNumeric = /^\d+$/.test(id);
 
-    listingApi.getDetail(numId).then((data) => {
-      setListing(data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-
-    listingApi.getSimilar(numId).then(setSimilar).catch(() => {});
-    reviewsApi.getForListing(numId).then(setReviews).catch(() => {});
+    if (isNumeric) {
+      const numId = Number(id);
+      listingApi.getDetail(numId)
+        .then((data) => { setListing(data); setLoading(false); })
+        .catch(() => setLoading(false));
+      listingApi.getSimilar(numId).then(setSimilar).catch(() => {});
+      reviewsApi.getForListing(numId).then(setReviews).catch(() => {});
+    } else {
+      listingApi.getDetailBySlug(id)
+        .then((data) => {
+          setListing(data);
+          setLoading(false);
+          listingApi.getSimilar(data.id).then(setSimilar).catch(() => {});
+          reviewsApi.getForListing(data.id).then(setReviews).catch(() => {});
+          listingApi.recordView(id).catch(() => {});
+        })
+        .catch(() => setLoading(false));
+    }
   }, [id]);
 
   useEffect(() => {
@@ -97,7 +113,7 @@ export default function ListingDetailPage() {
 
   async function toggleWishlist() {
     if (!token) { router.push("/signin"); return; }
-    const numId = Number(id);
+    const numId = listing?.id ?? Number(id);
     setWishlistLoading(true);
     try {
       const res = await wishlistApi.toggle(token, numId);
@@ -125,6 +141,17 @@ export default function ListingDetailPage() {
       setFollowState(res);
     } catch { /* silent */ }
     finally { setFollowLoading(false); }
+  }
+
+  async function handleMessageSeller() {
+    if (!token) { router.push("/signin"); return; }
+    if (!listing?.seller?.id) return;
+    setStartingDM(true);
+    try {
+      await messageApi.startConversation(listing.seller.id, token);
+      router.push("/messages");
+    } catch { /* silent */ }
+    finally { setStartingDM(false); }
   }
 
   async function sendInquiry() {
@@ -194,9 +221,9 @@ export default function ListingDetailPage() {
           {/* Left — Photos + Description */}
           <div className="lg:col-span-3 space-y-4">
             {/* Main photo */}
-            <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 dark:to-[#06b6d4]/5 flex items-center justify-center">
+            <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 dark:to-[#06b6d4]/5 relative flex items-center justify-center">
               {photos.length > 0
-                ? <img src={photos[mainPhoto]} alt={listing.name} className="w-full h-full object-cover" />
+                ? <Image src={optimizeImage(photos[mainPhoto], 800)} alt={listing.name} fill className="object-cover" />
                 : <span className="text-7xl font-black text-brand-200 dark:text-brand-800">
                     {listing.name.charAt(0).toUpperCase()}
                   </span>
@@ -209,7 +236,7 @@ export default function ListingDetailPage() {
                   <button key={i} type="button" title={`Photo ${i + 1}`}
                     onClick={() => setMainPhoto(i)}
                     className={`w-16 h-16 rounded-xl overflow-hidden border-2 transition-colors ${mainPhoto === i ? "border-brand-500" : "border-transparent"}`}>
-                    <img src={url} alt={`Thumbnail ${i + 1}`} className="w-full h-full object-cover" />
+                    <Image src={thumbnailImage(url, 80)} alt={`Thumbnail ${i + 1}`} width={64} height={64} className="w-full h-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -233,11 +260,13 @@ export default function ListingDetailPage() {
               <div className="flex items-start gap-2 mb-2">
                 <h1 className="text-xl font-black text-gray-800 dark:text-white flex-1">{listing.name}</h1>
                 {seller?.verified && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-50 text-brand-500 dark:bg-brand-500/10 flex-shrink-0">✓ Verified</span>
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-50 text-brand-500 dark:bg-brand-500/10 flex-shrink-0">
+                    <ShieldCheck size={10} /> Verified
+                  </span>
                 )}
               </div>
 
-              <p className="text-3xl font-black text-brand-500 mb-2">₦{listing.price.toLocaleString("en-NG")}</p>
+              <p className="text-3xl font-black text-brand-500 mb-2">{formatPrice(listing.price)}</p>
 
               <div className="flex flex-wrap gap-2 mb-4">
                 {listing.is_negotiable && (
@@ -279,9 +308,15 @@ export default function ListingDetailPage() {
               {/* Actions */}
               <div className="mt-4 space-y-2">
                 <button type="button"
-                  onClick={() => { if (!token) { router.push("/signin"); return; } setInquiryOpen(true); }}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white text-sm font-bold hover:opacity-90 transition-opacity">
-                  ✉️ Message Seller
+                  onClick={() => {
+                    if (id && !/^\d+$/.test(id)) listingApi.recordInterest(id).catch(() => {});
+                    handleMessageSeller();
+                  }}
+                  disabled={startingDM}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white text-sm font-bold hover:opacity-90 disabled:opacity-60 transition-opacity flex items-center justify-center gap-2">
+                  {startingDM
+                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <><MessageCircle size={14} /> Message Seller</>}
                 </button>
                 <div className="flex gap-2">
                   <button type="button" onClick={toggleWishlist} disabled={wishlistLoading}
@@ -307,7 +342,7 @@ export default function ListingDetailPage() {
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Seller</h3>
                 <div className="flex items-center gap-3 mb-3">
                   {seller.avatar_url
-                    ? <img src={seller.avatar_url} alt={seller.display_name} className="w-11 h-11 rounded-full object-cover" />
+                    ? <Image src={thumbnailImage(seller.avatar_url, 60)} alt={seller.display_name} width={44} height={44} className="w-11 h-11 rounded-full object-cover" />
                     : <Initials name={seller.display_name} />}
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-gray-800 dark:text-white text-sm truncate">{seller.display_name}</p>
@@ -328,8 +363,9 @@ export default function ListingDetailPage() {
                     </span>
                   )}
                   {seller.trust_tier && seller.trust_tier !== "new_seller" && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-500/10">
-                      {seller.trust_tier === "top_seller" ? "💎 Top Seller" : seller.trust_tier === "trusted" ? "🥇 Trusted" : "🥈 Rising"}
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-500/10">
+                      <Award size={10} />
+                      {seller.trust_tier === "top_seller" ? "Top Seller" : seller.trust_tier === "trusted" ? "Trusted" : "Rising"}
                     </span>
                   )}
                 </div>
@@ -346,7 +382,7 @@ export default function ListingDetailPage() {
                           ? "bg-brand-50 text-brand-500 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30"
                           : "bg-brand-500 text-white hover:bg-brand-600"
                       }`}>
-                      {followState?.following ? "Following ✓" : "Follow"}
+                      {followState?.following ? <><Check size={12} className="inline mr-1" />Following</> : "Follow"}
                     </button>
                   )}
                 </div>
@@ -384,11 +420,11 @@ export default function ListingDetailPage() {
                             <Star key={i} size={11} className={i < r.rating ? "fill-yellow-400 text-yellow-400" : "text-gray-200 dark:text-gray-700"} />
                           ))}</span>
                           {r.is_verified_interaction && (
-                            <span className="text-[9px] font-bold text-green-600 bg-green-50 dark:bg-green-500/10 px-1.5 py-0.5 rounded-full">✓ Verified</span>
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-green-600 bg-green-50 dark:bg-green-500/10 px-1.5 py-0.5 rounded-full"><ShieldCheck size={9} /> Verified</span>
                           )}
                         </div>
                       </div>
-                      <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</span>
+                      <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", timeZone: "Africa/Lagos" })}</span>
                     </div>
                     {r.comment && <p className="text-sm text-gray-600 dark:text-gray-400">{r.comment}</p>}
                     {r.seller_response && (
@@ -410,16 +446,16 @@ export default function ListingDetailPage() {
             <h2 className="text-lg font-black text-gray-800 dark:text-white mb-4">Similar Listings</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               {similar.map((s) => (
-                <Link key={s.id} href={`/listing/${s.id}`}
+                <Link key={s.id} href={`/listing/${s.uuid ?? s.id}`}
                   className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] overflow-hidden hover:shadow-md transition-shadow group">
-                  <div className="aspect-square bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 flex items-center justify-center overflow-hidden">
+                  <div className="aspect-square bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 relative flex items-center justify-center overflow-hidden">
                     {s.photos?.[0]
-                      ? <img src={s.photos[0]} alt={s.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      ? <Image src={thumbnailImage(s.photos[0], 200)} alt={s.name} fill className="object-cover group-hover:scale-105 transition-transform duration-300" />
                       : <span className="text-2xl font-black text-brand-200 dark:text-brand-700">{s.name.charAt(0)}</span>}
                   </div>
                   <div className="p-2.5">
                     <p className="text-xs font-semibold text-gray-800 dark:text-white truncate">{s.name}</p>
-                    <p className="text-xs font-bold text-brand-500">₦{s.price.toLocaleString("en-NG")}</p>
+                    <p className="text-xs font-bold text-brand-500">{formatPrice(s.price)}</p>
                   </div>
                 </Link>
               ))}
@@ -433,7 +469,7 @@ export default function ListingDetailPage() {
         <Modal title="Message Seller" onClose={() => { setInquiryOpen(false); setInquirySent(false); }}>
           {inquirySent ? (
             <div className="text-center py-6">
-              <div className="text-4xl mb-3">✅</div>
+              <div className="mb-3 flex justify-center"><CheckCircle2 size={40} className="text-green-500" /></div>
               <p className="font-bold text-gray-800 dark:text-white">Message sent!</p>
               <p className="text-sm text-gray-500 mt-1">The seller will see your message in their inbox.</p>
               <button type="button" onClick={() => { setInquiryOpen(false); setInquirySent(false); }}
@@ -461,7 +497,7 @@ export default function ListingDetailPage() {
         <Modal title="Report Listing" onClose={() => { setReportOpen(false); setReportSent(false); }}>
           {reportSent ? (
             <div className="text-center py-6">
-              <div className="text-4xl mb-3">🚩</div>
+              <div className="mb-3 flex justify-center"><Flag size={40} className="text-red-500" /></div>
               <p className="font-bold text-gray-800 dark:text-white">Report submitted</p>
               <p className="text-sm text-gray-500 mt-1">Our team will review this listing.</p>
               <button type="button" onClick={() => { setReportOpen(false); setReportSent(false); }}

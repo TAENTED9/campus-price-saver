@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import sellerApi from "@/lib/sellerApi";
+import NumberInput from "@/components/ui/NumberInput";
 
 /**
  * Seller Payouts Page
@@ -367,13 +368,10 @@ function PayoutRequestForm({
           <label className="block text-sm font-medium mb-2">
             Amount (Available: ${availableBalance.toFixed(2)})
           </label>
-          <input
-            type="number"
-            step="0.01"
-            min="50"
-            max={availableBalance}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+          <NumberInput
+            allowDecimal
+            value={amount === "" ? "" : Number(amount)}
+            onValueChange={(v) => setAmount(v === "" ? "" : String(v))}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="0.00"

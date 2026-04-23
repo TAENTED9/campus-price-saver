@@ -13,10 +13,12 @@ export default function VerifyEmailPage() {
   const params   = useSearchParams();
   const router   = useRouter();
   const token    = params.get("token");
+  // Read email from URL (?email=...) so resend works even when token is expired/invalid
+  const emailFromUrl = params.get("email") || "";
 
   const [state,    setState]    = useState<State>("loading");
   const [message,  setMessage]  = useState("");
-  const [email,    setEmail]    = useState("");
+  const [email,    setEmail]    = useState(emailFromUrl);
   const [resent,   setResent]   = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -38,7 +40,7 @@ export default function VerifyEmailPage() {
         // Redirect after 2.5 s
         setTimeout(() => {
           router.push(
-            `/signin?verified=true${data.email ? `&email=${encodeURIComponent(data.email)}` : ""}`
+            `/signin?verified=true${data.username ? `&username=${encodeURIComponent(data.username)}` : (data.email ? `&email=${encodeURIComponent(data.email)}` : "")}`
           );
         }, 2500);
       })
@@ -94,7 +96,7 @@ export default function VerifyEmailPage() {
               Redirecting you to sign in…
             </p>
             <Link
-              href={`/signin?verified=true${email ? `&email=${encodeURIComponent(email)}` : ""}`}
+              href={`/signin?verified=true`}
               className="inline-block px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-full transition-colors"
             >
               Go to Sign In

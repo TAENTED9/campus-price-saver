@@ -11,7 +11,7 @@ import json
 from app.dependencies import get_db
 from app.models import (
     User, Price, Category, FlashSale,
-    Announcement, Report, Dispute, AuditLog,
+    Announcement, Report, Dispute, AuditLog, Notification,
 )
 from app.routers.auth import get_current_admin
 from app.schemas import (
@@ -183,6 +183,13 @@ async def list_all_prices(
         users_list = db.query(User).filter(User.id.in_(user_ids)).all()
         users_map = {u.id: u.username or u.display_name or f"User #{u.id}" for u in users_list}
 
+    # Get category names
+    cat_ids = {p.category_id for p in prices if p.category_id}
+    cat_map = {}
+    if cat_ids:
+        cats = db.query(Category).filter(Category.id.in_(cat_ids)).all()
+        cat_map = {c.id: c.name for c in cats}
+
     return {
         "success": True,
         "total": total,
@@ -198,12 +205,72 @@ async def list_all_prices(
                 "submitted_by": p.submitted_by,
                 "seller_name": users_map.get(p.submitted_by, "Unknown"),
                 "submitted_at": p.submitted_at.isoformat() if p.submitted_at else None,
+                "created_at": p.submitted_at.isoformat() if p.submitted_at else None,
                 "view_count": p.view_count or 0,
                 "category_id": p.category_id,
+                "category": cat_map.get(p.category_id, "Uncategorized"),
                 "is_featured": p.is_featured or False,
+                "is_flagged": p.status == "flagged",
+                "flag_reason": getattr(p, "flag_reason", None),
             }
             for p in prices
         ],
+    }
+
+
+@router.get("/listings/{price_id}")
+async def admin_get_listing_detail(
+    price_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """Full listing detail for admin review."""
+    price = db.query(Price).filter(Price.id == price_id).first()
+    if not price:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    seller = db.query(User).filter(User.id == price.submitted_by).first() if price.submitted_by else None
+    category = db.query(Category).filter(Category.id == price.category_id).first() if price.category_id else None
+
+    photos = []
+    if price.photos:
+        try:
+            photos = json.loads(price.photos)
+        except Exception:
+            photos = []
+
+    return {
+        "success": True,
+        "data": {
+            "id": price.id,
+            "name": price.name,
+            "brand": price.brand,
+            "price": price.price,
+            "location": price.location,
+            "retailer": price.retailer,
+            "status": price.status,
+            "listing_status": getattr(price, "listing_status", None),
+            "description": price.description,
+            "condition": getattr(price, "condition", None),
+            "quantity": getattr(price, "quantity", 1),
+            "is_negotiable": getattr(price, "is_negotiable", False),
+            "delivery_options": getattr(price, "delivery_options", None),
+            "subcategory": getattr(price, "subcategory", None),
+            "photos": photos,
+            "submitted_by": price.submitted_by,
+            "seller_name": (seller.display_name or seller.username) if seller else "Unknown",
+            "seller_username": seller.username if seller else None,
+            "submitted_at": price.submitted_at.isoformat() if price.submitted_at else None,
+            "view_count": price.view_count or 0,
+            "category_id": price.category_id,
+            "category": category.name if category else "Uncategorized",
+            "is_featured": price.is_featured or False,
+            "is_flagged": price.status == "flagged",
+            "flag_reason": getattr(price, "flag_reason", None),
+            "pack_size": getattr(price, "pack_size", None),
+            "pack_unit": getattr(price, "pack_unit", None),
+            "expires_at": price.expires_at.isoformat() if getattr(price, "expires_at", None) else None,
+        },
     }
 
 
@@ -217,7 +284,21 @@ async def admin_approve_listing(
     if not price:
         raise HTTPException(status_code=404, detail="Listing not found")
     price.status = "approved"
+    if not price.listing_status or price.listing_status == "draft":
+        price.listing_status = "active"
     log_action(db, current_admin, "Approved listing", "Listing", price.id, price.name)
+
+    # Notify the seller so approved listings surface clearly on their dashboard
+    if price.submitted_by:
+        db.add(Notification(
+            user_id=price.submitted_by,
+            type="listing_approved",
+            title="Listing approved",
+            body=f'"{price.name}" is now live on your storefront.',
+            related_id=price.id,
+            related_type="Listing",
+            action_url=f"/seller/listings",
+        ))
     db.commit()
     return {"success": True, "message": "Listing approved"}
 
@@ -225,6 +306,7 @@ async def admin_approve_listing(
 @router.patch("/listings/{price_id}/reject")
 async def admin_reject_listing(
     price_id: int,
+    reason: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
@@ -232,7 +314,18 @@ async def admin_reject_listing(
     if not price:
         raise HTTPException(status_code=404, detail="Listing not found")
     price.status = "rejected"
-    log_action(db, current_admin, "Rejected listing", "Listing", price.id, price.name)
+    log_action(db, current_admin, "Rejected listing", "Listing", price.id, price.name,
+               {"reason": reason or ""})
+    if price.submitted_by:
+        db.add(Notification(
+            user_id=price.submitted_by,
+            type="listing_rejected",
+            title="Listing rejected",
+            body=f'"{price.name}" was not approved.' + (f" Reason: {reason}" if reason else ""),
+            related_id=price.id,
+            related_type="Listing",
+            action_url=f"/seller/listings",
+        ))
     db.commit()
     return {"success": True, "message": "Listing rejected"}
 
@@ -283,6 +376,38 @@ async def admin_unflag_listing(
     return {"success": True, "message": "Listing cleared"}
 
 
+@router.put("/listings/{price_id}/feature")
+async def admin_feature_listing(
+    price_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    price = db.query(Price).filter(Price.id == price_id).first()
+    if not price:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    price.is_featured = True
+    price.featured_until = datetime.utcnow() + timedelta(days=30)
+    log_action(db, current_admin, "Featured listing", "Listing", price.id, price.name)
+    db.commit()
+    return {"success": True, "message": "Listing featured"}
+
+
+@router.put("/listings/{price_id}/unfeature")
+async def admin_unfeature_listing(
+    price_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    price = db.query(Price).filter(Price.id == price_id).first()
+    if not price:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    price.is_featured = False
+    price.featured_until = None
+    log_action(db, current_admin, "Unfeatured listing", "Listing", price.id, price.name)
+    db.commit()
+    return {"success": True, "message": "Listing unfeatured"}
+
+
 # ════════════════════════════════════════════════════════════════════════
 #  ANNOUNCEMENTS
 # ════════════════════════════════════════════════════════════════════════
@@ -303,6 +428,9 @@ async def list_announcements(
                 "type": a.type,
                 "audience": a.audience,
                 "is_active": a.is_active,
+                "banner_url": a.banner_url,
+                "cta_label": a.cta_label,
+                "cta_href": a.cta_href,
                 "created_by": a.created_by,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
                 "updated_at": a.updated_at.isoformat() if a.updated_at else None,

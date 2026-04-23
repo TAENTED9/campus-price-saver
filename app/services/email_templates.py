@@ -3,10 +3,14 @@ Block 7 — Plain-text email templates for user lifecycle events.
 All templates are short — students read these on mobile.
 """
 
-APP_URL = "https://campify.ng"
+def _app_url() -> str:
+    """Lazy getter — reads FRONTEND_URL from env at call time, not at import time."""
+    from app.config import settings
+    return settings.FRONTEND_URL
 
 
 def ACCOUNT_PAUSED_EMAIL(name: str, reason: str) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 Your Campify account has been paused by our team.
@@ -15,7 +19,7 @@ Reason: {reason}
 
 Your listings are now hidden from buyers.
 To appeal or request reactivation, reply to this email
-or visit {APP_URL}/support.
+or visit {url}/support.
 
 — The Campify Team"""
 
@@ -33,12 +37,13 @@ within 7 days — we may be able to restore your data.
 
 
 def ACCOUNT_REACTIVATED_EMAIL(name: str) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 Great news — your Campify account has been reactivated!
 
 You can now log in and your listings are live again.
-Visit: {APP_URL}
+Visit: {url}
 
 — The Campify Team"""
 
@@ -83,17 +88,19 @@ the deletion is processed.
 
 
 def VERIFICATION_APPROVED_EMAIL(name: str) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 Congratulations! Your seller account has been verified.
 
 Your "Verified UNILAG Seller" badge is now live.
-Start listing at: {APP_URL}/seller/listings/new
+Start listing at: {url}/seller/listings/new
 
 — The Campify Team"""
 
 
 def VERIFICATION_REJECTED_EMAIL(name: str, reason: str) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 We were unable to verify your seller account.
@@ -101,14 +108,30 @@ We were unable to verify your seller account.
 Reason: {reason}
 
 You can resubmit your documents at:
-{APP_URL}/seller/settings > Verification
+{url}/seller/settings > Verification
 
 If you think this is an error, reply to this email.
 
 — The Campify Team"""
 
 
-# ── Block 6 — New email templates ────────────────────────────────────────────
+# ── Block 6 — New email templates ─────────────────────────────────────────
+
+
+def PASSWORD_RESET_EMAIL(name: str, link: str) -> str:
+    return f"""Hi {name},
+
+We received a request to reset your Campify password.
+
+Click the link below to set a new password:
+{link}
+
+This link expires in 1 hour.
+
+If you didn't request a password reset, you can safely
+ignore this email — your account is still secure.
+
+— The Campify Team"""
 
 
 def EMAIL_VERIFY_TEMPLATE(name: str, link: str) -> str:
@@ -127,6 +150,7 @@ If you didn't create a Campify account, ignore this email.
 
 
 def EMAIL_VERIFIED_WELCOME(name: str) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 Your email is verified!
@@ -134,7 +158,7 @@ Your email is verified!
 You can now log in and start buying from verified
 UNILAG sellers.
 
-Log in at: {APP_URL}/signin
+Log in at: {url}/signin
 
 — The Campify Team"""
 
@@ -145,6 +169,7 @@ def WELCOME_WITH_STATS(
     total_sellers: int = 0,
     total_categories: int = 0,
 ) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 Welcome to Campify — UNILAG's campus marketplace!
@@ -156,19 +181,20 @@ Here's what's waiting for you:
 - Price alerts, wishlists, and karma rewards
 
 Your next steps:
-1. Browse the marketplace: {APP_URL}
+1. Browse the marketplace: {url}
 2. Set up price alerts for items you need
 3. Follow your favourite sellers
 
 Have something to sell? Apply as a verified seller:
-{APP_URL}/seller/register
+{url}/seller/register
 
-Questions? Reply to this email or visit {APP_URL}/support.
+Questions? Reply to this email or visit {url}/support.
 
 — The Campify Team"""
 
 
 def NEW_LOGIN_EMAIL(name: str, device: str, ip: str, time: str) -> str:
+    url = _app_url()
     return f"""Hi {name},
 
 A new login to your Campify account was detected.
@@ -180,6 +206,6 @@ Time: {time}
 If this was you — no action needed.
 
 If this wasn't you, secure your account immediately:
-{APP_URL}/dashboard/settings?tab=security
+{url}/dashboard/settings?tab=security
 
 — The Campify Team"""

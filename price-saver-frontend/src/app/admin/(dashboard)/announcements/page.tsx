@@ -7,7 +7,9 @@ import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminAnnouncement, uploadApi } from "@/lib/api";
 import { Megaphone, Plus, Pencil, Trash2, X, Send, Upload, Link as LinkIcon } from "lucide-react";
 
-const BLANK_FORM = { title: "", message: "", type: "info", audience: "all", banner_url: "" };
+const BLANK_FORM = { title: "", message: "", type: "info", audience: "all", banner_url: "", cta_label: "", cta_href: "" };
+const BANNER_W = 1280;
+const BANNER_H = 480;
 
 export default function AnnouncementsPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
@@ -34,7 +36,12 @@ export default function AnnouncementsPage() {
     if (!form.title.trim() || !form.message.trim()) return;
     setActionLoading(-1);
     try {
-      const payload = { ...form, banner_url: form.banner_url.trim() || undefined };
+      const payload = {
+        ...form,
+        banner_url: form.banner_url.trim() || undefined,
+        cta_label: form.cta_label.trim() || undefined,
+        cta_href: form.cta_href.trim() || undefined,
+      };
       if (editId) {
         await adminApi.updateAnnouncement(token!, editId, payload);
       } else {
@@ -47,7 +54,7 @@ export default function AnnouncementsPage() {
   };
 
   const handleEdit = (a: AdminAnnouncement) => {
-    setForm({ title: a.title, message: a.message, type: a.type, audience: a.audience, banner_url: a.banner_url ?? "" });
+    setForm({ title: a.title, message: a.message, type: a.type, audience: a.audience, banner_url: a.banner_url ?? "", cta_label: a.cta_label ?? "", cta_href: a.cta_href ?? "" });
     setEditId(a.id);
     setShowForm(true);
   };
@@ -138,22 +145,41 @@ export default function AnnouncementsPage() {
                 onChange={e => setForm(f => ({ ...f, banner_url: e.target.value }))}
                 className="w-full rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-800 dark:text-white/90 focus:border-brand-500 focus:outline-none" />
             ) : (
-              <div className="relative">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2">
+                  <svg className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">Required size: <strong>{BANNER_W} × {BANNER_H} px</strong> — images that don&apos;t match will be rejected.</p>
+                </div>
                 <label className={`flex flex-col items-center justify-center w-full h-24 rounded-lg border-2 border-dashed cursor-pointer transition-colors ${bannerUploading ? "opacity-60 pointer-events-none" : "hover:border-brand-400"} border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40`}>
                   {bannerUploading
                     ? <span className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                     : <>
                         <Upload size={20} className="text-gray-400 mb-1" />
-                        <span className="text-xs text-gray-400">Click to choose image (JPEG / PNG / WebP · max 5 MB)</span>
+                        <span className="text-xs text-gray-400">JPEG / PNG / WebP · max 5 MB · exactly {BANNER_W}×{BANNER_H} px</span>
                       </>
                   }
                   <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file || !token) return;
+                      // Client-side dimension pre-check
+                      await new Promise<void>((resolve) => {
+                        const img = new Image();
+                        img.onload = () => {
+                          URL.revokeObjectURL(img.src);
+                          if (img.naturalWidth !== BANNER_W || img.naturalHeight !== BANNER_H) {
+                            alert(`Image must be exactly ${BANNER_W}×${BANNER_H} px.\nYours is ${img.naturalWidth}×${img.naturalHeight} px.`);
+                            e.target.value = "";
+                          }
+                          resolve();
+                        };
+                        img.onerror = () => { resolve(); };
+                        img.src = URL.createObjectURL(file);
+                      });
+                      if (!e.target.files?.[0]) return;
                       setBannerUploading(true);
                       try {
-                        const url = await uploadApi.uploadBanner(token, file);
+                        const url = await uploadApi.uploadBannerSlide(token, file);
                         setForm(f => ({ ...f, banner_url: url }));
                       } catch (err) {
                         alert(err instanceof Error ? err.message : "Upload failed");
@@ -202,12 +228,25 @@ export default function AnnouncementsPage() {
           </div>
 
           {form.type === "banner" && (
-            <div className="flex items-start gap-2.5 rounded-lg bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 px-4 py-3">
-              <svg className="w-4 h-4 text-brand-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" /></svg>
-              <p className="text-xs text-brand-700 dark:text-brand-300">
-                <span className="font-semibold">Homepage Banner:</span> This announcement will appear as a full-width hero slide on the homepage. Add a banner image above to show it as a photo background with your title and message as text overlay.
-              </p>
-            </div>
+            <>
+              <div className="flex items-start gap-2.5 rounded-lg bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 px-4 py-3">
+                <svg className="w-4 h-4 text-brand-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20A10 10 0 0012 2z" /></svg>
+                <p className="text-xs text-brand-700 dark:text-brand-300">
+                  <span className="font-semibold">Homepage Banner Slide:</span> Appears in the hero carousel. Upload a <strong>{BANNER_W}×{BANNER_H} px</strong> background image and set a CTA button below.
+                </p>
+              </div>
+              {/* CTA fields — only for banner type */}
+              <div className="flex flex-wrap gap-3">
+                <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">CTA Button Label</label>
+                  <input type="text" placeholder="e.g. Shop Now" maxLength={60} value={form.cta_label} onChange={e => setForm(f => ({ ...f, cta_label: e.target.value }))} className="rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-800 dark:text-white/90 focus:border-brand-500 focus:outline-none" />
+                </div>
+                <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">CTA Button URL</label>
+                  <input type="text" placeholder="e.g. /search?category=3" maxLength={500} value={form.cta_href} onChange={e => setForm(f => ({ ...f, cta_href: e.target.value }))} className="rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-700 px-4 py-2.5 text-sm text-gray-800 dark:text-white/90 focus:border-brand-500 focus:outline-none" />
+                </div>
+              </div>
+            </>
           )}
 
           <p className="text-xs text-gray-400">Notifications are automatically sent to the selected audience on create.</p>
@@ -259,7 +298,7 @@ export default function AnnouncementsPage() {
                   {a.type !== "banner" && a.banner_url && (
                     <img src={a.banner_url} alt="Banner" className="mt-2 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700 max-w-xs" />
                   )}
-                  <p className="mt-2 text-xs text-gray-400">Created: {new Date(a.created_at).toLocaleDateString()}</p>
+                  <p className="mt-2 text-xs text-gray-400">Created: {new Date(a.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</p>
                   {broadcastMsg[a.id] && (
                     <p className="mt-1 text-xs font-semibold text-green-600 dark:text-green-400">{broadcastMsg[a.id]}</p>
                   )}

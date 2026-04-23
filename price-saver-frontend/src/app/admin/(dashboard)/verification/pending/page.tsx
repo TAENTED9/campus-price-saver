@@ -166,7 +166,7 @@ export default function PendingQueuePage() {
                       {v.email}
                     </TableCell>
                     <TableCell className="py-3 text-theme-sm text-gray-500 dark:text-gray-400">
-                      {new Date(v.submitted_at).toLocaleDateString()}
+                      {new Date(v.submitted_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}
                     </TableCell>
                     <TableCell className="py-3">
                       <div className="flex items-center gap-2">

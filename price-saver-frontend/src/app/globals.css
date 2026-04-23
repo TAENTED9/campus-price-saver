@@ -575,3 +575,147 @@ span.flatpickr-weekday,
   background-image: radial-gradient(circle, rgba(255,255,255,0.6) 1px, transparent 1px);
   background-size: 28px 28px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BLOCK 14 — Campify Design System
+   Color tokens, typography scale, spacing helpers, dark-mode matrix
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 14A: Semantic color aliases (mapped to existing palette) ── */
+@theme {
+  /* Primary */
+  --color-primary: #2563eb;           /* blue-600 */
+  --color-primary-hover: #1d4ed8;     /* blue-700 */
+  /* Accent */
+  --color-accent: #06b6d4;            /* cyan-500 */
+  /* Status */
+  --color-success: #22c55e;           /* green-500 */
+  --color-warning: #eab308;           /* yellow-500 */
+  --color-danger: #ef4444;            /* red-500 */
+  /* Backgrounds */
+  --color-bg-light: #f8fafc;          /* slate-50 */
+  --color-bg-dark: #030712;           /* gray-950 */
+  /* Surfaces */
+  --color-surface-light: #ffffff;
+  --color-surface-dark: #111827;      /* gray-900 */
+  /* Borders */
+  --color-border-light: #e5e7eb;      /* gray-200 */
+  --color-border-dark: #1f2937;       /* gray-800 */
+
+  /* ── 14D: Named shadow tokens ── */
+  --shadow-card-hover: 0 10px 15px -3px rgba(37,99,235,0.08), 0 4px 6px -4px rgba(37,99,235,0.05);
+  --shadow-button: 0 4px 6px -1px rgba(37,99,235,0.15), 0 2px 4px -2px rgba(37,99,235,0.1);
+  --shadow-modal: 0 25px 50px -12px rgba(0,0,0,0.25);
+  --shadow-floating: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.05);
+}
+
+/* ── 14B: Typography utilities ── */
+@utility text-display {
+  @apply text-4xl md:text-6xl font-black tracking-tight;
+}
+@utility text-h1 {
+  @apply text-2xl md:text-3xl font-black tracking-tight;
+}
+@utility text-h2 {
+  @apply text-xl md:text-2xl font-bold;
+}
+@utility text-h3 {
+  @apply text-lg font-bold;
+}
+@utility text-body {
+  @apply text-sm md:text-base;
+}
+@utility text-small {
+  @apply text-xs md:text-sm;
+}
+@utility text-label {
+  @apply text-[11px] font-bold uppercase tracking-wider;
+}
+
+/* ── 14C: Spacing/layout utilities ── */
+@utility page-padding {
+  @apply px-4 md:px-6 lg:px-8;
+}
+@utility section-gap {
+  @apply gap-6 md:gap-8;
+}
+@utility component-inner {
+  @apply p-4 md:p-5 lg:p-6;
+}
+
+/* ── 14E: Transition utilities ── */
+@utility transition-interactive {
+  @apply transition-all duration-200;
+}
+@utility hover-lift {
+  @apply hover:-translate-y-0.5;
+}
+@utility press-scale {
+  @apply active:scale-95;
+}
+
+/* ── 14F: Dark-mode surface helpers ── */
+@utility surface {
+  @apply bg-white dark:bg-gray-900;
+}
+@utility surface-subtle {
+  @apply bg-slate-50 dark:bg-gray-950;
+}
+@utility border-base {
+  @apply border-gray-200 dark:border-gray-800;
+}
+@utility text-primary-color {
+  @apply text-gray-900 dark:text-white;
+}
+@utility text-secondary-color {
+  @apply text-gray-500 dark:text-gray-400;
+}
+@utility icon-muted {
+  @apply text-gray-400 dark:text-gray-500;
+}
+
+/* ── 14G: Touch target enforcement (mobile-first) ── */
+@layer utilities {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Campify card standard */
+  .campify-card {
+    @apply bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800
+           transition-all duration-200 hover:-translate-y-0.5
+           hover:shadow-lg hover:shadow-blue-100/50 dark:hover:shadow-blue-950/30;
+  }
+  /* Campify primary button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl
+           bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm
+           px-4 py-2.5 shadow-md shadow-blue-200/50
+           transition-all duration-200 active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Campify ghost/secondary button */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl
+           border border-gray-200 dark:border-gray-700
+           bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200
+           font-semibold text-sm px-4 py-2.5
+           transition-all duration-200 active:scale-95
+           hover:bg-gray-50 dark:hover:bg-gray-800
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Campify input */
+  .campify-input {
+    @apply w-full rounded-xl border border-gray-200 dark:border-gray-700
+           bg-white dark:bg-gray-900 text-gray-900 dark:text-white
+           placeholder:text-gray-400 dark:placeholder:text-gray-500
+           px-4 py-2.5 text-sm
+           focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500
+           transition-all duration-200;
+  }
+  /* Campify badge */
+  .campify-badge {
+    @apply inline-flex items-center gap-1 rounded-full
+           px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider;
+  }
+}

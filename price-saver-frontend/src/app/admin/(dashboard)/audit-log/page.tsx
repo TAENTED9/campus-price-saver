@@ -74,7 +74,7 @@ export default function AuditLogPage() {
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{entry.action}</td>
                 <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{entry.target_desc}</td>
                 <td className="px-5 py-4">{entry.target_type ? typeBadge(entry.target_type) : "—"}</td>
-                <td className="px-5 py-4 font-mono text-xs text-gray-400">{new Date(entry.created_at).toLocaleString()}</td>
+                <td className="px-5 py-4 font-mono text-xs text-gray-400">{new Date(entry.created_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}</td>
               </tr>
             ))}
           </tbody>

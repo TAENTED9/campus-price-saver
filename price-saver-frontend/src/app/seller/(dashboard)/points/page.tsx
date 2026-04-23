@@ -111,7 +111,7 @@ export default function SellerPointsPage() {
                   {transactions.map((t) => (
                     <tr key={t.id}>
                       <td className="px-5 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                        {new Date(t.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}
+                        {new Date(t.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Lagos" })}
                       </td>
                       <td className="px-5 py-3 text-gray-800 dark:text-white/90">
                         {t.reason?.replace(/_/g, " ") ?? "Points transaction"}

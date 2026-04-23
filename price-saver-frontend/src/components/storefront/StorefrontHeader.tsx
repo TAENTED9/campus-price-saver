@@ -8,6 +8,8 @@ import { useAuth } from "@/context/AuthContext";
 import { Search, X, User, ChevronDown, Menu, Loader2, SlidersHorizontal, UtensilsCrossed, Shirt, Monitor, BookOpen, Sparkles, Wrench, Palette, ShoppingBag, Package, LogOut } from "lucide-react";
 import type { ReactNode } from "react";
 import { getCategoryConfig } from "@/lib/categoryIcons";
+import { formatPrice } from "@/lib/formatPrice";
+import NumberInput from "@/components/ui/NumberInput";
 
 // ─── Default categories (fallback while API loads) ────────────────────────────
 
@@ -20,12 +22,6 @@ const DEFAULT_CATEGORIES: { id: number; name: string; href: string; icon: ReactN
   { id: 0, name: "Services",       href: "/search?q=Services", icon: <Wrench size={15} /> },
   { id: 0, name: "Crafts & Art",   href: "/search?q=Crafts",   icon: <Palette size={15} /> },
 ];
-
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-function formatPrice(p: number) {
-  return `₦${p.toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -377,19 +373,17 @@ export default function StorefrontHeader() {
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">Price Range (₦)</label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="number"
+                      <NumberInput
                         placeholder="Min"
                         value={filters.min_price ?? ""}
-                        onChange={(e) => setFilters(f => ({ ...f, min_price: e.target.value ? Number(e.target.value) : undefined }))}
+                        onValueChange={(v) => setFilters(f => ({ ...f, min_price: v === "" ? undefined : Number(v) }))}
                         className="w-full rounded-lg border border-gray-200 bg-white dark:bg-gray-700 dark:border-gray-600 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 dark:text-white"
                       />
                       <span className="text-gray-400 shrink-0">–</span>
-                      <input
-                        type="number"
+                      <NumberInput
                         placeholder="Max"
                         value={filters.max_price ?? ""}
-                        onChange={(e) => setFilters(f => ({ ...f, max_price: e.target.value ? Number(e.target.value) : undefined }))}
+                        onValueChange={(v) => setFilters(f => ({ ...f, max_price: v === "" ? undefined : Number(v) }))}
                         className="w-full rounded-lg border border-gray-200 bg-white dark:bg-gray-700 dark:border-gray-600 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20 dark:text-white"
                       />
                     </div>

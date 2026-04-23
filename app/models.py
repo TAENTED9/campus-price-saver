@@ -1,7 +1,42 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, CheckConstraint, UniqueConstraint
+import uuid as uuid_lib
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, CheckConstraint, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from app.database import Base
+from app.database import Base, IS_POSTGRES
+
+if IS_POSTGRES:
+    from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP, JSONB as PG_JSONB
+    _JsonType = PG_JSONB
+else:
+    PG_UUID = PG_TIMESTAMP = None
+    _JsonType = JSON
+
+
+def uuid_column():
+    """UUID column — native UUID type on PostgreSQL, VARCHAR(36) on SQLite."""
+    if IS_POSTGRES:
+        return Column(PG_UUID(as_uuid=True), default=uuid_lib.uuid4, unique=True, nullable=False, index=True)
+    return Column(String(36), default=lambda: str(uuid_lib.uuid4()), unique=True, nullable=False, index=True)
+
+
+def timestamp_col(*, nullable: bool = True, auto: bool = True, server_default: bool = False, index: bool = False, onupdate: bool = False):
+    """
+    TIMESTAMPTZ on PostgreSQL, DateTime on SQLite.
+    auto=True  → default=datetime.utcnow (most columns).
+    auto=False → no default; column must be set explicitly (e.g. expires_at).
+    """
+    from sqlalchemy import text as _sql_text
+    col_type = PG_TIMESTAMP(timezone=True) if IS_POSTGRES else DateTime
+    kwargs: dict = {"nullable": nullable}
+    if auto:
+        kwargs["default"] = datetime.utcnow
+    if onupdate:
+        kwargs["onupdate"] = datetime.utcnow
+    if server_default:
+        kwargs["server_default"] = _sql_text("NOW()") if IS_POSTGRES else _sql_text("(datetime('now'))")
+    if index:
+        kwargs["index"] = True
+    return Column(col_type, **kwargs)
 
 
 class User(Base):
@@ -36,27 +71,92 @@ class User(Base):
     trust_tier = Column(String, default="new_seller")      # new_seller/rising/trusted/top_seller
     is_suspended = Column(Boolean, default=False)
     is_banned = Column(Boolean, default=False)
-    suspended_until = Column(DateTime, nullable=True)
+    suspended_until = timestamp_col(auto=False)
     ban_reason = Column(Text, nullable=True)
     suspension_reason = Column(Text, nullable=True)
     # ── Block 4A: account lifecycle ──────────────────────────────────────────
     is_paused   = Column(Boolean, default=False, nullable=True)
-    paused_at   = Column(DateTime, nullable=True)
+    paused_at   = timestamp_col(auto=False)
     paused_by   = Column(String, nullable=True)    # "admin" | "self"
     pause_reason = Column(String, nullable=True)
-    reactivation_requested_at = Column(DateTime, nullable=True)
-    deletion_requested_at     = Column(DateTime, nullable=True)
+    reactivation_requested_at = timestamp_col(auto=False)
+    deletion_requested_at     = timestamp_col(auto=False)
     deletion_request_reason   = Column(String, nullable=True)
     is_deleted  = Column(Boolean, default=False, nullable=True)
-    deleted_at  = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at  = timestamp_col(auto=False)
+    created_at = timestamp_col()
     # Block 1A — link-based email verification
     email_verify_token     = Column(String, nullable=True)
-    email_verify_token_exp = Column(DateTime, nullable=True)
-    email_verified_at      = Column(DateTime, nullable=True)
+    email_verify_token_exp = timestamp_col(auto=False)
+    email_verified_at      = timestamp_col(auto=False)
+    uuid = Column(String, unique=True, nullable=True,
+                  default=lambda: str(uuid_lib.uuid4()))
+    # ── Password reset ─────────────────────────────────────────────────────────
+    password_reset_token     = Column(String, nullable=True)
+    password_reset_token_exp = timestamp_col(auto=False)
 
+    # ── Block 10: TOTP / MFA ──────────────────────────────────────────────────
+    mfa_enabled      = Column(Boolean, default=False, nullable=False)
+    mfa_secret       = Column(String, nullable=True)       # Base32 TOTP secret (store server-side only)
+    mfa_backup_codes = Column(_JsonType, nullable=True)    # List of SHA-256-hashed one-time codes
+
+    profile        = relationship("Profile", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     pending_prices = relationship("PendingPrice", back_populates="submitter")
-    transactions = relationship("Transaction", back_populates="user")
+    transactions   = relationship("Transaction", back_populates="user")
+    settings       = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class Profile(Base):
+    """
+    Extended identity data separated from the core User table (Block 3).
+    New code reads user.profile.*; existing code still reads user.display_name, etc.
+    """
+    __tablename__ = "profiles"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    display_name = Column(String(100), nullable=True)
+    avatar_url   = Column(String, nullable=True)
+    bio          = Column(Text, nullable=True)
+    banner_url   = Column(String, nullable=True)
+    phone        = Column(String(30), nullable=True)
+    department   = Column(String(100), nullable=True)
+    level        = Column(String(20), nullable=True)           # 100L … Postgrad
+    faculty      = Column(String(100), nullable=True)
+    karma_tier    = Column(String(20), default="Bronze")        # Bronze / Silver / Gold / Platinum
+    slug          = Column(String(80), nullable=True, unique=True)
+    business_name = Column(String(200), nullable=True)
+    category      = Column(String(100), nullable=True)
+    store_status  = Column(String(20), default="open")           # open / closed / busy
+    whatsapp      = Column(String(30), nullable=True)
+    show_whatsapp = Column(Boolean, default=False)
+    instagram     = Column(String(80), nullable=True)
+    metadata_     = Column("metadata", _JsonType, default=dict, nullable=True)
+    created_at   = timestamp_col(nullable=False, server_default=True)
+    updated_at   = timestamp_col(nullable=False, server_default=True, onupdate=True)
+
+    user = relationship("User", back_populates="profile", uselist=False)
+
+
+class RefreshToken(Base):
+    """
+    Hashed refresh-token records for secure Remember-Me (Block 3 / Block 9).
+    Raw token bytes are never stored — only an Argon2 hash.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash = Column(String, nullable=False, unique=True)
+    expires_at = timestamp_col(auto=False, nullable=False)
+    created_at = timestamp_col()
+    revoked    = Column(Boolean, default=False, nullable=False, index=True)
+    revoked_at = timestamp_col(auto=False)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+
+    user = relationship("User", back_populates="refresh_tokens")
 
 
 class EmailOTP(Base):
@@ -67,8 +167,8 @@ class EmailOTP(Base):
     otp_hash = Column(String, nullable=False)           # Argon2 hash of the 6-digit code
     purpose = Column(String, default="verify_email")    # verify_email | password_reset
     used = Column(Boolean, default=False)
-    expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = timestamp_col(auto=False, nullable=False)
+    created_at = timestamp_col()
 
 
 class Category(Base):
@@ -90,7 +190,7 @@ class Store(Base):
     lat = Column(Float, nullable=True)
     lng = Column(Float, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     prices = relationship("Price", back_populates="store")
 
@@ -115,8 +215,8 @@ class Price(Base):
     # Location & metadata
     retailer = Column(String, nullable=True)  # Store/shop name
     location = Column(String, nullable=True)  # Location/area
-    submitted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    submitted_at = Column(DateTime, default=datetime.utcnow)
+    submitted_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    submitted_at = timestamp_col()
     
     # Marketplace listing fields
     description = Column(Text, nullable=True)
@@ -125,7 +225,7 @@ class Price(Base):
     is_negotiable = Column(Boolean, default=False)
     delivery_options = Column(String, nullable=True)       # comma-sep: "pickup,delivery"
     duration_days = Column(Integer, nullable=True)         # 7 / 14 / 30
-    expires_at = Column(DateTime, nullable=True)
+    expires_at = timestamp_col(auto=False)
     listing_status = Column(String, default="active", index=True)  # draft/active/paused/sold/expired
     photos = Column(Text, nullable=True)                   # JSON array of Cloudinary URLs (up to 5)
     subcategory = Column(String, nullable=True)
@@ -138,7 +238,9 @@ class Price(Base):
 
     # Featured/promoted (paid with seller points)
     is_featured = Column(Boolean, default=False, index=True)
-    featured_until = Column(DateTime, nullable=True)
+    featured_until = timestamp_col(auto=False)
+    uuid = Column(String, unique=True, nullable=True,
+                  default=lambda: str(uuid_lib.uuid4()))
 
     category = relationship("Category", back_populates="prices")
     store = relationship("Store", back_populates="prices")
@@ -158,10 +260,10 @@ class FlashSale(Base):
     sale_price = Column(Float, nullable=False)         # Discounted price
     discount_pct = Column(Float, nullable=False)       # e.g. 20.0 = 20% off
 
-    start_time = Column(DateTime, nullable=False, default=datetime.utcnow)
-    end_time = Column(DateTime, nullable=False)        # When sale expires
+    start_time = timestamp_col(nullable=False)
+    end_time = timestamp_col(auto=False, nullable=False)        # When sale expires
     is_active = Column(Boolean, default=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     price_item = relationship("Price", back_populates="flash_sales")
     seller = relationship("User")
@@ -175,9 +277,22 @@ class PointsTransaction(Base):
     amount = Column(Integer, nullable=False)           # Positive = earned, Negative = spent
     reason = Column(String, nullable=True)             # "purchase_confirmed", "listing_boost"
     related_price_id = Column(Integer, ForeignKey("prices.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     user = relationship("User")
+
+
+class KarmaLedger(Base):
+    """Detailed karma points ledger — Feature 4A."""
+    __tablename__ = "karma_ledger"
+    id           = Column(Integer, primary_key=True, index=True)
+    seller_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    points       = Column(Integer, nullable=False)          # positive or negative
+    reason       = Column(String(100), nullable=False)      # 'sale_completed', 'five_star_review', etc.
+    reference_id = Column(String(100), nullable=True)       # e.g. order_id, review_id
+    created_at   = timestamp_col()
+
+    seller = relationship("User")
 
 
 class PendingPrice(Base):
@@ -188,7 +303,7 @@ class PendingPrice(Base):
     image_path = Column(String, nullable=True)    # path to uploaded image
     submitter_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     location_text = Column(String, nullable=True)     # user-entered location/canteen name
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
     status = Column(String, default="pending")  # e.g., pending, approved, rejected
     admin_notes = Column(Text, nullable=True)
 
@@ -201,7 +316,7 @@ class Transaction(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     amount = Column(Float, nullable=False)
     reason = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     user = relationship("User", back_populates="transactions")
 
@@ -216,7 +331,7 @@ class Item(Base):
     status = Column(String, default="pending", index=True)
     is_public = Column(Boolean, default=False)
     created_by = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
 
 class ItemSubmission(Base):
@@ -234,8 +349,8 @@ class ItemSubmission(Base):
     status = Column(String, default="pending")
     admin_notes = Column(Text, nullable=True)
     image_path = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    approved_at = Column(DateTime, nullable=True)
+    created_at = timestamp_col()
+    approved_at = timestamp_col(auto=False)
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     submitter = relationship("User", foreign_keys=[submitter_id])
@@ -287,8 +402,8 @@ class UserPreference(Base):
     enable_push_alerts = Column(Boolean, default=True)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = timestamp_col()
+    updated_at = timestamp_col(onupdate=True)
     
     def __repr__(self):
         return f"<UserPreference(user_id={self.user_id}, mode={self.transport_mode})>"
@@ -315,14 +430,14 @@ class SwitchingEvent(Base):
     
     # User action
     user_accepted = Column(Boolean, nullable=False)  # Did they follow recommendation?
-    accepted_at = Column(DateTime, nullable=True)
+    accepted_at = timestamp_col(auto=False)
     
     # Context
     basket_item_count = Column(Integer, nullable=False)
     basket_total_value = Column(Float, nullable=False)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
     
     def __repr__(self):
         return f"<SwitchingEvent(user_id={self.user_id}, accepted={self.user_accepted})>"
@@ -335,7 +450,7 @@ class PriceAlert(Base):
     __tablename__ = "price_alerts"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     
     # Alert criteria
     item_name = Column(String, nullable=False)  # Item to watch
@@ -348,12 +463,12 @@ class PriceAlert(Base):
     
     # Status
     is_active = Column(Boolean, default=True)
-    last_triggered_at = Column(DateTime, nullable=True)
+    last_triggered_at = timestamp_col(auto=False)
     trigger_count = Column(Integer, default=0)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = timestamp_col()
+    updated_at = timestamp_col(onupdate=True)
     
     def __repr__(self):
         return f"<PriceAlert(user_id={self.user_id}, item={self.item_name})>"
@@ -448,7 +563,7 @@ class SellerVerification(Base):
     __tablename__ = "seller_verifications"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     seller_name = Column(String, nullable=False)
     matric_no = Column(String, nullable=False, index=True)
     faculty = Column(String, nullable=False)
@@ -461,8 +576,8 @@ class SellerVerification(Base):
     portal_screenshot_url = Column(String, nullable=True)  # Portal/SCIMS screenshot
     status = Column(String, default="Pending", index=True)  # Pending, Under Review, Approved, Rejected
     admin_notes = Column(Text, nullable=True)
-    submitted_at = Column(DateTime, default=datetime.utcnow)
-    reviewed_at = Column(DateTime, nullable=True)
+    submitted_at = timestamp_col()
+    reviewed_at = timestamp_col(auto=False)
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     applicant = relationship("User", foreign_keys=[user_id])
@@ -478,9 +593,12 @@ class Announcement(Base):
     type = Column(String, default="System")       # Promo, System, Maintenance
     audience = Column(String, default="All")       # All, Sellers, Buyers
     is_active = Column(Boolean, default=True, index=True)
+    banner_url = Column(String, nullable=True)   # Cloudinary URL for homepage hero slide
+    cta_label = Column(String, nullable=True)    # Button text, e.g. "Shop Now"
+    cta_href = Column(String, nullable=True)     # Button URL, e.g. "/search?category=3"
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = timestamp_col()
+    updated_at = timestamp_col(onupdate=True)
 
     author = relationship("User")
 
@@ -489,7 +607,7 @@ class Report(Base):
     """User reports on listings or other users."""
     __tablename__ = "reports"
     id = Column(Integer, primary_key=True, index=True)
-    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reporter_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     target_type = Column(String, nullable=False)       # Listing, Seller, User
     target_id = Column(Integer, nullable=False)
     target_name = Column(String, nullable=True)
@@ -497,8 +615,8 @@ class Report(Base):
     status = Column(String, default="Open", index=True)  # Open, Under Review, Resolved
     admin_notes = Column(Text, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    resolved_at = Column(DateTime, nullable=True)
+    created_at = timestamp_col()
+    resolved_at = timestamp_col(auto=False)
 
     reporter = relationship("User", foreign_keys=[reporter_id])
     resolver = relationship("User", foreign_keys=[resolved_by])
@@ -516,8 +634,8 @@ class Dispute(Base):
     status = Column(String, default="Open", index=True)  # Open, Under Review, Escalated, Resolved
     admin_notes = Column(Text, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    resolved_at = Column(DateTime, nullable=True)
+    created_at = timestamp_col()
+    resolved_at = timestamp_col(auto=False)
 
     buyer = relationship("User", foreign_keys=[buyer_id])
     seller = relationship("User", foreign_keys=[seller_id])
@@ -535,7 +653,7 @@ class AuditLog(Base):
     target_id = Column(Integer, nullable=True)
     target_desc = Column(String, nullable=True)
     metadata_json = Column(Text, nullable=True)    # JSON blob for extra context
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = timestamp_col(index=True)
 
     admin = relationship("User")
 
@@ -546,7 +664,7 @@ class Follow(Base):
     id = Column(Integer, primary_key=True, index=True)
     follower_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     follower = relationship("User", foreign_keys=[follower_id])
     seller = relationship("User", foreign_keys=[seller_id])
@@ -562,9 +680,11 @@ class Inquiry(Base):
     buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
+    seller_reply = Column(Text, nullable=True)
+    replied_at = Column(DateTime, nullable=True)
     is_read = Column(Boolean, default=False)
-    label = Column(String, nullable=True)              # Pending / Completed / Spam
-    created_at = Column(DateTime, default=datetime.utcnow)
+    label = Column(String, nullable=True)              # Hot Lead / Pending / Completed / Spam
+    created_at = timestamp_col()
 
     listing = relationship("Price", back_populates="inquiries")
     buyer = relationship("User", foreign_keys=[buyer_id])
@@ -576,17 +696,19 @@ class Review(Base):
     __tablename__ = "reviews"
     id = Column(Integer, primary_key=True, index=True)
     listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
-    reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reviewer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    seller_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     rating = Column(Integer, nullable=False)           # 1–5
     comment = Column(Text, nullable=True)
     photo_url = Column(String, nullable=True)          # Optional Cloudinary URL
     is_verified_interaction = Column(Boolean, default=False)  # Came from a completed inquiry
     seller_response = Column(Text, nullable=True)
-    seller_response_at = Column(DateTime, nullable=True)
+    seller_response_at = timestamp_col(auto=False)
     is_flagged = Column(Boolean, default=False)
     flag_reason = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
+    uuid = Column(String, unique=True, nullable=True,
+                  default=lambda: str(uuid_lib.uuid4()))
 
     reviewer = relationship("User", foreign_keys=[reviewer_id])
     seller = relationship("User", foreign_keys=[seller_id])
@@ -602,11 +724,11 @@ class Wishlist(Base):
     """Buyer saves a listing to their wishlist."""
     __tablename__ = "wishlists"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    listing_id = Column(Integer, ForeignKey("prices.id", ondelete="CASCADE"), nullable=False)
+    created_at = timestamp_col()
 
-    user = relationship("User")
+    user    = relationship("User")
     listing = relationship("Price")
 
     __table_args__ = (UniqueConstraint("user_id", "listing_id", name="uq_wishlist"),)
@@ -616,14 +738,14 @@ class Notification(Base):
     """In-app notifications for buyers and sellers."""
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     type = Column(String, nullable=False)              # new_message, price_drop, restock, new_listing, review, sale
     title = Column(String, nullable=False)
     body = Column(Text, nullable=False)
     related_id = Column(Integer, nullable=True)        # listing_id / review_id / etc.
     related_type = Column(String, nullable=True)       # Listing, Review, Inquiry
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
     action_url = Column(String, nullable=True)   # Block 3B — deep link on tap
 
     user = relationship("User")
@@ -641,7 +763,7 @@ class LoginHistory(Base):
     user_agent   = Column(String, nullable=True)
     device       = Column(String, nullable=True)   # e.g. "Chrome on Windows"
     location     = Column(String, nullable=True)   # best-effort city/country
-    logged_in_at = Column(DateTime, default=datetime.utcnow)
+    logged_in_at = timestamp_col()
     was_notified = Column(Boolean, default=False)
 
     user = relationship("User")
@@ -653,7 +775,7 @@ class BlockedUser(Base):
     id = Column(Integer, primary_key=True, index=True)
     blocker_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     blocked_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     blocker = relationship("User", foreign_keys=[blocker_id])
     blocked = relationship("User", foreign_keys=[blocked_id])
@@ -671,12 +793,14 @@ class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
     listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
-    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    status = Column(String, default="pending", index=True)  # pending / met_up / completed / cancelled
+    buyer_id  = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status    = Column(String, default="pending", index=True)  # pending / met_up / completed / cancelled
     meetup_location = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = timestamp_col()
+    updated_at = timestamp_col(onupdate=True)
+    uuid = Column(String, unique=True, nullable=True,
+                  default=lambda: str(uuid_lib.uuid4()))
 
     listing = relationship("Price")
     buyer   = relationship("User", foreign_keys=[buyer_id])
@@ -691,9 +815,9 @@ class Lead(Base):
     __tablename__ = "leads"
     id = Column(Integer, primary_key=True, index=True)
     listing_id = Column(Integer, ForeignKey("prices.id"), nullable=False)
-    buyer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    buyer_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     ip_hash = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = timestamp_col()
 
     listing = relationship("Price")
     buyer   = relationship("User")
@@ -706,7 +830,7 @@ class CloudinaryAsset(Base):
     __tablename__ = "cloudinary_assets"
 
     id         = Column(Integer, primary_key=True, index=True)
-    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     public_id  = Column(String, nullable=False, unique=True)
     url        = Column(String, nullable=False)
     folder     = Column(String, nullable=False)
@@ -714,11 +838,95 @@ class CloudinaryAsset(Base):
     # avatar | banner | id_card | portal_screenshot | listing_photo
     bytes      = Column(Integer, nullable=True)
     format     = Column(String, nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = timestamp_col()
     listing_id = Column(Integer, ForeignKey("prices.id"), nullable=True)
 
     owner   = relationship("User")
     listing = relationship("Price")
+
+
+# ── Persistent Settings ────────────────────────────────────────────────────────
+
+class UserSettings(Base):
+    """
+    Per-user persistent settings.
+    Typed columns for frequently queried fields (theme, notif prefs, etc.).
+    JSONB/JSON preferences column for minor UI prefs that need no indexing.
+    One row per user — created on first /api/settings GET with role defaults.
+    """
+    __tablename__ = "user_settings"
+
+    # ── Identity ──────────────────────────────────────────────────────────────
+    id      = Column(Integer, primary_key=True, autoincrement=True)
+    uuid    = uuid_column()
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"),
+                     nullable=False, unique=True, index=True)
+
+    # ── Appearance ────────────────────────────────────────────────────────────
+    theme    = Column(String(10),  default="light",  nullable=False)
+    language = Column(String(10),  default="en",     nullable=False)
+
+    # ── Buyer-specific typed columns ──────────────────────────────────────────
+    profile_visibility = Column(String(20), default="unilag", nullable=False)
+    show_dept          = Column(Boolean, default=True,  nullable=False)
+    read_receipts      = Column(Boolean, default=True,  nullable=False)
+
+    # ── Seller-specific typed columns ─────────────────────────────────────────
+    store_status             = Column(String(20), default="open",  nullable=False)
+    vacation_mode            = Column(Boolean, default=False, nullable=False)
+    vacation_resume_date     = Column(String,  nullable=True)
+    auto_renew_listings      = Column(Boolean, default=True,  nullable=False)
+    default_negotiable       = Column(Boolean, default=False, nullable=False)
+    default_listing_duration = Column(Integer, default=14,    nullable=False)
+    default_pickup_location  = Column(String,  nullable=True)
+
+    # ── Notification preferences ──────────────────────────────────────────────
+    notif_email_messages      = Column(Boolean, default=True)
+    notif_email_price_drop    = Column(Boolean, default=True)
+    notif_email_new_listing   = Column(Boolean, default=False)
+    notif_email_order_update  = Column(Boolean, default=True)
+    notif_email_review        = Column(Boolean, default=True)
+    notif_email_weekly_digest = Column(Boolean, default=True)
+    notif_email_announcements = Column(Boolean, default=True)
+    notif_email_verification  = Column(Boolean, default=True)
+    notif_email_login_alert   = Column(Boolean, default=True)
+    notif_email_inquiry       = Column(Boolean, default=True)
+    notif_email_follower      = Column(Boolean, default=False)
+    notif_email_expiry        = Column(Boolean, default=True)
+    notif_email_competitor    = Column(Boolean, default=False)
+    notif_email_karma         = Column(Boolean, default=False)
+    notif_push_messages       = Column(Boolean, default=True)
+    notif_push_price_drop     = Column(Boolean, default=False)
+    notif_push_new_listing    = Column(Boolean, default=True)
+    notif_push_order_update   = Column(Boolean, default=True)
+    notif_push_review         = Column(Boolean, default=True)
+    notif_push_announcements  = Column(Boolean, default=True)
+    notif_push_inquiry        = Column(Boolean, default=True)
+    notif_push_follower       = Column(Boolean, default=True)
+
+    # ── Privacy ───────────────────────────────────────────────────────────────
+    show_online_status  = Column(Boolean, default=True)
+    show_last_seen      = Column(Boolean, default=True)
+    allow_follow        = Column(Boolean, default=True)
+    show_wishlist_count = Column(Boolean, default=False)
+    show_review_history = Column(Boolean, default=True)
+
+    # ── Security ──────────────────────────────────────────────────────────────
+    two_factor_enabled = Column(Boolean, default=False)
+    login_alerts       = Column(Boolean, default=True)
+
+    # ── Flexible preferences (JSONB on Postgres, JSON on SQLite) ─────────────
+    # Minor UI/UX prefs: compact_mode, listing_view, dashboard_layout, etc.
+    # Do NOT store important typed booleans here — use dedicated columns above.
+    preferences = Column(_JsonType, nullable=False, default=dict)
+
+    # ── Sync tracking ─────────────────────────────────────────────────────────
+    # Incremented on every PATCH — latest version wins on conflict
+    version    = Column(Integer, default=1,  nullable=False)
+    created_at = timestamp_col()
+    updated_at = timestamp_col(index=True, onupdate=True)
+
+    user = relationship("User", back_populates="settings", uselist=False)
 
 
 # ── Block 2A: Admin event feed ────────────────────────────────────────────────
@@ -736,12 +944,12 @@ class AdminEvent(Base):
     # new_listing | account_pause_request | account_delete_request |
     # account_paused | account_deleted | account_reactivated |
     # reactivation_requested | verification_approved | verification_rejected
-    user_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user_email  = Column(String, nullable=True)
     user_role   = Column(String, nullable=True)
     payload     = Column(Text, nullable=True)       # JSON string — doc URLs, listing details, etc.
     is_read     = Column(Boolean, default=False, index=True)
     requires_action = Column(Boolean, default=False, index=True)
-    created_at  = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at  = timestamp_col(index=True)
 
     user = relationship("User")

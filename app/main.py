@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Set
 from contextlib import asynccontextmanager
 
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -17,14 +18,17 @@ from dotenv import load_dotenv
 
 from app.limiter import limiter
 from app.scheduler import scheduler
+from app.config import settings as _app_settings
 from app.routers import (
     items, prices, ml, pending, stores,
     admin_items, auth, google_maps, compare, admin_stats,
     flash_sales, seller, admin_users, uploads, storefront,
-    reviews, wishlist, notifications,
+    reviews, wishlist, notifications, listings, messages,
 )
+from app.routers.settings import router as settings_router
 from app.database import init_db, SessionLocal
-from app.models import Category
+from app.models import Category, User
+from app.routers.auth import decode_access_token
 
 load_dotenv()
 
@@ -85,6 +89,7 @@ price_updater = PriceUpdater()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    messages.ensure_message_tables()
     db = SessionLocal()
     if db.query(Category).count() == 0:
         seed_categories(db)
@@ -125,7 +130,12 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
-# ── Security headers ──────────────────────────────────────────────────────────
+# ── Block 12B: HTTPS redirect middleware (production only) ────────────────
+if _app_settings.IS_PRODUCTION:
+    from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+    app.add_middleware(HTTPSRedirectMiddleware)
+
+# ── Block 12C: Security headers (+ HSTS in production) ────────────────────
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -134,6 +144,10 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if _app_settings.IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains; preload"
+        )
     return response
 
 
@@ -150,7 +164,7 @@ async def log_requests(request: Request, call_next):
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Production: set ALLOWED_ORIGINS=https://campify.ng,https://www.campify.ng
 # Do NOT include localhost in the production env var.
-_default_origins = "https://campify.ng,https://www.campify.ng,http://localhost:3000"
+_default_origins = "https://campify.ng,https://www.campify.ng"
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
@@ -160,9 +174,10 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"http://localhost:\d+",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
 
@@ -192,6 +207,15 @@ app.include_router(storefront.router,        prefix="/api")
 app.include_router(reviews.router,           prefix="/api")
 app.include_router(wishlist.router,          prefix="/api")
 app.include_router(notifications.router,     prefix="/api")
+app.include_router(listings.router,          prefix="/api")
+app.include_router(messages.router,          prefix="/api")
+app.include_router(settings_router)
+
+
+# ── Block 14C: Health check ───────────────────────────────────────────────────
+@app.get("/api/health", include_in_schema=False)
+async def health_check():
+    return {"status": "ok", "service": "campify-api"}
 
 
 # ── Global exception handler ──────────────────────────────────────────────────
@@ -257,6 +281,121 @@ if FRONTEND_DIR.exists():
     async def serve_map():
         p = FRONTEND_DIR / "map.html"
         return FileResponse(p) if p.exists() else {"message": "Map page not yet implemented"}
+
+
+# ── Per-conversation chat room manager ─────────────────────────────────────────
+from app.chat_manager import chat_manager as _chat_manager
+
+
+# ── WebSocket — real-time chat ──────────────────────────────────────────────
+@app.websocket("/ws/chat/{conversation_uuid}")
+async def websocket_chat_endpoint(websocket: WebSocket, conversation_uuid: str):
+    """
+    Real-time chat endpoint.
+    Both participants connect here; messages are broadcast to the full room.
+    Token passed as query param: /ws/chat/{id}?token=<jwt>
+    """
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001)
+        return
+
+    # Verify token — supports both uid (new) and sub (legacy) payload fields
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload.get("uid") or payload.get("sub", 0))
+        if not user_id:
+            raise ValueError("no user id in token")
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            await websocket.close(code=4001)
+            return
+
+        from app.routers.messages import Conversation, DirectMessage
+        from datetime import datetime as _dt
+
+        # Resolve conversation (URL param is always a numeric id as string)
+        conv: Conversation | None = None
+        try:
+            cid = int(conversation_uuid)
+            conv = db.query(Conversation).filter(Conversation.id == cid).first()
+        except ValueError:
+            pass
+
+        if not conv or user_id not in (conv.user_a_id, conv.user_b_id):
+            await websocket.close(code=4003)
+            return
+
+        await websocket.accept()
+        _chat_manager.join(websocket, conv.id)
+        logger.info(f"WS chat: user {user_id} joined conversation {conv.id}")
+
+        try:
+            while True:
+                raw = await websocket.receive_text()
+                if raw == "ping":
+                    await websocket.send_text("pong")
+                    continue
+
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    continue
+
+                # Handle typed events (typing indicators)
+                event_type = data.get("type")
+                if event_type == "typing_start":
+                    await _chat_manager.broadcast(conv.id, json.dumps({
+                        "type": "typing_start",
+                        "conversation_id": conv.id,
+                        "user_id": user_id,
+                    }), exclude=websocket)
+                    continue
+                if event_type == "typing_stop":
+                    await _chat_manager.broadcast(conv.id, json.dumps({
+                        "type": "typing_stop",
+                        "conversation_id": conv.id,
+                        "user_id": user_id,
+                    }), exclude=websocket)
+                    continue
+
+                content = (data.get("content") or "").strip()
+                if not content or len(content) > 4000:
+                    continue
+
+                msg = DirectMessage(
+                    conversation_id=conv.id,
+                    sender_id=user_id,
+                    content=content,
+                )
+                db.add(msg)
+                conv.last_message_at = _dt.utcnow()
+                conv.last_message_preview = content[:200]
+                db.commit()
+                db.refresh(msg)
+
+                outbound = json.dumps({
+                    "id": msg.id,
+                    "conversation_uuid": str(conv.id),
+                    "sender_id": user_id,
+                    "content": content,
+                    "created_at": msg.created_at.isoformat(),
+                    "is_read": False,
+                })
+                # Broadcast to BOTH participants (sender + receiver)
+                await _chat_manager.broadcast(conv.id, outbound)
+        except Exception as e:
+            logger.info(f"WS chat closed for user {user_id}: {e}")
+        finally:
+            _chat_manager.leave(websocket, conv.id)
+    finally:
+        db.close()
 
 
 # ── WebSocket — real-time price updates ──────────────────────────────────────

@@ -73,7 +73,7 @@ export default function BuyersPage() {
                 <td className="px-5 py-4 font-medium text-gray-800 dark:text-white/90">{u.username || u.display_name || `User #${u.id}`}</td>
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{u.email || "—"}</td>
                 <td className="px-5 py-4">{statusBadge(u)}</td>
-                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(u.created_at).toLocaleDateString()}</td>
+                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(u.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
                 <td className="px-5 py-4"><div className="flex gap-2">
                   {(u.is_suspended || u.is_banned) ? (
                     <button onClick={() => handleRestore(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><ShieldCheck size={14} /> Restore</button>

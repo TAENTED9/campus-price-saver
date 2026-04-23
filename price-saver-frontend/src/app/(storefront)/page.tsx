@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import HeroBanner from "@/components/storefront/HeroBanner";
+import HeroCarousel from "@/components/storefront/HeroCarousel";
 import StatsStrip from "@/components/storefront/StatsStrip";
+import AnnouncementBanner from "@/components/storefront/AnnouncementBanner";
 import CategoriesSection from "@/components/storefront/CategoriesSection";
 import FlashSalesSection from "@/components/storefront/FlashSalesSection";
 import FeaturedSection from "@/components/storefront/FeaturedSection";
@@ -11,7 +12,11 @@ import NearbySellersSection from "@/components/storefront/NearbySellersSection";
 import FeaturedSellersSection from "@/components/storefront/FeaturedSellersSection";
 import RecentlyViewedSection from "@/components/storefront/RecentlyViewedSection";
 import HowItWorks from "@/components/marketplace/HowItWorks";
+import HomepageAnnouncements from "@/components/storefront/HomepageAnnouncements";
 import StickyBottomCTA from "@/components/storefront/StickyBottomCTA";
+import GuestOnlyBlock from "@/components/storefront/GuestOnlyBlock";
+
+export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: "Campify -- Campus Marketplace",
@@ -22,10 +27,15 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <>
-      {/* 1A - Hero Banner */}
-      <HeroBanner />
+      {/* Hero carousel — admin-controlled banner slides + side cards */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0 pt-6 pb-2">
+        <HeroCarousel />
+      </div>
 
-      {/* 1B - Live Stats Bar */}
+      {/* Admin announcement banner (dismissible, client-side fetch) */}
+      <AnnouncementBanner />
+
+      {/* Live Stats Bar */}
       <StatsStrip />
 
       {/* 1C - Category Grid */}
@@ -40,21 +50,26 @@ export default function HomePage() {
       {/* 1F - New Arrivals */}
       <NewArrivalsSection />
 
-      {/* 1G - How It Works + CTA */}
+      {/* Homepage Announcement Posts */}
+      <HomepageAnnouncements />
+
+      {/* How It Works + CTA */}
       <HowItWorks />
-      <section className="pb-12 xl:pb-15">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0 text-center">
-          <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 mb-4">
-            Join 1,200+ UNILAG students already buying &amp; selling
-          </p>
-          <Link
-            href="/signup"
-            className="inline-flex items-center justify-center px-8 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all min-h-[44px]"
-          >
-            Create Free Account &rarr;
-          </Link>
-        </div>
-      </section>
+      <GuestOnlyBlock>
+        <section className="pb-12 xl:pb-15">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0 text-center">
+            <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 mb-4">
+              Join 1,200+ UNILAG students already buying &amp; selling
+            </p>
+            <Link
+              href="/signup"
+              className="inline-flex items-center justify-center px-8 py-3 text-sm font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all min-h-[44px]"
+            >
+              Create Free Account &rarr;
+            </Link>
+          </div>
+        </section>
+      </GuestOnlyBlock>
 
       {/* 1H - Featured Sellers */}
       <FeaturedSellersSection />
@@ -69,36 +84,38 @@ export default function HomePage() {
       <RecentlyViewedSection />
 
       {/* CTA Banner */}
-      <section className="pb-12 xl:pb-15">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0">
-          <div className="relative rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 overflow-hidden p-10 sm:p-14 text-center">
-            <div className="absolute inset-0 opacity-10 dot-pattern" />
-            <div className="relative z-10">
-              <h2 className="font-bold text-white text-xl md:text-2xl lg:text-3xl mb-3">
-                Ready to save money on campus?
-              </h2>
-              <p className="text-white/70 text-xs md:text-sm mb-8 max-w-md mx-auto">
-                Join 5,000+ students already comparing prices and getting the
-                best deals.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Link
-                  href="/signup"
-                  className="inline-flex items-center justify-center px-8 py-3 text-sm font-medium text-blue-700 bg-white rounded-full hover:bg-gray-100 transition-colors min-h-[44px]"
-                >
-                  Get Started -- It&apos;s Free
-                </Link>
-                <Link
-                  href="/search"
-                  className="inline-flex items-center justify-center px-8 py-3 text-sm font-medium text-white border border-white/30 rounded-full hover:bg-white/10 transition-colors min-h-[44px]"
-                >
-                  Browse Products
-                </Link>
+      <GuestOnlyBlock>
+        <section className="pb-12 xl:pb-15">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0">
+            <div className="relative rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 overflow-hidden p-10 sm:p-14 text-center">
+              <div className="absolute inset-0 opacity-10 dot-pattern" />
+              <div className="relative z-10">
+                <h2 className="font-bold text-white text-xl md:text-2xl lg:text-3xl mb-3">
+                  Ready to save money on campus?
+                </h2>
+                <p className="text-white/70 text-xs md:text-sm mb-8 max-w-md mx-auto">
+                  Join 5,000+ students already comparing prices and getting the
+                  best deals.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link
+                    href="/signup"
+                    className="inline-flex items-center justify-center px-8 py-3 text-sm font-medium text-blue-700 bg-white rounded-full hover:bg-gray-100 transition-colors min-h-[44px]"
+                  >
+                    Get Started -- It&apos;s Free
+                  </Link>
+                  <Link
+                    href="/search"
+                    className="inline-flex items-center justify-center px-8 py-3 text-sm font-medium text-white border border-white/30 rounded-full hover:bg-white/10 transition-colors min-h-[44px]"
+                  >
+                    Browse Products
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </GuestOnlyBlock>
 
       {/* 1J - Sticky Bottom CTA (mobile only) */}
       <StickyBottomCTA />

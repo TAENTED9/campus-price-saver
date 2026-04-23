@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import sellerApi from "@/lib/sellerApi";
+import NumberInput from "@/components/ui/NumberInput";
 
 /**
  * Seller Inventory Page
@@ -251,14 +252,13 @@ function CreateProductForm({
 
           <div>
             <label className="block text-sm font-medium mb-1">Price *</label>
-            <input
-              type="number"
-              name="price"
-              value={formData.price}
-              onChange={handleChange}
+            <NumberInput
+              allowDecimal
+              value={formData.price === "" ? "" : Number(formData.price)}
+              onValueChange={(v) =>
+                setFormData((f) => ({ ...f, price: v === "" ? "" : String(v) }))
+              }
               required
-              step="0.01"
-              min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="0.00"
             />
@@ -266,13 +266,13 @@ function CreateProductForm({
 
           <div>
             <label className="block text-sm font-medium mb-1">Quantity *</label>
-            <input
-              type="number"
-              name="quantity"
-              value={formData.quantity}
-              onChange={handleChange}
+            <NumberInput
+              value={formData.quantity === "" ? "" : Number(formData.quantity)}
+              onValueChange={(v) =>
+                setFormData((f) => ({ ...f, quantity: v === "" ? "" : String(v) }))
+              }
               required
-              min="0"
+              maxDigits={6}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="0"
             />

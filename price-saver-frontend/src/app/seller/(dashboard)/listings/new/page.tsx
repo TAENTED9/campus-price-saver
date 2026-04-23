@@ -3,8 +3,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { sellerApi, itemsApi, uploadApi, type Category } from "@/lib/api";
-import { X, Upload, ChevronLeft } from "lucide-react";
+import { sellerApi, itemsApi, uploadApi, flashSalesApi, type Category } from "@/lib/api";
+import { X, Upload, ChevronLeft, UploadCloud, Star, Zap, Check } from "lucide-react";
+import NumberInput from "@/components/ui/NumberInput";
 
 const CONDITIONS = ["New", "Fairly Used", "Used"] as const;
 const DURATIONS = [7, 14, 30] as const;
@@ -30,7 +31,7 @@ function SectionCard({ title, children }: { title: string; children: React.React
 
 export default function NewListingPage() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const [verifGate, setVerifGate] = useState<"checking" | "ok" | "required">("checking");
   const [categories, setCategories] = useState<Category[]>([]);
@@ -52,10 +53,21 @@ export default function NewListingPage() {
   const [packSize, setPackSize] = useState("");
   const [packUnit, setPackUnit] = useState("");
 
+  const [step, setStep]           = useState(1);
+  const [makeOffer, setMakeOffer]   = useState(false);
+  const [flashSale, setFlashSale]   = useState(false);
+  const [flashPrice, setFlashPrice] = useState<number | "">("");
+  const [flashEnd, setFlashEnd]     = useState("");
+  const [autoRenew, setAutoRenew]   = useState(false);
+  const [meetupSpots, setMeetupSpots] = useState<string[]>([]);
+  const [dragOver, setDragOver]     = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const MEETUP_SPOTS = ["GTBank bus stop", "Moremi Hall gate", "Faculty of Science gate", "University Senate building", "Amina Hall", "Kuti Hall", "Angola", "Nithub", "New Hall", "Freedom Park"];
 
   useEffect(() => {
     itemsApi.getCategories().then(setCategories).catch(() => {});
@@ -69,10 +81,9 @@ export default function NewListingPage() {
       .catch(() => setVerifGate("ok")); // fail open
   }, [token]);
 
-  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !token) return;
-    if (photos.length >= 5) { setError("Maximum 5 photos allowed"); return; }
+  async function uploadFile(file: File) {
+    if (!token) return;
+    if (photos.length >= 8) { setError("Maximum 8 photos allowed"); return; }
     setUploadingPhoto(true);
     setError("");
     try {
@@ -84,6 +95,30 @@ export default function NewListingPage() {
       setUploadingPhoto(false);
       if (fileRef.current) fileRef.current.value = "";
     }
+  }
+
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) await uploadFile(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) uploadFile(file);
+  }
+
+  function toggleMeetupSpot(spot: string) {
+    setMeetupSpots((prev) =>
+      prev.includes(spot) ? prev.filter((s) => s !== spot) : [...prev, spot]
+    );
+  }
+
+  function canProceed() {
+    if (step === 1) return name.trim().length >= 3 && categoryId !== "";
+    if (step === 2) return price !== "" && Number(price) > 0;
+    return true;
   }
 
   function removePhoto(index: number) {
@@ -103,6 +138,15 @@ export default function NewListingPage() {
     if (!token) { setError("You must be logged in."); return; }
     if (!name.trim() || categoryId === "" || price === "" || Number(price) <= 0) {
       setError("Product name, category and price are required.");
+      return;
+    }
+
+    if (
+      listingStatus === "active" &&
+      flashSale &&
+      (flashPrice === "" || Number(flashPrice) <= 0 || Number(flashPrice) >= Number(price) || !flashEnd)
+    ) {
+      setError("Flash sale needs a sale price below the listing price and an end date in the future.");
       return;
     }
 
@@ -126,6 +170,34 @@ export default function NewListingPage() {
         listing_status: listingStatus,
         photos,
       });
+
+      if (listingStatus === "active" && flashSale && user?.id && res.id) {
+        const discountPct = Math.max(
+          0.01,
+          Math.min(100, ((Number(price) - Number(flashPrice)) / Number(price)) * 100),
+        );
+        const endIso = new Date(flashEnd).toISOString();
+        try {
+          await flashSalesApi.create(
+            {
+              price_id: res.id,
+              title: name.trim(),
+              discount_pct: Number(discountPct.toFixed(2)),
+              end_time: endIso,
+            },
+            user.id,
+          );
+        } catch (flashErr) {
+          setError(
+            flashErr instanceof Error
+              ? `Listing created, but flash sale failed: ${flashErr.message}`
+              : "Listing created, but flash sale failed.",
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+
       setSuccess(res.message);
       setTimeout(() => router.push("/seller/listings"), 1200);
     } catch (err) {
@@ -153,27 +225,61 @@ export default function NewListingPage() {
         <p className="text-sm text-gray-500 dark:text-gray-400">
           You need to complete your seller verification before you can list products. It only takes a minute.
         </p>
-        <button
-          type="button"
-          onClick={() => router.push("/seller/verification?ref=listing")}
-          className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors"
-        >
+        <button type="button" onClick={() => router.push("/seller/verification?ref=listing")}
+          className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors">
           Complete Verification →
         </button>
       </div>
     );
   }
 
+  const STEPS = ["Product Info", "Pricing", "Photos", "Pickup & Delivery"];
+
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto max-w-2xl space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <button type="button" onClick={() => router.push("/seller/listings")}
+        <button type="button"
+          onClick={() => step > 1 ? setStep(step - 1) : router.push("/seller/listings")}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white/90 transition-colors">
-          <ChevronLeft size={16} /> Back
+          <ChevronLeft size={16} /> {step > 1 ? "Back" : "Listings"}
         </button>
       </div>
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white/90">Add New Listing</h1>
+
+      <div className="flex items-start justify-between">
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white/90">Add New Listing</h1>
+        <span className="text-sm text-gray-400">Step {step} of 4</span>
+      </div>
+
+      {/* Step progress indicator */}
+      <div className="flex items-center gap-0">
+        {STEPS.map((label, i) => {
+          const n = i + 1;
+          const done = n < step;
+          const current = n === step;
+          return (
+            <React.Fragment key={label}>
+              <div className="flex flex-col items-center gap-1">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                  done ? "bg-brand-500 text-white" :
+                  current ? "bg-brand-500 text-white ring-4 ring-brand-100 dark:ring-brand-500/20" :
+                  "bg-gray-100 dark:bg-gray-800 text-gray-400"
+                }`}>
+                  {done ? <Check size={12} /> : n}
+                </div>
+                <span className={`text-[10px] font-medium whitespace-nowrap ${
+                  current ? "text-brand-500" : "text-gray-400"
+                }`}>{label}</span>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div className={`flex-1 h-0.5 mb-4 mx-1 rounded-full transition-all ${
+                  done ? "bg-brand-500" : "bg-gray-100 dark:bg-gray-800"
+                }`} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-500/10 dark:text-red-400">{error}</div>
@@ -182,174 +288,272 @@ export default function NewListingPage() {
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700 dark:border-green-800 dark:bg-green-500/10 dark:text-green-400">{success}</div>
       )}
 
-      {/* Section 1 — Product Info */}
-      <SectionCard title="Product Info">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className={lbl}>Product Name <span className="text-red-500">*</span></label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Golden Penny Spaghetti 500g" className={inp} />
-          </div>
-          <div>
-            <label className={lbl}>Category <span className="text-red-500">*</span></label>
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : "")} title="Category" className={inp}>
-              <option value="">Select category</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={lbl}>Subcategory</label>
-            <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)}
-              placeholder="e.g. Rice, Frozen Foods, Dresses" className={inp} />
-          </div>
-          <div className="sm:col-span-2">
-            <label className={lbl}>Description <span className="text-gray-400 font-normal">(min 20 chars)</span></label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
-              placeholder="Describe your product — condition, size, what's included, any defects, etc."
-              className="w-full rounded-lg border border-gray-200 bg-transparent px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-white/[0.03] dark:text-white/90 dark:placeholder:text-white/30" />
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* Section 2 — Pricing */}
-      <SectionCard title="Pricing & Condition">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className={lbl}>Price (₦) <span className="text-red-500">*</span></label>
-            <input type="number" min="0" step="0.01" value={price}
-              onChange={(e) => setPrice(e.target.value ? Number(e.target.value) : "")}
-              placeholder="0.00" className={inp} />
-          </div>
-          <div className="flex items-end pb-1">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <div
-                onClick={() => setIsNegotiable(!isNegotiable)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${isNegotiable ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-700"}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${isNegotiable ? "translate-x-5" : ""}`} />
+      {/* ── STEP 1: Product Info ── */}
+      {step === 1 && (
+        <SectionCard title="Product Info">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <div className="flex justify-between mb-1.5">
+                <label className={lbl.replace(" mb-1.5","")}>Product Name <span className="text-red-500">*</span></label>
+                <span className={`text-xs font-medium ${
+                  name.length < 3 ? "text-error-500" : name.length > 70 ? "text-warning-500" : "text-gray-400"
+                }`}>{name.length}/80</span>
               </div>
-              <span className="text-sm text-gray-700 dark:text-gray-300">Price is negotiable</span>
-            </label>
-          </div>
-          <div className="sm:col-span-2">
-            <label className={lbl}>Condition</label>
-            <div className="flex gap-2">
-              {CONDITIONS.map((c) => (
-                <button key={c} type="button" onClick={() => setCondition(c)} className={pill(condition === c)}>{c}</button>
-              ))}
+              <input type="text" value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Golden Penny Spaghetti 500g" className={inp} />
             </div>
-          </div>
-          <div>
-            <label className={lbl}>Brand</label>
-            <input type="text" value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="e.g. Nike, Samsung" className={inp} />
-          </div>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className={lbl}>Pack Size</label>
-              <input type="text" value={packSize} onChange={(e) => setPackSize(e.target.value)} placeholder="500" className={inp} />
-            </div>
-            <div className="w-24">
-              <label className={lbl}>Unit</label>
-              <select value={packUnit} onChange={(e) => setPackUnit(e.target.value)} title="Pack unit" className={inp}>
-                <option value="">—</option>
-                {["g","kg","ml","L","pcs","pack"].map((u) => <option key={u} value={u}>{u}</option>)}
+            <div>
+              <label className={lbl}>Category <span className="text-red-500">*</span></label>
+              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : "")} title="Category" className={inp}>
+                <option value="">Select category</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* Section 3 — Photos */}
-      <SectionCard title={`Photos (${photos.length}/5)`}>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
-          {photos.map((url, i) => (
-            <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800">
-              <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
-              <button type="button" title="Remove photo" onClick={() => removePhoto(i)}
-                className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-red-500 transition-colors">
-                <X size={12} />
-              </button>
+            <div>
+              <label className={lbl}>Subcategory</label>
+              <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)}
+                placeholder="e.g. Rice, Frozen Foods, Dresses" className={inp} />
             </div>
-          ))}
-          {photos.length < 5 && (
-            <button type="button" onClick={() => fileRef.current?.click()}
-              disabled={uploadingPhoto}
-              className="aspect-square rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center gap-1.5 text-gray-400 hover:border-brand-400 hover:text-brand-500 transition-colors disabled:opacity-50">
-              {uploadingPhoto ? (
-                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
-              ) : (
-                <Upload size={20} />
-              )}
-              <span className="text-xs">{uploadingPhoto ? "Uploading..." : "Add Photo"}</span>
-            </button>
-          )}
-        </div>
-        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-          title="Upload listing photo" aria-label="Upload listing photo"
-          onChange={handlePhotoUpload} />
-        <p className="mt-2 text-xs text-gray-400">JPEG, PNG or WebP · Max 5 MB each · Up to 5 photos</p>
-      </SectionCard>
-
-      {/* Section 4 — Availability */}
-      <SectionCard title="Availability">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="quantity" className={lbl}>Quantity Available</label>
-            <input id="quantity" type="number" min="1" max="9999" value={quantity}
-              onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))} className={inp} />
-          </div>
-          <div>
-            <label className={lbl}>Delivery Options</label>
-            <div className="flex gap-4 mt-0.5">
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                <input type="checkbox" checked={hasPickup} onChange={(e) => setHasPickup(e.target.checked)}
-                  title="Pickup available" className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-                Pickup
-              </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                <input type="checkbox" checked={hasDelivery} onChange={(e) => setHasDelivery(e.target.checked)}
-                  title="Delivery available" className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-                Delivery
-              </label>
-            </div>
-          </div>
-          {hasPickup && (
             <div className="sm:col-span-2">
+              <div className="flex justify-between mb-1.5">
+                <label className={lbl.replace(" mb-1.5","")}>Description</label>
+                <span className={`text-xs font-medium ${description.length > 900 ? "text-warning-500" : "text-gray-400"}`}>{description.length}/1000</span>
+              </div>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value.slice(0, 1000))} rows={4}
+                placeholder="Describe your product — condition, size, what's included, any defects, etc."
+                className="w-full rounded-lg border border-gray-200 bg-transparent px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-white/[0.03] dark:text-white/90 dark:placeholder:text-white/30" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={lbl}>Condition</label>
+              <div className="grid grid-cols-3 gap-3">
+                {CONDITIONS.map((c) => (
+                  <button key={c} type="button" onClick={() => setCondition(c)}
+                    className={`py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                      condition === c
+                        ? "border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400"
+                        : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300"
+                    }`}>{c}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ── STEP 2: Pricing & Availability ── */}
+      {step === 2 && (
+        <SectionCard title="Pricing & Availability">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={lbl}>Price <span className="text-red-500">*</span></label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">₦</span>
+                <NumberInput value={price} onValueChange={setPrice} placeholder="0" className={`${inp} pl-8`} />
+              </div>
+            </div>
+
+            {[{
+              label: "Price is negotiable",
+              checked: isNegotiable, toggle: () => setIsNegotiable(!isNegotiable),
+            }, {
+              label: "Accept offers / Make Offer",
+              checked: makeOffer, toggle: () => setMakeOffer(!makeOffer),
+            }].map((t) => (
+              <div key={t.label} className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800">
+                <span className="text-sm text-gray-700 dark:text-gray-300">{t.label}</span>
+                <button type="button" role="switch" aria-label={t.label} onClick={t.toggle}
+                  className={`relative w-10 h-5.5 rounded-full transition-colors ${t.checked ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"}`}
+                  aria-checked={t.checked ? "true" : "false"}>
+                  <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${t.checked ? "translate-x-[18px]" : ""}`} />
+                </button>
+              </div>
+            ))}
+
+            <div>
+              <label htmlFor="quantity" className={lbl}>Quantity Available</label>
+              <NumberInput
+                id="quantity"
+                value={quantity}
+                onValueChange={(v) => setQuantity(Math.max(1, Number(v) || 1))}
+                maxDigits={4}
+                className={inp}
+              />
+            </div>
+
+            <div className="sm:col-span-2 space-y-3">
+              <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <Zap size={15} className="text-warning-500" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Flash Sale</span>
+                </div>
+                <button type="button" role="switch" aria-label="Flash Sale" aria-checked={flashSale ? "true" : "false"} onClick={() => setFlashSale(!flashSale)}
+                  className={`relative w-10 h-5.5 rounded-full transition-colors ${flashSale ? "bg-warning-500" : "bg-gray-300 dark:bg-gray-600"}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${flashSale ? "translate-x-[18px]" : ""}`} />
+                </button>
+              </div>
+              {flashSale && (
+                <div className="grid grid-cols-2 gap-3 p-3 bg-warning-50 dark:bg-warning-500/10 rounded-xl border border-warning-200 dark:border-warning-500/30">
+                  <div>
+                    <label className="text-xs font-medium text-warning-700 dark:text-warning-400 block mb-1">Sale Price (₦)</label>
+                    <NumberInput title="Flash sale price" placeholder="0" value={flashPrice} onValueChange={setFlashPrice} className={inp} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-warning-700 dark:text-warning-400 block mb-1">End Date & Time</label>
+                    <input type="datetime-local" title="Flash sale end date" value={flashEnd} onChange={(e) => setFlashEnd(e.target.value)} className={inp} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ── STEP 3: Photos & Video ── */}
+      {step === 3 && (
+        <SectionCard title={`Photos (${photos.length}/8)`}>
+          {/* Drag & Drop zone */}
+          {photos.length < 8 && (
+            <div
+              onDrop={handleDrop}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onClick={() => fileRef.current?.click()}
+              className={`mb-4 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                dragOver
+                  ? "border-brand-400 bg-brand-50 dark:bg-brand-500/10"
+                  : "border-gray-300 dark:border-gray-700 hover:border-brand-300 hover:bg-gray-50 dark:hover:bg-white/[0.02]"
+              }`}
+            >
+              <UploadCloud size={32} className="mx-auto mb-2 text-gray-400" />
+              <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Drop photos here or click to upload</p>
+              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP · up to 8 photos</p>
+              {uploadingPhoto && <p className="text-xs text-brand-500 mt-2 animate-pulse">Uploading…</p>}
+            </div>
+          )}
+
+          {/* Preview grid */}
+          {photos.length > 0 && (
+            <div className="grid grid-cols-4 gap-2.5 mb-3">
+              {photos.map((url, i) => (
+                <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 group">
+                  <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                  {i === 0 && (
+                    <div className="absolute top-1 left-1 bg-warning-400 text-white rounded px-1 py-0.5 text-[9px] font-bold flex items-center gap-0.5">
+                      <Star size={8} className="fill-white" /> Cover
+                    </div>
+                  )}
+                  <button type="button" title="Remove photo" onClick={() => removePhoto(i)}
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500">
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+            title="Upload listing photo" aria-label="Upload listing photo"
+            onChange={handlePhotoUpload} />
+          <p className="text-xs text-gray-400">First photo will be used as the listing cover.</p>
+        </SectionCard>
+      )}
+
+      {/* ── STEP 4: Pickup & Delivery ── */}
+      {step === 4 && (
+        <SectionCard title="Pickup & Delivery">
+          <div className="space-y-5">
+            <div>
               <label className={lbl}>Pickup Location</label>
               <input type="text" value={location} onChange={(e) => setLocation(e.target.value)}
                 placeholder="e.g. Moremi Hall, Faculty of Science gate" className={inp} />
             </div>
-          )}
-        </div>
-      </SectionCard>
 
-      {/* Section 5 — Duration */}
-      <SectionCard title="Listing Duration">
-        <div className="flex gap-2">
-          {DURATIONS.map((d) => (
-            <button key={d} type="button" onClick={() => setDuration(d)} className={pill(duration === d)}>
-              {d} days
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 text-xs text-gray-400">Your listing will expire and auto-deactivate after this period.</p>
-      </SectionCard>
+            <div>
+              <label className={lbl}>Delivery Options</label>
+              <div className="flex gap-2">
+                {(["Pickup Only", "Campus Delivery", "Both"] as const).map((opt) => {
+                  const isActive = opt === "Both" ? hasPickup && hasDelivery :
+                    opt === "Pickup Only" ? hasPickup && !hasDelivery : !hasPickup && hasDelivery;
+                  return (
+                    <button key={opt} type="button" onClick={() => {
+                      if (opt === "Pickup Only") { setHasPickup(true); setHasDelivery(false); }
+                      else if (opt === "Campus Delivery") { setHasPickup(false); setHasDelivery(true); }
+                      else { setHasPickup(true); setHasDelivery(true); }
+                    }} className={pill(isActive)}>{opt}</button>
+                  );
+                })}
+              </div>
+            </div>
 
-      {/* Actions */}
+            {hasDelivery && (
+              <div>
+                <label className={lbl}>Delivery Fee (₦)</label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-gray-400">₦</span>
+                  <NumberInput value="" onValueChange={() => {}} placeholder="0" className={`${inp} pl-8`} />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className={lbl}>Meetup Spots</label>
+              <div className="grid grid-cols-2 gap-2">
+                {MEETUP_SPOTS.map((spot) => (
+                  <label key={spot} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={meetupSpots.includes(spot)} onChange={() => toggleMeetupSpot(spot)}
+                      className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{spot}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className={lbl}>Listing Duration</label>
+              <div className="flex gap-2">
+                {DURATIONS.map((d) => (
+                  <button key={d} type="button" onClick={() => setDuration(d)} className={pill(duration === d)}>{d} days</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between py-3 border-t border-gray-100 dark:border-gray-800">
+              <span className="text-sm text-gray-700 dark:text-gray-300">Auto-renew listing on expiry</span>
+              <button type="button" role="switch" aria-label="Auto-renew listing" aria-checked={autoRenew ? "true" : "false"} onClick={() => setAutoRenew(!autoRenew)}
+                className={`relative w-10 h-5.5 rounded-full transition-colors ${autoRenew ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"}`}>
+                <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${autoRenew ? "translate-x-[18px]" : ""}`} />
+              </button>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Navigation footer */}
       <div className="flex items-center gap-3 pb-6">
-        <button type="button" disabled={submitting}
-          onClick={() => handleSubmit("draft")}
-          className="flex-1 sm:flex-none px-6 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-white/5 disabled:opacity-50 transition-colors">
-          Save as Draft
-        </button>
-        <button type="button" disabled={submitting}
-          onClick={() => handleSubmit("active")}
-          className="flex-1 sm:flex-none px-8 py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium disabled:opacity-50 transition-colors">
-          {submitting ? "Submitting..." : "Publish Listing"}
-        </button>
+        {step > 1 && (
+          <button type="button" onClick={() => setStep(step - 1)}
+            className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+            Back
+          </button>
+        )}
+        <div className="flex-1" />
+        {step < 4 ? (
+          <button type="button" onClick={() => setStep(step + 1)} disabled={!canProceed()}
+            className="px-8 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold disabled:opacity-40 transition-colors">
+            Next →
+          </button>
+        ) : (
+          <>
+            <button type="button" disabled={submitting} onClick={() => handleSubmit("draft")}
+              className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50 transition-colors">
+              Save Draft
+            </button>
+            <button type="button" disabled={submitting} onClick={() => handleSubmit("active")}
+              className="px-8 py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white text-sm font-bold disabled:opacity-50 transition-opacity hover:opacity-90">
+              {submitting ? "Publishing…" : "Publish Listing"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

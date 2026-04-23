@@ -53,6 +53,15 @@ const sideCards = [
   },
 ];
 
+type BannerAPISlide = {
+  id: number;
+  title: string;
+  message: string;
+  banner_url: string | null;
+  cta_label: string;
+  cta_href: string;
+};
+
 type Slide = {
   tag: string;
   title: string;
@@ -73,30 +82,30 @@ const GRADIENTS = [
   "from-cyan-600 to-blue-700",
 ];
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function HeroCarousel() {
   const [slides, setSlides] = useState<Slide[]>(STATIC_SLIDES);
   const [active, setActive] = useState(0);
 
-  // Fetch dynamic banners from admin announcements
+  // Fetch admin-controlled banner slides
   useEffect(() => {
-    fetch("/api/storefront/banners")
+    fetch(`${API_BASE}/api/storefront/banners`)
       .then(r => r.ok ? r.json() : null)
-      .then(res => {
+      .then((res: { data: BannerAPISlide[] } | null) => {
         if (!res?.data?.length) return;
-        // Build slides from announcements — only include ones that have a banner_url
-        // OR include all active ones as text-only slides
-        const dynamic: Slide[] = res.data.map((a: { title: string; message: string; banner_url: string | null; type: string }, i: number) => ({
-          tag: a.type === "banner" ? "Featured" : (a.type ? a.type.charAt(0).toUpperCase() + a.type.slice(1) : "Announcement"),
+        const dynamic: Slide[] = res.data.map((a, i) => ({
+          tag: "Featured",
           title: a.title,
           subtitle: a.message,
-          cta: { label: a.type === "banner" ? "Explore Now" : "Browse Campus", href: "/search" },
+          cta: { label: a.cta_label, href: a.cta_href },
           bg: GRADIENTS[i % GRADIENTS.length],
           icon: null,
           image: a.banner_url ?? null,
         }));
         setSlides(dynamic);
       })
-      .catch(() => {/* keep static */});
+      .catch(() => {/* keep static fallback */});
   }, []);
 
   // Auto-advance every 5s

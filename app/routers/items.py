@@ -9,6 +9,7 @@ from typing import List, Optional
 from app.database import get_db
 from app.limiter import limiter
 from app.models import Price, Category, Store, Item, User, PointsTransaction
+from app.routers.auth import get_current_admin
 from app.schemas import PriceCreate, PriceOut, CategoryCreate, CategoryOut
 from sqlalchemy import func
 
@@ -83,7 +84,7 @@ def get_new_arrivals(
 ):
     return (
         db.query(Price)
-        .filter(Price.status == "approved")
+        .filter(Price.status == "approved", Price.listing_status == "active")
         .order_by(Price.submitted_at.desc())
         .limit(limit)
         .all()
@@ -99,7 +100,7 @@ def get_trending_prices(
 ):
     return (
         db.query(Price)
-        .filter(Price.status == "approved")
+        .filter(Price.status == "approved", Price.listing_status == "active")
         .order_by(Price.view_count.desc())
         .limit(limit)
         .all()
@@ -118,6 +119,7 @@ def get_featured_prices(
         db.query(Price)
         .filter(
             Price.status == "approved",
+            Price.listing_status == "active",
             Price.is_featured == True,
             or_(Price.featured_until == None, Price.featured_until > now),
         )
@@ -263,7 +265,7 @@ def submit_price(request: Request, price: PriceCreate, db: Session = Depends(get
     if price.store_id and not db.query(Store).filter(Store.id == price.store_id).first():
         raise HTTPException(status_code=404, detail="Store not found")
     new_price = Price(**price.dict())
-    new_price.status = new_price.status or "pending"
+    new_price.status = "pending"
     db.add(new_price)
     db.commit()
     db.refresh(new_price)
@@ -362,18 +364,30 @@ def confirm_purchase(
 
 @router.put("/prices/{price_id}/approve")
 @limiter.limit("30/minute")
-def approve_price(request: Request, price_id: int, db: Session = Depends(get_db)):
+def approve_price(
+    request: Request,
+    price_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
     price = db.query(Price).filter(Price.id == price_id).first()
     if not price:
         raise HTTPException(status_code=404, detail="Price not found")
     price.status = "approved"
+    if not price.listing_status or price.listing_status == "draft":
+        price.listing_status = "active"
     db.commit()
     return {"status": "approved", "id": price_id}
 
 
 @router.put("/prices/{price_id}/reject")
 @limiter.limit("30/minute")
-def reject_price(request: Request, price_id: int, db: Session = Depends(get_db)):
+def reject_price(
+    request: Request,
+    price_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
     price = db.query(Price).filter(Price.id == price_id).first()
     if not price:
         raise HTTPException(status_code=404, detail="Price not found")

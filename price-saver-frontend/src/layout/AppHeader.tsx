@@ -3,7 +3,7 @@ import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
 import UserDropdown from "@/components/header/UserDropdown";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import { useSidebar } from "@/context/SidebarContext";
-import Image from "next/image";
+import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import React, { useState ,useEffect,useRef} from "react";
 import { Menu, X, Search, MoreVertical } from "lucide-react";
@@ -58,21 +58,13 @@ const AppHeader: React.FC<{ showNotifications?: boolean; notificationScope?: str
             {/* Cross Icon */}
           </button>
 
-          <Link href="/" className="lg:hidden">
-            <Image
-              width={154}
-              height={32}
-              className="dark:hidden"
-              src="./images/logo/logo.svg"
-              alt="Logo"
-            />
-            <Image
-              width={154}
-              height={32}
-              className="hidden dark:block"
-              src="./images/logo/logo-dark.svg"
-              alt="Logo"
-            />
+          <Link href="/" className="lg:hidden flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-500">
+              <ShieldCheck className="h-4 w-4 text-white" />
+            </div>
+            <span className="font-black text-[17px] tracking-tight text-gray-900 dark:text-white leading-none">
+              Campify
+            </span>
           </Link>
 
           <button
@@ -95,7 +87,7 @@ const AppHeader: React.FC<{ showNotifications?: boolean; notificationScope?: str
                   className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-200 bg-transparent py-2.5 pl-12 pr-14 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-gray-900 dark:bg-white/[0.03] dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[430px]"
                 />
 
-                <button className="absolute right-2.5 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 px-[7px] py-[4.5px] text-xs -tracking-[0.2px] text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
+                <button title="Press ⌘K to focus search" className="absolute right-2.5 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-gray-200 bg-gray-50 px-[7px] py-[4.5px] text-xs -tracking-[0.2px] text-gray-500 dark:border-gray-800 dark:bg-white/[0.03] dark:text-gray-400">
                   <span> ⌘ </span>
                   <span> K </span>
                 </button>

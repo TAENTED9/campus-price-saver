@@ -23,6 +23,7 @@ export type Conversation = {
   last_message_at: string | null;
   last_message_preview: string | null;
   created_at: string;
+  unread_count?: number;
   // Added by frontend logic
   other_user_id?: number;
   other_user_name?: string;
@@ -54,7 +55,7 @@ async function request<T>(
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...options.headers,
+    ...(options.headers as Record<string, string> | undefined),
   };
 
   if (token) {
@@ -94,7 +95,7 @@ export const messageApi = {
     token: string
   ): Promise<Message> {
     return request<Message>(
-      `/api/messages/send?token=${token}`,
+      `/api/messages/send`,
       {
         method: "POST",
         body: JSON.stringify({ receiver_id, content }),
@@ -117,10 +118,6 @@ export const messageApi = {
     if (cursor) {
       endpoint += `&cursor=${cursor}`;
     }
-    if (token) {
-      endpoint += `&token=${token}`;
-    }
-
     return request<MessageListResponse>(endpoint, {}, token);
   },
 
@@ -133,12 +130,38 @@ export const messageApi = {
     offset: number = 0,
     token?: string
   ): Promise<ConversationListResponse> {
-    let endpoint = `/api/messages/conversations?limit=${limit}&offset=${offset}`;
-    if (token) {
-      endpoint += `&token=${token}`;
-    }
-
+    const endpoint = `/api/messages/conversations?limit=${limit}&offset=${offset}`;
     return request<ConversationListResponse>(endpoint, {}, token);
+  },
+
+  /**
+   * Start a conversation with a user, or return the existing one
+   */
+  async startConversation(
+    target_user_id: number,
+    token: string
+  ): Promise<Conversation> {
+    return request<Conversation>(
+      `/api/messages/conversations`,
+      {
+        method: "POST",
+        body: JSON.stringify({ target_user_id }),
+      },
+      token
+    );
+  },
+
+  /**
+   * Get total unread direct-message count (for the nav badge)
+   */
+  async getUnreadCount(
+    token: string
+  ): Promise<{ unread_count: number }> {
+    return request<{ unread_count: number }>(
+      `/api/messages/conversations/unread-count`,
+      {},
+      token
+    );
   },
 
   /**
@@ -150,7 +173,7 @@ export const messageApi = {
     token: string
   ): Promise<{ success: boolean; message: string }> {
     return request<{ success: boolean; message: string }>(
-      `/api/messages/conversation/${conversation_id}/mark-read?token=${token}`,
+      `/api/messages/conversation/${conversation_id}/mark-read`,
       {
         method: "PATCH",
       },

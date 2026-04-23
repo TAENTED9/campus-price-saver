@@ -40,7 +40,7 @@ export default function CategoriesSection() {
               <Link
                 key={cat.slug}
                 href={`/search?category=${cat.slug}`}
-                className="flex flex-col items-center gap-2 p-3 md:p-4 bg-white dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-800 rounded-2xl cursor-pointer hover:border-blue-500 hover:shadow-md hover:shadow-blue-100/50 hover:-translate-y-0.5 transition-all duration-200 active:scale-95 min-h-[44px]"
+                className="flex flex-col items-center gap-2 p-3 md:p-4 bg-white dark:bg-gray-900 border-2 border-gray-100 dark:border-gray-800 rounded-2xl cursor-pointer hover:border-blue-500 hover:shadow-md hover:shadow-blue-100/50 hover:-translate-y-0.5 hover:scale-105 transition-all duration-200 active:scale-95 min-h-[44px]"
               >
                 <Icon size={24} className="text-blue-600 dark:text-blue-400 md:w-7 md:h-7" strokeWidth={1.75} />
                 <span className="text-[10px] md:text-xs font-bold text-gray-600 dark:text-gray-400 text-center leading-tight">

@@ -4,12 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { MapPin, Zap } from "lucide-react";
 import { flashSalesApi, type FlashSale } from "@/lib/api";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatPrice(p: number) {
-  return `₦${p.toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
+import { formatPrice } from "@/lib/formatPrice";
 
 function getTimeRemaining(endTime: string): {
   total: number;
@@ -174,7 +169,7 @@ export default function FlashSalesSection() {
   }
 
   return (
-    <section className="py-12 xl:py-15">
+    <section className="py-6 xl:py-8">
       <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
         {/* Section header */}
         <div className="flex items-center justify-between mb-8">

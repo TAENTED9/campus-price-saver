@@ -25,10 +25,10 @@ export const ChatLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-full bg-white dark:bg-gray-900">
       {/* Conversation List - Hidden on mobile when chat is open */}
       <div
-        className={`w-full md:w-96 bg-white border-r border-gray-200 flex flex-col
+        className={`w-full md:w-80 lg:w-96 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col
           ${showChat ? "hidden md:flex" : "flex"}
         `}
       >
@@ -40,21 +40,21 @@ export const ChatLayout: React.FC = () => {
 
       {/* Chat Window - Hidden on mobile when list is open */}
       <div
-        className={`flex-1 bg-white flex flex-col
+        className={`flex-1 bg-white dark:bg-gray-900 flex flex-col min-w-0
           ${showChat ? "flex" : "hidden md:flex"}
         `}
       >
         {activeConversation ? (
           <>
             {/* Mobile header with back button */}
-            <div className="md:hidden border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+            <div className="md:hidden border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center gap-3">
               <button
                 onClick={handleBackToList}
-                className="text-blue-500 hover:text-blue-600 font-medium"
+                className="text-brand-500 hover:text-brand-600 font-medium text-sm"
               >
                 ← Back
               </button>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-[15px] font-semibold text-gray-900 dark:text-white">
                 {activeConversation.other_user_name || "User"}
               </h2>
             </div>
@@ -66,8 +66,8 @@ export const ChatLayout: React.FC = () => {
             />
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-500">
-            <p>Select a conversation to start messaging</p>
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-gray-600">
+            <p className="text-sm">Select a conversation to start messaging</p>
           </div>
         )}
       </div>

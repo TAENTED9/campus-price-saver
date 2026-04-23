@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { userApi, itemsApi, flashSalesApi, type FlashSale } from "@/lib/api";
-import { Star, Bell, Heart, ClipboardList, Zap, TrendingUp, Store } from "lucide-react";
+import { Star, Bell, Heart, ClipboardList, Zap, TrendingUp, Store, MapPin } from "lucide-react";
 import MarketplaceFeed from "@/components/marketplace/MarketplaceFeed";
 import HowItWorks from "@/components/marketplace/HowItWorks";
 
@@ -131,7 +131,7 @@ export default function BrowseMarketPage() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="font-bold text-base md:text-lg text-gray-900 dark:text-white">
-              {getGreeting()}, {user?.display_name || user?.username || "there"} &#128075;
+              {getGreeting()}, {user?.display_name || user?.username || "there"}
             </p>
             <p className="text-xs md:text-sm text-gray-400">Here&apos;s what&apos;s happening today</p>
           </div>
@@ -214,8 +214,8 @@ export default function BrowseMarketPage() {
                     href={`/search?q=${encodeURIComponent(sale.item_name ?? "")}`}
                     className={`${CARD} p-4 flex items-center gap-4 hover:border-warning-300 dark:hover:border-warning-500/40 transition-colors`}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-warning-50 dark:bg-warning-500/10 flex items-center justify-center text-warning-500 font-black text-xl flex-shrink-0">
-                      ⚡
+                    <div className="w-12 h-12 rounded-xl bg-warning-50 dark:bg-warning-500/10 flex items-center justify-center text-warning-500 flex-shrink-0">
+                      <Zap size={22} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{sale.item_name}</p>
@@ -271,7 +271,7 @@ export default function BrowseMarketPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{item.name}</p>
                     {item.brand    && <p className="text-[11px] text-gray-400 truncate">{item.brand}</p>}
-                    {item.location && <p className="text-[11px] text-gray-400 truncate">📍 {item.location}</p>}
+                    {item.location && <p className="text-[11px] text-gray-400 truncate flex items-center gap-1"><MapPin size={10} />{item.location}</p>}
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="font-extrabold text-[14px] text-gray-800 dark:text-white">{formatPrice(item.price)}</p>

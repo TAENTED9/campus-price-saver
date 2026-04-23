@@ -12,9 +12,9 @@ import string
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, status, Depends
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
@@ -59,7 +59,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
 ADMIN_USERNAMES_STR = os.getenv("ADMIN_USERNAMES", '["admin"]')
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://campify.ng")
+# FRONTEND_URL is read via settings.FRONTEND_URL (lazy) so local / preview domains work
+from app.config import settings as _cfg
 
 try:
     ADMIN_USERNAMES = json.loads(ADMIN_USERNAMES_STR)
@@ -185,9 +186,13 @@ async def get_current_user(
 ) -> User:
     token = credentials.credentials
     payload = decode_access_token(token)
-    user_id = payload.get("sub")
+    user_id = payload.get("uid")                         # Block 9 new token format
     if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+        raw = payload.get("sub")
+        try:
+            user_id = int(raw)                            # old token format fallback
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
@@ -238,9 +243,13 @@ async def get_user_allow_paused(
     """
     token = credentials.credentials
     payload = decode_access_token(token)
-    user_id = payload.get("sub")
+    user_id = payload.get("uid")                         # Block 9 new token format
     if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+        raw = payload.get("sub")
+        try:
+            user_id = int(raw)                            # old token format fallback
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
@@ -261,6 +270,7 @@ class UserRegisterRequest(BaseModel):
     username: str
     password: str
     email: Optional[str] = None
+    role: Optional[str] = "user"
 
     @field_validator("username")
     @classmethod
@@ -280,10 +290,19 @@ class UserRegisterRequest(BaseModel):
             raise ValueError("Password too long (max 128 characters)")
         return v
 
+    @field_validator("role")
+    @classmethod
+    def role_validator(cls, v: Optional[str]) -> str:
+        allowed = {"user", "seller"}
+        if v not in allowed:
+            raise ValueError(f"role must be one of: {', '.join(allowed)}")
+        return v
+
 
 class UserLoginRequest(BaseModel):
     username: str
     password: str
+    remember_me: bool = False
 
 
 class AdminLoginRequest(BaseModel):
@@ -297,10 +316,15 @@ class LoginResponse(BaseModel):
     user_name: Optional[str] = None
     admin_id: Optional[int] = None
     admin_name: Optional[str] = None
-    user_role: str
-    access_token: str
+    user_role: Optional[str] = None
+    access_token: Optional[str] = None      # None when mfa_required=True
     token_type: str = "bearer"
     message: str
+    # Block 10 — MFA two-step login
+    mfa_required: bool = False
+    temp_token: Optional[str] = None        # Short-lived JWT returned when mfa_required
+    # Block 4A — settings rehydration on login
+    settings: Optional[dict] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -348,6 +372,16 @@ class ResendVerifyRequest(BaseModel):
     email: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    email: str
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 class SettingsUpdateRequest(BaseModel):
     dark_mode: Optional[bool] = None
     profile_visibility: Optional[str] = None
@@ -362,6 +396,25 @@ class NotifPrefsUpdateRequest(BaseModel):
     price_push: Optional[bool] = None
     announce_email: Optional[bool] = None
     announce_push: Optional[bool] = None
+
+
+# ── Block 10: MFA request schemas ───────────────────────────────────────────
+
+class MFAConfirmRequest(BaseModel):
+    code: str
+
+
+class MFAVerifyRequest(BaseModel):
+    code: str
+    temp_token: str
+
+
+class MFADisableRequest(BaseModel):
+    code: str
+
+
+class MFASetupPasswordRequest(BaseModel):
+    password: str
 
 
 # ── Login notification helpers ────────────────────────────────────────────────
@@ -455,12 +508,13 @@ async def register_user(
 
         # If no email supplied, mark immediately verified (settings-page OTP can verify later)
         no_email = not body.email
+        initial_role = body.role or "user"
         new_user = User(
             username=body.username,
             password_hash=password_hash,
             email=body.email,
             display_name=body.username,
-            role="user",
+            role=initial_role,
             email_verified=no_email,          # verified=True only when no email
             created_at=datetime.utcnow(),
         )
@@ -476,7 +530,7 @@ async def register_user(
             upsert_user_data(new_user.id, "profile", {
                 "username":   new_user.username,
                 "email":      new_user.email or "",
-                "role":       new_user.role,
+                "role":       initial_role,
                 "created_at": new_user.created_at.isoformat(),
             }, _engine)
             upsert_user_data(new_user.id, "settings", {
@@ -505,7 +559,7 @@ async def register_user(
             new_user.email_verify_token_exp = datetime.utcnow() + timedelta(hours=24)
             db.commit()
 
-            link = f"{FRONTEND_URL}/verify-email?token={verify_token}"
+            link = f"{_cfg.FRONTEND_URL}/verify-email?token={verify_token}&email={body.email}"
             try:
                 from app.services.admin_notifications import send_user_email_bg
                 from app.services.email_templates import EMAIL_VERIFY_TEMPLATE
@@ -532,13 +586,13 @@ async def register_user(
         if no_email:
             # No email — issue JWT immediately (verified by default)
             access_token = create_access_token(
-                data={"sub": str(new_user.id), "username": new_user.username, "role": "user"}
+                data={"sub": str(new_user.id), "username": new_user.username, "role": initial_role}
             )
             return LoginResponse(
                 success=True,
                 user_id=new_user.id,
                 user_name=new_user.username,
-                user_role="user",
+                user_role=initial_role,
                 access_token=access_token,
                 token_type="bearer",
                 message=f"Welcome to Campify, {body.username}!",
@@ -569,6 +623,7 @@ async def register_user(
 @limiter.limit("5/15minutes")
 async def login_user(
     request: Request,
+    response: Response,
     body: UserLoginRequest,
     db: Session = Depends(get_db),
 ):
@@ -578,6 +633,8 @@ async def login_user(
                             detail="Username and password are required")
 
     user = db.query(User).filter(User.username == body.username).first()
+    if not user:
+        user = db.query(User).filter(User.email == body.username).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="Invalid username or password")
@@ -609,21 +666,49 @@ async def login_user(
             except Exception as e:
                 logger.warning(f"Password rehash failed for user {user.id}: {e}")
 
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
+        # Block 10D — gate login when MFA is enabled
+        if getattr(user, "mfa_enabled", False):
+            from app.services.token_service import create_mfa_temp_token
+            temp_token = create_mfa_temp_token(user.id)
+            return LoginResponse(
+                success=True,
+                mfa_required=True,
+                temp_token=temp_token,
+                message="MFA verification required.",
+            )
+
+        # Block 9 — short-lived JWT + HttpOnly refresh-token cookie
+        from app.services.token_service import (
+            create_access_token as ts_create_token,
+            create_refresh_token, set_refresh_cookie,
         )
+        from app.config import settings as _settings
+
+        client_ip = request.client.host if request.client else None
+        ua = request.headers.get("user-agent")
+        access_token = ts_create_token(user.id, user.role, str(user.uuid or user.id))
+        raw_refresh = create_refresh_token(
+            user=user, db=db,
+            remember_me=body.remember_me,
+            ip_address=client_ip, user_agent=ua,
+        )
+        set_refresh_cookie(response, raw_refresh, remember_me=body.remember_me, is_production=_settings.IS_PRODUCTION)
 
         # Block 2B — record login history and send security email (fire-and-forget)
         if user.role != "admin":
-            client_ip = request.client.host if request.client else "Unknown"
-            ua = request.headers.get("user-agent", "Unknown")
             asyncio.create_task(_post_login_tasks(
                 user.id,
                 user.email or "",
                 user.display_name or user.username or "",
-                client_ip,
-                ua,
+                client_ip or "Unknown",
+                ua or "Unknown",
             ))
+
+        from app.services.settings_service import (
+            get_or_create_settings as _gocs,
+            serialize_settings as _ss,
+        )
+        _settings_data = _ss(_gocs(user, db))
 
         return LoginResponse(
             success=True,
@@ -633,6 +718,7 @@ async def login_user(
             access_token=access_token,
             token_type="bearer",
             message=f"Welcome back, {user.username}!",
+            settings=_settings_data,
         )
     except HTTPException:
         raise
@@ -641,6 +727,270 @@ async def login_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login failed: {str(e)}",
         )
+
+
+# ── Block 10: MFA endpoints ──────────────────────────────────────────────────
+
+@router.post("/mfa/setup")
+@limiter.limit("5/15minutes")
+async def mfa_setup(
+    request: Request,
+    body: MFASetupPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 1 of MFA enrollment: verify current password, generate TOTP secret,
+    store it as pending in profile metadata, return QR code + manual entry key.
+    """
+    if not verify_password(body.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+
+    if getattr(current_user, "mfa_enabled", False):
+        raise HTTPException(status_code=400, detail="MFA is already enabled")
+
+    from app.services.mfa_service import generate_totp_secret, get_totp_uri, generate_qr_code_base64
+    from app.services.metadata import ensure_profile, patch_metadata
+
+    secret = generate_totp_secret()
+    uri    = get_totp_uri(secret, current_user.email or current_user.username or "")
+    qr     = generate_qr_code_base64(uri)
+
+    profile = ensure_profile(db, current_user.id)
+    patch_metadata(db, profile, {"mfa_pending_secret": secret})
+
+    return {
+        "qr_code": qr,
+        "secret": secret,
+        "manual_entry": secret,
+    }
+
+
+@router.post("/mfa/confirm")
+@limiter.limit("10/15minutes")
+async def mfa_confirm(
+    request: Request,
+    body: MFAConfirmRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Step 2 of MFA enrollment: user scans QR code and submits first TOTP code.
+    On success, MFA is enabled and 8 one-time backup codes are returned.
+    Backup code hashes are stored in user.mfa_backup_codes.
+    """
+    from app.services.mfa_service import verify_totp
+    from app.services.metadata import ensure_profile, get_metadata, patch_metadata
+    from app.services.token_service import hash_token
+    import secrets as _sec
+
+    profile = ensure_profile(db, current_user.id)
+    pending = get_metadata(profile, "mfa_pending_secret")
+
+    if not pending:
+        raise HTTPException(status_code=400, detail="No pending MFA setup. Call /mfa/setup first.")
+
+    if not verify_totp(pending, body.code):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    backup_codes   = [_sec.token_hex(5).upper() for _ in range(8)]
+    backup_hashes  = [hash_token(c) for c in backup_codes]
+
+    current_user.mfa_secret       = pending
+    current_user.mfa_enabled      = True
+    current_user.mfa_backup_codes = backup_hashes
+    patch_metadata(db, profile, {"mfa_pending_secret": None})
+    db.add(current_user)
+    db.commit()
+
+    return {
+        "backup_codes": backup_codes,
+        "message": "MFA enabled. Save these backup codes in a safe place — they cannot be shown again.",
+    }
+
+
+@router.post("/mfa/verify")
+@limiter.limit("10/15minutes")
+async def mfa_verify(
+    request: Request,
+    response: Response,
+    body: MFAVerifyRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Step 2 of the two-step login flow for MFA users.
+    Validates temp_token (mfa_pending JWT) + TOTP or backup code,
+    then issues a full access token + refresh cookie.
+    """
+    from app.services.mfa_service import verify_totp
+    from app.services.token_service import (
+        decode_mfa_temp_token,
+        create_access_token as ts_create_token,
+        create_refresh_token, set_refresh_cookie,
+        hash_token,
+    )
+    from app.config import settings as _settings
+
+    user_id = decode_mfa_temp_token(body.temp_token)
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired MFA session. Please log in again.")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or not getattr(user, "mfa_enabled", False):
+        raise HTTPException(status_code=401, detail="Invalid MFA session")
+
+    code = body.code.strip().upper()
+
+    # Try TOTP first
+    totp_valid = verify_totp(user.mfa_secret, body.code)
+
+    # Try backup codes if TOTP failed
+    backup_used = False
+    if not totp_valid:
+        stored = list(user.mfa_backup_codes or [])
+        code_hash = hash_token(code)
+        if code_hash in stored:
+            stored.remove(code_hash)
+            user.mfa_backup_codes = stored
+            db.add(user)
+            db.commit()
+            backup_used = True
+        else:
+            raise HTTPException(status_code=400, detail="Invalid authentication code")
+
+    access_token = ts_create_token(user.id, user.role, str(user.uuid or user.id))
+    client_ip    = request.client.host if request.client else None
+    ua           = request.headers.get("user-agent")
+    raw_refresh  = create_refresh_token(
+        user=user, db=db,
+        remember_me=False,
+        ip_address=client_ip, user_agent=ua,
+    )
+    set_refresh_cookie(response, raw_refresh, remember_me=False, is_production=_settings.IS_PRODUCTION)
+
+    return {
+        "success": True,
+        "access_token": access_token,
+        "token_type": "bearer",
+        "backup_used": backup_used,
+        "remaining_backup_codes": len(user.mfa_backup_codes or []),
+    }
+
+
+@router.post("/mfa/disable")
+@limiter.limit("5/15minutes")
+async def mfa_disable(
+    request: Request,
+    body: MFADisableRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Disable MFA. Requires a valid TOTP code from the authenticator app
+    (or a valid backup code) to confirm intent.
+    """
+    from app.services.mfa_service import verify_totp
+    from app.services.token_service import hash_token
+
+    if not getattr(current_user, "mfa_enabled", False):
+        raise HTTPException(status_code=400, detail="MFA is not enabled")
+
+    code = body.code.strip().upper()
+    totp_valid = verify_totp(current_user.mfa_secret, body.code)
+
+    if not totp_valid:
+        stored = list(current_user.mfa_backup_codes or [])
+        if hash_token(code) not in stored:
+            raise HTTPException(status_code=400, detail="Invalid authentication code")
+
+    current_user.mfa_enabled      = False
+    current_user.mfa_secret       = None
+    current_user.mfa_backup_codes = None
+    db.add(current_user)
+    db.commit()
+
+    return {"success": True, "message": "MFA has been disabled"}
+
+
+# ── Password Reset (Block 15) ──────────────────────────────────────────────
+
+@router.post("/forgot-password")
+@limiter.limit("3/hour")
+async def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Always returns 200 to avoid leaking whether an email is registered.
+    Generates a 1-hour reset token and emails a link.
+    """
+    _silent = {"message": "If that email is registered, a reset link has been sent."}
+    user = db.query(User).filter(
+        User.email == body.email.strip().lower()
+    ).first()
+    if not user or not getattr(user, "email_verified", False):
+        return _silent
+
+    reset_token = secrets.token_urlsafe(32)
+    user.password_reset_token     = reset_token
+    user.password_reset_token_exp = datetime.utcnow() + timedelta(hours=1)
+    db.commit()
+
+    link = (
+        f"{_cfg.FRONTEND_URL}/reset-password"
+        f"?token={reset_token}&email={user.email}"
+    )
+    try:
+        from app.services.admin_notifications import send_user_email_bg
+        from app.services.email_templates import PASSWORD_RESET_EMAIL
+        await send_user_email_bg(
+            user.email,
+            "Reset your Campify password",
+            PASSWORD_RESET_EMAIL(user.display_name or user.username or "there", link),
+        )
+    except Exception:
+        pass
+
+    return _silent
+
+
+@router.post("/reset-password")
+@limiter.limit("5/hour")
+async def reset_password(
+    request: Request,
+    body: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Validate the reset token and email, then set the new password.
+    All existing refresh tokens for the user are revoked immediately.
+    """
+    user = db.query(User).filter(
+        User.password_reset_token == body.token
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+
+    if user.password_reset_token_exp and user.password_reset_token_exp < datetime.utcnow():
+        raise HTTPException(
+            status_code=400,
+            detail="This reset link has expired. Request a new one.",
+        )
+
+    if user.email and user.email.lower() != body.email.strip().lower():
+        raise HTTPException(status_code=400, detail="Invalid reset link.")
+
+    user.password_hash           = hash_password(body.password)
+    user.password_reset_token     = None
+    user.password_reset_token_exp = None
+    db.commit()
+
+    from app.services.token_service import revoke_all_user_tokens
+    revoke_all_user_tokens(user.id, db)
+
+    return {"success": True, "message": "Password reset successfully. You can now log in."}
 
 
 @router.post("/admin", response_model=LoginResponse)
@@ -695,9 +1045,16 @@ async def login_admin(
 
 
 @router.post("/logout")
-async def logout():
-    """JWT is stateless — client deletes token. No server-side action needed."""
-    return {"success": True, "message": "Logged out successfully. Please delete your token."}
+async def logout(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Block 9 — revoke all refresh tokens for this user and clear the HttpOnly cookie."""
+    from app.services.token_service import revoke_all_user_tokens, clear_refresh_cookie
+    revoke_all_user_tokens(current_user.id, db)
+    clear_refresh_cookie(response)
+    return {"success": True, "message": "Logged out successfully"}
 
 
 # Block 1C — verify email via link token
@@ -752,8 +1109,9 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
 
     return {
         "message": "Email verified successfully. You can now log in.",
-        "redirect": f"/signin?verified=true&email={user.email or ''}",
+        "redirect": f"/signin?verified=true&username={user.username or ''}",
         "email": user.email or "",
+        "username": user.username or "",
     }
 
 
@@ -779,7 +1137,7 @@ async def resend_verification(
     user.email_verify_token_exp = datetime.utcnow() + timedelta(hours=24)
     db.commit()
 
-    link = f"{FRONTEND_URL}/verify-email?token={verify_token}"
+    link = f"{_cfg.FRONTEND_URL}/verify-email?token={verify_token}&email={user.email}"
     try:
         from app.services.admin_notifications import send_user_email_bg
         from app.services.email_templates import EMAIL_VERIFY_TEMPLATE
@@ -799,13 +1157,15 @@ async def get_current_user_info(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from app.services.user_db import get_user_data
-    from app.database import engine as _engine
+    from app.services.metadata import ensure_profile, get_all_metadata, get_ui_settings, get_notif_prefs
+    from app.services.settings_service import get_or_create_settings as _gocs, serialize_settings as _ss
+    from app.schemas.utils import serialize_dt
     from app.models import SellerVerification
 
-    profile_data  = get_user_data(current_user.id, "profile",      _engine)
-    settings_data = get_user_data(current_user.id, "settings",     _engine)
-    notif_data    = get_user_data(current_user.id, "notif_prefs",  _engine)
+    profile = ensure_profile(db, current_user.id)
+    meta    = get_all_metadata(profile)
+    ui      = get_ui_settings(profile)
+    notif   = get_notif_prefs(profile)
 
     # Seller verification status
     verification_status = None
@@ -817,36 +1177,50 @@ async def get_current_user_info(
             .first()
         )
         if sv:
-            verification_status = sv.status  # Pending / Under Review / Approved / Rejected
+            verification_status = sv.status
 
-    return {
-        "id":           current_user.id,
-        "username":     current_user.username,
-        "email":        current_user.email,
+    resp = {
+        "id":             str(current_user.uuid or current_user.id),
+        "numeric_id":     current_user.id,
+        "username":       current_user.username,
+        "email":          current_user.email,
         "email_verified": getattr(current_user, "email_verified", False),
-        "display_name": current_user.display_name,
-        "role":         current_user.role,
-        "balance":      current_user.balance,
-        "seller_points": getattr(current_user, "seller_points", 0),
-        "phone":        getattr(current_user, "phone", None),
-        "avatar_url":   getattr(current_user, "avatar_url", None),
-        "department":   getattr(current_user, "department", None),
-        "level":        getattr(current_user, "level", None),
-        "bio":          getattr(current_user, "bio", None),
-        "banner_url":   getattr(current_user, "banner_url", None),
+        "is_paused":      getattr(current_user, "is_paused", False),
+        "display_name":   profile.display_name or current_user.display_name,
+        "role":           current_user.role,
+        "balance":        current_user.balance,
+        "seller_points":  getattr(current_user, "seller_points", 0),
+        "phone":          profile.phone or getattr(current_user, "phone", None),
+        "avatar_url":     profile.avatar_url or getattr(current_user, "avatar_url", None),
+        "department":     profile.department or getattr(current_user, "department", None),
+        "level":          profile.level or getattr(current_user, "level", None),
+        "bio":            profile.bio or getattr(current_user, "bio", None),
+        "banner_url":     profile.banner_url or getattr(current_user, "banner_url", None),
+        "faculty":        profile.faculty,
+        "karma_tier":     profile.karma_tier or meta.get("karma_tier", "Bronze"),
         "availability_status": getattr(current_user, "availability_status", "open"),
-        "trust_tier":   getattr(current_user, "trust_tier", "new_seller"),
-        "response_rate": getattr(current_user, "response_rate", 100.0),
+        "trust_tier":     getattr(current_user, "trust_tier", "new_seller"),
+        "response_rate":  getattr(current_user, "response_rate", 100.0),
         "avg_response_hours": getattr(current_user, "avg_response_hours", 0.0),
         "completion_rate": getattr(current_user, "completion_rate", 100.0),
-        "vacation_mode": getattr(current_user, "vacation_mode", False),
-        "verification_status": verification_status,
-        "created_at":   current_user.created_at,
-        # Per-user persisted preferences
-        "profile":      profile_data,
-        "settings":     settings_data,
-        "notif_prefs":  notif_data,
+        "vacation_mode":  getattr(current_user, "vacation_mode", False),
+        "verification_status":  verification_status,
+        "onboarding_completed": meta.get("onboarding_completed", False),
+        "created_at":     serialize_dt(current_user.created_at),
+        "settings":       _ss(_gocs(current_user, db)),
+        "notif_prefs":    notif,
+        "mfa_enabled":    getattr(current_user, "mfa_enabled", False),
     }
+    if current_user.role == "seller":
+        resp.update({
+            "slug":          profile.slug,
+            "business_name": profile.business_name,
+            "category":      profile.category,
+            "store_status":  profile.store_status,
+            "whatsapp":      profile.whatsapp if profile.show_whatsapp else None,
+            "instagram":     profile.instagram,
+        })
+    return resp
 
 
 @router.put("/me")
@@ -913,13 +1287,12 @@ async def update_settings(
     request: Request,
     body: SettingsUpdateRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Persist user settings to per-user table."""
-    from app.services.user_db import upsert_user_data, log_user_activity
-    from app.database import engine as _engine
-    data = {k: str(v) for k, v in body.model_dump(exclude_none=True).items()}
-    upsert_user_data(current_user.id, "settings", data, _engine)
-    log_user_activity(current_user.id, "settings_updated", data, None, _engine)
+    """Block 8C — persist user settings to profile.metadata_."""
+    from app.services.metadata import ensure_profile, update_ui_settings
+    profile = ensure_profile(db, current_user.id)
+    update_ui_settings(db, profile, body.model_dump(exclude_none=True))
     return {"message": "Settings saved"}
 
 
@@ -927,12 +1300,12 @@ async def update_settings(
 async def update_notification_preferences(
     body: NotifPrefsUpdateRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Persist notification preferences to per-user table."""
-    from app.services.user_db import upsert_user_data
-    from app.database import engine as _engine
-    data = {k: str(v) for k, v in body.model_dump(exclude_none=True).items()}
-    upsert_user_data(current_user.id, "notif_prefs", data, _engine)
+    """Block 8D — persist notification preferences to profile.metadata_."""
+    from app.services.metadata import ensure_profile, update_notif_prefs
+    profile = ensure_profile(db, current_user.id)
+    update_notif_prefs(db, profile, body.model_dump(exclude_none=True))
     return {"message": "Notification preferences saved"}
 
 
@@ -940,6 +1313,7 @@ async def update_notification_preferences(
 @limiter.limit("5/15minutes")
 async def change_password(
     request: Request,
+    response: Response,
     data: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -949,7 +1323,10 @@ async def change_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     current_user.password_hash = hash_password(data.new_password)
     db.commit()
-    return {"message": "Password updated successfully"}
+    from app.services.token_service import revoke_all_user_tokens, clear_refresh_cookie
+    revoke_all_user_tokens(current_user.id, db)
+    clear_refresh_cookie(response)
+    return {"message": "Password updated successfully. All sessions have been revoked."}
 
 
 @router.get("/sessions")
@@ -996,11 +1373,46 @@ async def validate_token(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/refresh")
-async def refresh_token(current_user: User = Depends(get_current_user)):
-    new_token = create_access_token(
-        data={"sub": str(current_user.id), "username": current_user.username, "role": current_user.role}
+async def refresh_token(
+    request: Request,
+    response: Response,
+    campify_refresh: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    """Block 9 — rotate refresh token from HttpOnly cookie; return new short-lived JWT."""
+    from app.services.token_service import (
+        rotate_refresh_token,
+        create_access_token as ts_create_token,
+        set_refresh_cookie, clear_refresh_cookie,
     )
-    return {"access_token": new_token, "token_type": "bearer", "message": "Token refreshed"}
+    from app.config import settings as _settings
+
+    if not campify_refresh:
+        raise HTTPException(status_code=401, detail="No refresh token")
+
+    result = rotate_refresh_token(
+        raw_token=campify_refresh,
+        db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    if not result:
+        clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="Invalid or expired session. Please log in again.")
+
+    new_raw_token, user = result
+    access_token = ts_create_token(user.id, user.role, str(user.uuid or user.id))
+    set_refresh_cookie(response, new_raw_token, remember_me=True, is_production=_settings.IS_PRODUCTION)
+    from app.services.settings_service import (
+        get_or_create_settings as _gocs,
+        serialize_settings as _ss,
+    )
+    return {
+        "access_token": access_token,
+        "token_type":   "bearer",
+        "expires_in":   15 * 60,
+        "settings":     _ss(_gocs(user, db)),
+    }
 
 
 @router.get("/health")

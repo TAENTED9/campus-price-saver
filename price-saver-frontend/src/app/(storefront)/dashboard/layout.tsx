@@ -17,6 +17,7 @@ import {
   Sun,
   Moon,
   Store,
+  Trophy,
 } from "lucide-react";
 import BottomNav from "@/components/layout/BottomNav";
 import { useTheme } from "@/context/ThemeContext";
@@ -32,7 +33,7 @@ function getWishlistCount(): number {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, user, token, logout } = useAuth();
+  const { isAuthenticated, isLoading, user, token, logout, avatarUrl } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -100,10 +101,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     .slice(0, 2);
 
   const karmaPoints = user?.balance ?? 0;
-  const karmaMax    = 500;
-  const karmaPct    = Math.min(Math.round((karmaPoints / karmaMax) * 100), 100);
-  const karmaLabel  = karmaPoints >= 400 ? "Gold" : karmaPoints >= 200 ? "Silver" : "Bronze";
-  const karmaColor  = karmaPoints >= 400 ? "bg-warning-400" : karmaPoints >= 200 ? "bg-gray-400" : "bg-[#cd7f32]";
+  const karmaLabel  = karmaPoints >= 2000 ? "Gold" : karmaPoints >= 500 ? "Silver" : "Bronze";
+  const [karmaBase, karmaNext] = karmaPoints >= 2000 ? [500, 2000] : karmaPoints >= 500 ? [500, 2000] : [0, 500];
+  const karmaPct    = Math.min(Math.round(((karmaPoints - karmaBase) / (karmaNext - karmaBase)) * 100), 100);
+  const karmaColor  = karmaLabel === "Gold" ? "bg-yellow-400" : karmaLabel === "Silver" ? "bg-gray-300" : "bg-orange-400";
+  const karmaBadge  = karmaLabel === "Gold" ? "bg-yellow-100 text-yellow-700" : karmaLabel === "Silver" ? "bg-gray-100 text-gray-700" : "bg-orange-100 text-orange-700";
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -111,8 +113,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Profile mini card */}
       <div className="p-5 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white font-black text-sm flex-shrink-0">
-            {initials}
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white font-black text-sm flex-shrink-0 overflow-hidden">
+            {avatarUrl
+              ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+              : initials
+            }
           </div>
           <div className="min-w-0 flex-1">
             <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">
@@ -156,18 +161,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Karma widget */}
       <div className="mx-3 mb-3 rounded-xl bg-gradient-to-br from-brand-500 to-[#06b6d4] p-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-white text-[12px] font-bold">Karma Points</p>
-          <span className="text-white text-[11px] font-semibold opacity-80">{karmaLabel}</span>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1.5">
+            <Trophy size={13} className="text-white/80" />
+            <p className="text-white text-[12px] font-bold">Karma Points</p>
+          </div>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${karmaBadge}`}>{karmaLabel}</span>
         </div>
-        <p className="text-white font-black text-xl mb-2">{karmaPoints.toLocaleString()}</p>
+        <p className="text-white font-black text-2xl mb-2">{karmaPoints.toLocaleString()}</p>
         <div className="h-1.5 bg-white/30 rounded-full">
           <div
             className={`h-full rounded-full ${karmaColor}`}
             style={{ width: `${karmaPct}%` }}
           />
         </div>
-        <p className="text-white/70 text-[10px] mt-1.5">{karmaPoints} / {karmaMax} to next tier</p>
+        <p className="text-white/70 text-[10px] mt-1.5">{karmaPoints} / {karmaNext.toLocaleString()} to next tier</p>
       </div>
 
       {/* Logout */}

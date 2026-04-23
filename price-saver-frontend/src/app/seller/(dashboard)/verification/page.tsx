@@ -36,6 +36,7 @@ function formatDate(iso: string) {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Africa/Lagos",
   });
 }
 
@@ -128,6 +129,7 @@ function VerificationSubmitForm({ token, userName, userEmail, userId, isWelcome,
   const [uploadingPortal, setUploadingPortal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [matricError, setMatricError] = useState<string | null>(null);
 
   const handleMatricChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,24 +141,25 @@ function VerificationSubmitForm({ token, userName, userEmail, userId, isWelcome,
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
     const mErr = validateMatric(matric);
     if (mErr) { setMatricError(mErr); return; }
+
+    if (!idFile) { setError("Student ID Card is required."); return; }
+    if (!portalFile) { setError("Student Portal Screenshot is required."); return; }
 
     setIsLoading(true);
     let docUrl: string | null = null;
     let prtUrl: string | null = null;
 
     try {
-      if (idFile) {
-        setUploadingId(true);
-        docUrl = await uploadApi.uploadSellerIdCard(token, idFile).catch(() => null);
-        setUploadingId(false);
-      }
-      if (portalFile) {
-        setUploadingPortal(true);
-        prtUrl = await uploadApi.uploadPortalScreenshot(token, portalFile).catch(() => null);
-        setUploadingPortal(false);
-      }
+      setUploadingId(true);
+      docUrl = await uploadApi.uploadSellerIdCard(token, idFile).catch(() => null);
+      setUploadingId(false);
+
+      setUploadingPortal(true);
+      prtUrl = await uploadApi.uploadPortalScreenshot(token, portalFile).catch(() => null);
+      setUploadingPortal(false);
 
       await verificationApi.submit({
         seller_name: userName,
@@ -168,11 +171,12 @@ function VerificationSubmitForm({ token, userName, userEmail, userId, isWelcome,
         document_url: docUrl || undefined,
         portal_screenshot_url: prtUrl || undefined,
         email: userEmail,
-        user_id: userId,
+        user_id: Number(userId),
       });
 
       localStorage.removeItem("pendingMatric");
-      onDone();
+      setSuccess("Verification submitted successfully! An admin will review your details shortly.");
+      setTimeout(() => onDone(), 1500);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Submission failed. Please try again.");
     } finally {
@@ -212,6 +216,12 @@ function VerificationSubmitForm({ token, userName, userEmail, userId, isWelcome,
         {error && (
           <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          </div>
+        )}
+        {success && (
+          <div className="mb-5 p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-500/10 dark:border-green-500/20 flex items-center gap-2">
+            <CircleCheck size={18} className="text-green-500 shrink-0" />
+            <p className="text-sm text-green-700 dark:text-green-400 font-medium">{success}</p>
           </div>
         )}
 
@@ -295,8 +305,8 @@ function VerificationSubmitForm({ token, userName, userEmail, userId, isWelcome,
               uploading={uploadingId}
             />
             <FileUploadField
-              label="Portal / SCIMS Screenshot (optional)"
-              hint="Upload a screenshot of your student portal"
+              label="Student Portal Screenshot (required)"
+              hint="Screenshot of your UNILAG student portal showing your details"
               accept="image/jpeg,image/png,image/webp"
               file={portalFile}
               onChange={setPortalFile}

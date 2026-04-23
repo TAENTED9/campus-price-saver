@@ -11,14 +11,19 @@ from app.models import User
 
 router = APIRouter(prefix="/upload", tags=["uploads"])
 
-ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
-MAX_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg", "image/png", "image/webp", "image/jpg",
+    "image/gif", "image/heic", "image/heif",
+}
+MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Magic-byte signatures for allowed formats
 _MAGIC = [
     (b"\xff\xd8\xff",            "JPEG"),
     (b"\x89PNG\r\n\x1a\n",      "PNG"),
-    (b"RIFF",                    "WebP"),  # full check: bytes[8:12] == b"WEBP"
+    (b"RIFF",                    "WebP"),   # full check: bytes[8:12] == b"WEBP"
+    (b"GIF87a",                  "GIF"),
+    (b"GIF89a",                  "GIF"),
 ]
 
 
@@ -29,24 +34,32 @@ def _check_magic(data: bytes) -> bool:
             if fmt == "WebP":
                 return len(data) >= 12 and data[8:12] == b"WEBP"
             return True
+    # HEIC/HEIF container — ftyp box at offset 4
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        brand = data[8:12]
+        if brand in (b"heic", b"heix", b"mif1", b"msf1", b"heis", b"hevc", b"hevx"):
+            return True
     return False
 
 
 async def _validate_file(file: UploadFile) -> bytes:
-    # Content-Type header check (first, cheap)
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: {file.content_type}. Use JPEG, PNG or WebP.",
-        )
+    # Read first, then sniff — many browsers send octet-stream / wrong mime for phone photos.
     data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty file. Please choose an image.")
     if len(data) > MAX_SIZE_BYTES:
-        raise HTTPException(status_code=400, detail="File too large. Max size is 5 MB.")
-    # Magic-bytes check — prevents spoofed Content-Type headers
-    if not _check_magic(data):
         raise HTTPException(
             status_code=400,
-            detail="File content does not match a valid image format.",
+            detail=f"File too large ({len(data) // 1024 // 1024} MB). Max size is 10 MB.",
+        )
+    if not _check_magic(data):
+        ct = file.content_type or "unknown"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not recognise image format (content-type: {ct}). "
+                "Use JPEG, PNG, WebP, GIF or HEIC."
+            ),
         )
     return data
 
@@ -120,6 +133,63 @@ async def upload_listing_photo(
         raise HTTPException(status_code=503, detail="File upload service unavailable.")
     try:
         save_asset_record(db, current_user.id, result, "listing_photo")
+    except Exception as e:
+        print(f"[uploads] Failed to save asset record: {e}")
+    return {"success": True, "url": result["url"]}
+
+
+# ── Banner slide constants ─────────────────────────────────────────────────────
+BANNER_WIDTH  = 1280
+BANNER_HEIGHT = 480
+
+
+@router.post("/banner-slide")
+async def upload_banner_slide(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload a homepage hero banner slide image to Cloudinary.
+    Image MUST be exactly 1280 × 480 pixels (JPEG / PNG / WebP, max 5 MB).
+    """
+    data = await _validate_file(file)
+
+    # Dimension check using Pillow
+    try:
+        from PIL import Image as PILImage
+        import io
+        img = PILImage.open(io.BytesIO(data))
+        w, h = img.size
+        if w != BANNER_WIDTH or h != BANNER_HEIGHT:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Banner must be exactly {BANNER_WIDTH}×{BANNER_HEIGHT} px. "
+                    f"Your image is {w}×{h} px."
+                ),
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read image dimensions. Use a valid JPEG, PNG or WebP file.",
+        )
+
+    from app.services.cloudinary_service import upload_file, save_asset_record
+    import time
+    ts = int(time.time())
+    result = upload_file(
+        data,
+        user_id=current_user.id,
+        folder_path="banners",
+        public_id=f"banner_{ts}",
+    )
+    if not result:
+        raise HTTPException(status_code=503, detail="File upload service unavailable.")
+    try:
+        save_asset_record(db, current_user.id, result, "banner_slide")
     except Exception as e:
         print(f"[uploads] Failed to save asset record: {e}")
     return {"success": True, "url": result["url"]}

@@ -4,10 +4,12 @@ import React, {
   createContext,
   useContext,
   useState,
+  useRef,
   useCallback,
   useEffect,
 } from "react";
 import { messageApi, type Message, type Conversation } from "@/lib/messageApi";
+import { useWebSocket, type ChatWsMessage, type TypingEvent } from "@/hooks/useWebSocket";
 import { useAuth } from "./AuthContext";
 
 type ChatContextType = {
@@ -21,12 +23,16 @@ type ChatContextType = {
   hasEarlierMessages: boolean;
   totalMessageCount: number;
 
+  // Typing indicators — keyed by conversation_id
+  typingUsers: Record<number, Set<number>>;
+
   // Actions
   loadConversations: () => Promise<void>;
   setActiveConversation: (conversation: Conversation) => void;
   loadInitialMessages: (conversation_id: number) => Promise<void>;
   loadOlderMessages: () => Promise<void>;
   sendMessage: (receiver_id: number, content: string) => Promise<void>;
+  sendTyping: (conversation_id: number, isTyping: boolean) => void;
   clearActiveConversation: () => void;
 };
 
@@ -47,6 +53,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [totalMessageCount, setTotalMessageCount] = useState(0);
+  const [typingUsers, setTypingUsers] = useState<Record<number, Set<number>>>({});
+  const typingTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   // Load conversations list
   const loadConversations = useCallback(async () => {
@@ -136,10 +144,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
 
       try {
         // Optimistic update: add message immediately to UI
+        const myNumericId = user?.numeric_id ?? (Number(user?.id) || 0);
         const optimisticMessage: Message = {
           id: -1, // Temporary ID
           conversation_id: activeConversation?.id || 0,
-          sender_id: user?.id || 0,
+          sender_id: myNumericId,
           content,
           created_at: new Date().toISOString(),
           is_read: false,
@@ -154,10 +163,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
           token
         );
 
-        // Replace optimistic message with real one
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === -1 ? newMessage : msg))
-        );
+        // Replace optimistic message with real one.
+        // Guard against the rare race where WS broadcast arrived first
+        // (WS already removed id=-1 and added the real message).
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMessage.id)) {
+            // WS won the race — just remove any lingering optimistic entry
+            return prev.filter((m) => m.id !== -1);
+          }
+          return prev.map((msg) => (msg.id === -1 ? newMessage : msg));
+        });
 
         // Update conversations list with this message
         setConversations((prev) =>
@@ -200,6 +215,84 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     setTotalMessageCount(0);
   }, []);
 
+  // ── Typing indicator handling ─────────────────────────────────────────
+  const handleTypingEvent = useCallback((event: TypingEvent) => {
+    const convId = event.conversation_id;
+    const uid = event.user_id;
+    if (event.type === "typing_start") {
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        const s = new Set(next[convId] ?? []);
+        s.add(uid);
+        next[convId] = s;
+        return next;
+      });
+      // Auto-clear after 4 s if no stop event arrives
+      if (typingTimers.current[uid]) clearTimeout(typingTimers.current[uid]);
+      typingTimers.current[uid] = setTimeout(() => {
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          const s = new Set(next[convId] ?? []);
+          s.delete(uid);
+          next[convId] = s;
+          return next;
+        });
+      }, 4000);
+    } else {
+      if (typingTimers.current[uid]) clearTimeout(typingTimers.current[uid]);
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        const s = new Set(next[convId] ?? []);
+        s.delete(uid);
+        next[convId] = s;
+        return next;
+      });
+    }
+  }, []);
+
+  // ── Real-time incoming messages via WebSocket ────────────────────────────
+  const handleWsMessage = useCallback(
+    (wsMsg: ChatWsMessage) => {
+      const convId = Number(wsMsg.conversation_uuid);
+      setMessages((prev) => {
+        // Deduplicate: REST optimistic replacement and WS broadcast share the same id
+        if (prev.some((m) => m.id === Number(wsMsg.id))) return prev;
+        // Also remove stale optimistic entry (id=-1) if WS delivers first
+        const withoutOptimistic = prev.filter((m) => m.id !== -1);
+        return [
+          ...withoutOptimistic,
+          {
+            id: Number(wsMsg.id),
+            conversation_id: convId,
+            sender_id: wsMsg.sender_id,
+            content: wsMsg.content,
+            created_at: wsMsg.created_at,
+            is_read: wsMsg.is_read,
+          },
+        ];
+      });
+      // Refresh conversation list preview
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === convId
+            ? { ...c, last_message_preview: wsMsg.content, last_message_at: wsMsg.created_at }
+            : c
+        )
+      );
+    },
+    []
+  );
+
+  const wsConvId = activeConversation ? String(activeConversation.id) : null;
+  const { send: wsSend } = useWebSocket(wsConvId, token, handleWsMessage, handleTypingEvent);
+
+  const sendTyping = useCallback(
+    (conversation_id: number, isTyping: boolean) => {
+      wsSend({ type: isTyping ? "typing_start" : "typing_stop", conversation_id });
+    },
+    [wsSend]
+  );
+
   // Auto-load conversations on mount
   useEffect(() => {
     if (token) {
@@ -216,11 +309,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     cursor,
     hasEarlierMessages,
     totalMessageCount,
+    typingUsers,
     loadConversations,
     setActiveConversation,
     loadInitialMessages,
     loadOlderMessages,
     sendMessage,
+    sendTyping,
     clearActiveConversation,
   };
 

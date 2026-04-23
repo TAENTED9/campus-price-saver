@@ -5,10 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/context/SidebarContext";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi } from "@/lib/api";
+import { useNotifications } from "@/context/NotificationContext";
+import Avatar from "@/components/ui/avatar/Avatar";
 import {
-  LayoutGrid,
+  LayoutDashboard,
   Package,
-  PieChart,
+  BarChart2,
   MessageCircle,
   Zap,
   Store,
@@ -16,6 +18,7 @@ import {
   LogOut,
   ShieldCheck,
   Star,
+  Circle,
 } from "lucide-react";
 
 type NavItem = {
@@ -25,22 +28,39 @@ type NavItem = {
   path: string;
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { id: "overview",   icon: <LayoutGrid size={17} />,      label: "Overview",      path: "/seller" },
-  { id: "listings",   icon: <Package size={17} />,         label: "My Listings",   path: "/seller/listings" },
-  { id: "analytics",  icon: <PieChart size={17} />,        label: "Analytics",     path: "/seller/analytics" },
-  { id: "inbox",      icon: <MessageCircle size={17} />,   label: "Inbox",         path: "/seller/inbox" },
-  { id: "promotions", icon: <Zap size={17} />,             label: "Promotions",    path: "/seller/promotions" },
-  { id: "store",      icon: <Store size={17} />,           label: "My Storefront", path: "/seller/profile" },
-  { id: "settings",   icon: <Settings size={17} />,        label: "Settings",      path: "/seller/settings" },
-];
+function buildNavItems(username: string | null | undefined): NavItem[] {
+  const storePath = username ? `/store/${username}` : "/seller/profile";
+  return [
+    { id: "overview",   icon: <LayoutDashboard size={17} />, label: "Overview",      path: "/seller" },
+    { id: "listings",   icon: <Package size={17} />,         label: "My Listings",   path: "/seller/listings" },
+    { id: "analytics",  icon: <BarChart2 size={17} />,       label: "Analytics",     path: "/seller/analytics" },
+    { id: "inbox",      icon: <MessageCircle size={17} />,   label: "Inbox",           path: "/seller/messages" },
+    { id: "promotions", icon: <Zap size={17} />,             label: "Promotions",    path: "/seller/promotions" },
+    { id: "store",      icon: <Store size={17} />,           label: "My Storefront", path: storePath },
+    { id: "settings",   icon: <Settings size={17} />,        label: "Settings",      path: "/seller/settings" },
+  ];
+}
+
+const STATUS_CYCLE = ["open", "limited", "closed"] as const;
+type StoreStatus = (typeof STATUS_CYCLE)[number];
+
+const statusDotColor = (s: StoreStatus) =>
+  s === "open" ? "bg-green-500" : s === "limited" ? "bg-yellow-400" : "bg-red-500";
+const statusLabel = (s: StoreStatus) =>
+  s === "open" ? "Open" : s === "limited" ? "Limited" : "Closed";
 
 const SellerSidebar: React.FC = () => {
   const { isMobileOpen, toggleMobileSidebar } = useSidebar();
   const { user, token, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const { counts: notifCounts, markCategoryRead } = useNotifications();
   const [inboxUnread, setInboxUnread] = useState(0);
+  const [storeStatus, setStoreStatus] = useState<StoreStatus>("open");
+  const [togglingStatus, setTogglingStatus] = useState(false);
+  const [livePoints, setLivePoints] = useState<number | null>(null);
+  const [liveRating, setLiveRating] = useState<number | null>(null);
+  const [liveReviewCount, setLiveReviewCount] = useState<number>(0);
 
   useEffect(() => {
     if (!token) return;
@@ -54,6 +74,45 @@ const SellerSidebar: React.FC = () => {
     return () => clearInterval(interval);
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    const fetchStats = () => {
+      sellerApi.getStats(token)
+        .then((r) => {
+          if (!r.success) return;
+          if (r.data.availabilityStatus) {
+            setStoreStatus(r.data.availabilityStatus as StoreStatus);
+          } else if (r.data.vacationMode) {
+            setStoreStatus("closed");
+          }
+          if (typeof r.data.sellerPoints === "number") {
+            setLivePoints(r.data.sellerPoints);
+          }
+          if (typeof r.data.avgRating === "number") {
+            setLiveRating(r.data.avgRating);
+          }
+          if (typeof r.data.reviewCount === "number") {
+            setLiveReviewCount(r.data.reviewCount);
+          }
+        })
+        .catch(() => {});
+    };
+    fetchStats();
+    const id = setInterval(fetchStats, 15_000);
+    return () => clearInterval(id);
+  }, [token]);
+
+  async function cycleStatus() {
+    if (!token || togglingStatus) return;
+    const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(storeStatus) + 1) % STATUS_CYCLE.length];
+    setTogglingStatus(true);
+    try {
+      await sellerApi.setAvailability(token, next);
+      setStoreStatus(next);
+    } catch { setStoreStatus(next); /* optimistic even on error */ }
+    finally { setTogglingStatus(false); }
+  }
+
   const isActive = (path: string) => {
     if (path === "/seller") return pathname === "/seller";
     return pathname.startsWith(path);
@@ -64,12 +123,9 @@ const SellerSidebar: React.FC = () => {
     router.replace("/signin");
   };
 
-  const initials = (user?.display_name || user?.username || "S")
-    .charAt(0)
-    .toUpperCase();
   const storeName = user?.display_name || user?.username || "My Store";
   const isVerified = user?.role === "seller";
-  const karmaPoints = user?.balance ?? 0;
+  const karmaPoints = livePoints ?? user?.seller_points ?? 0;
   const karmaMax = 2000;
   const karmaPct = Math.min(Math.round((karmaPoints / karmaMax) * 100), 100);
 
@@ -110,10 +166,13 @@ const SellerSidebar: React.FC = () => {
           {/* Seller profile mini card */}
           <div className="rounded-xl p-3 bg-gradient-to-br from-brand-500/10 to-[#06b6d4]/10 border border-brand-200/60 dark:border-brand-800/60 flex-shrink-0">
             <div className="flex items-center gap-2.5 mb-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                {initials}
-              </div>
-              <div className="min-w-0">
+              <Avatar
+                src={user?.avatar_url ?? null}
+                name={storeName}
+                size="sm"
+                className="rounded-xl flex-shrink-0"
+              />
+              <div className="min-w-0 flex-1">
                 <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{storeName}</p>
                 {isVerified && (
                   <span className="inline-flex items-center gap-1 bg-brand-500 text-white rounded px-1.5 py-0.5 text-[10px] font-bold">
@@ -122,11 +181,24 @@ const SellerSidebar: React.FC = () => {
                   </span>
                 )}
               </div>
+              {/* Store status dot */}
+              <button
+                type="button"
+                onClick={cycleStatus}
+                disabled={togglingStatus}
+                title={`Store: ${statusLabel(storeStatus)} — click to change`}
+                className="flex flex-col items-center gap-0.5 flex-shrink-0 hover:opacity-75 transition-opacity disabled:opacity-40"
+              >
+                <Circle size={10} className={`fill-current ${statusDotColor(storeStatus)} text-transparent`} />
+                <span className="text-[9px] text-gray-400 leading-none">{statusLabel(storeStatus)}</span>
+              </button>
             </div>
             <div className="flex gap-1.5">
               <div className="flex-1 text-center py-1.5 px-1 bg-white/70 dark:bg-gray-800/70 rounded-lg">
                 <Star size={12} className="text-yellow-400 mx-auto" />
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">4.9 Stars</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                  {liveRating !== null ? `${liveRating} Stars` : liveReviewCount === 0 ? "No reviews" : "— Stars"}
+                </p>
               </div>
               <div className="flex-1 text-center py-1.5 px-1 bg-white/70 dark:bg-gray-800/70 rounded-lg">
                 <p className="font-bold text-[12px] text-brand-500">{karmaPoints.toLocaleString()}</p>
@@ -146,13 +218,16 @@ const SellerSidebar: React.FC = () => {
 
           {/* Nav items */}
           <nav className="flex flex-col gap-0.5">
-            {NAV_ITEMS.map((item) => {
+            {buildNavItems(user?.username).map((item) => {
               const active = isActive(item.path);
               return (
                 <Link
                   key={item.id}
                   href={item.path}
-                  onClick={isMobileOpen ? toggleMobileSidebar : undefined}
+                  onClick={() => {
+                    if (item.id === "inbox") markCategoryRead("messages");
+                    if (isMobileOpen) toggleMobileSidebar();
+                  }}
                   className={`
                     flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150
                     border-l-[3px]
@@ -164,9 +239,9 @@ const SellerSidebar: React.FC = () => {
                 >
                   {item.icon}
                   <span className="flex-1">{item.label}</span>
-                  {item.id === "inbox" && inboxUnread > 0 && (
+                  {item.id === "inbox" && notifCounts.messages > 0 && (
                     <span className="bg-brand-500 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none">
-                      {inboxUnread > 99 ? "99+" : inboxUnread}
+                      {notifCounts.messages > 99 ? "99+" : notifCounts.messages}
                     </span>
                   )}
                 </Link>

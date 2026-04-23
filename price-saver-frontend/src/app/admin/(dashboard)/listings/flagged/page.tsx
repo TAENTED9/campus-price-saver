@@ -69,7 +69,7 @@ export default function FlaggedContentPage() {
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{item.seller_name}</td>
                 <td className="px-5 py-4 text-red-600 dark:text-red-400">{item.flag_reason || "—"}</td>
                 <td className="px-5 py-4 font-medium text-gray-800 dark:text-white/90">{item.price}</td>
-                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(item.created_at).toLocaleDateString()}</td>
+                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(item.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
                 <td className="px-5 py-4">
                   <div className="flex gap-2">
                     <button type="button" onClick={() => handleClear(item)} disabled={actionLoading === item.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><ShieldCheck size={14} /> Clear</button>

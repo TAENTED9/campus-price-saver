@@ -104,7 +104,7 @@ export default function PointsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-900 dark:text-white">{t.reason ?? "Points transaction"}</p>
                   <p className="text-xs text-gray-400">
-                    {new Date(t.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}
+                    {new Date(t.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Lagos" })}
                   </p>
                 </div>
                 <span className={`text-sm font-semibold flex-shrink-0 ${t.amount > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>

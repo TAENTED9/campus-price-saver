@@ -1,8 +1,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, type SellerAnalytics } from "@/lib/api";
+import { TrendingUp, TrendingDown, Target } from "lucide-react";
+import type { ApexOptions } from "apexcharts";
+
+const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
 
 const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5";
 
@@ -29,19 +34,28 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+const RANGES = [
+  { label: "7 days",  value: "7d"  },
+  { label: "30 days", value: "30d" },
+  { label: "90 days", value: "90d" },
+] as const;
+type Range = (typeof RANGES)[number]["value"];
+
 export default function SellerAnalyticsPage() {
   const { token } = useAuth();
   const [analytics, setAnalytics] = useState<SellerAnalytics | null>(null);
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState<string | null>(null);
+  const [range, setRange]         = useState<Range>("30d");
 
   useEffect(() => {
     if (!token) return;
-    sellerApi.getAnalytics(token)
+    setLoading(true);
+    sellerApi.getAnalytics(token, range)
       .then((r) => { if (r.success) setAnalytics(r.data); else setError("Failed to load analytics."); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load analytics."))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, range]);
 
   if (error) {
     return (
@@ -82,40 +96,56 @@ export default function SellerAnalyticsPage() {
 
   const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 
+  const chartOptions: ApexOptions = {
+    chart: { fontFamily: "Outfit, sans-serif", type: "area", toolbar: { show: false }, zoom: { enabled: false } },
+    colors: ["#2563eb", "#06b6d4"],
+    stroke: { curve: "smooth", width: 2 },
+    fill: { type: "gradient", gradient: { opacityFrom: 0.35, opacityTo: 0.02 } },
+    dataLabels: { enabled: false },
+    markers: { size: 0, hover: { size: 5 } },
+    grid: { borderColor: "#f1f5f9", xaxis: { lines: { show: false } } },
+    xaxis: { categories: months, axisBorder: { show: false }, axisTicks: { show: false },
+      labels: { style: { fontSize: "11px", colors: "#9ca3af" } } },
+    yaxis: { labels: { style: { fontSize: "11px", colors: ["#9ca3af"] } } },
+    tooltip: { theme: "light", x: { show: true } },
+    legend: { show: true, position: "top", horizontalAlign: "right", fontSize: "12px" },
+  };
+
+  const chartSeries = [
+    { name: "Views",    data: viewsData },
+    { name: "Listings", data: listingsData },
+  ];
+
   return (
     <div className="space-y-6">
 
-      {/* Title */}
-      <div>
-        <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">Analytics</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Track your store performance</p>
+      {/* Title + range picker */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">Analytics</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Track your store performance</p>
+        </div>
+        <div className="flex gap-1.5">
+          {RANGES.map((r) => (
+            <button key={r.value} type="button" onClick={() => setRange(r.value)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                range === r.value
+                  ? "bg-brand-500 text-white border-brand-500"
+                  : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50"
+              }`}>{r.label}</button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
-        {/* ── A. Weekly Views bar chart ── */}
+        {/* ── A. Views & Listings Line Chart (ApexCharts) ── */}
         <div className={CARD}>
-          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-5">Weekly Views</h3>
-          <div className="flex items-end gap-2 h-32">
-            {(viewsData.length >= 7 ? viewsData : Array(7).fill(0).map((_, i) => viewsData[i] ?? 0)).map((val, i) => {
-              const pct = Math.max((val / maxViews) * 100, 3);
-              const isLast = i === (viewsData.length >= 7 ? 6 : viewsData.length - 1);
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div
-                    className={`w-full rounded-t-md transition-all duration-500 ${
-                      isLast
-                        ? "bg-gradient-to-b from-brand-500 to-[#06b6d4]"
-                        : "bg-brand-100 dark:bg-brand-500/20"
-                    }`}
-                    style={{ height: `${pct}%` }}
-                  />
-                  <span className="text-[10px] text-gray-400">{DAY_LABELS[i]}</span>
-                </div>
-              );
-            })}
+          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-3">Views Over Time</h3>
+          <div className="overflow-hidden">
+            <ReactApexChart options={chartOptions} series={chartSeries} type="area" height={200} />
           </div>
-          <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+          <div className="mt-1 flex items-center gap-4 text-xs text-gray-500">
             <span><strong className="text-gray-800 dark:text-white">{totalViews.toLocaleString()}</strong> total views</span>
             <span><strong className="text-gray-800 dark:text-white">{totalListings}</strong> listings</span>
           </div>
@@ -222,14 +252,46 @@ export default function SellerAnalyticsPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Monthly Goal · Based on current views</p>
 
             <div className="mt-4 w-full px-2 py-3 bg-success-50 dark:bg-success-500/10 border border-success-200 dark:border-success-500/20 rounded-xl text-center">
-              <p className="text-[12px] font-bold text-success-700 dark:text-success-400">
-                🎯 {goalPct >= 70 ? "On track to hit goal!" : "Keep pushing — you're getting there!"}
+              <p className="text-[12px] font-bold text-success-700 dark:text-success-400 flex items-center justify-center gap-1.5">
+                <Target size={13} />{goalPct >= 70 ? "On track to hit goal!" : "Keep pushing — you're getting there!"}
               </p>
             </div>
           </div>
         </div>
 
       </div>
+
+      {/* ── Price Benchmark Card ── */}
+      {analytics.benchmarks && analytics.benchmarks.length > 0 && (
+        <div className={CARD}>
+          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-4">Price Benchmark</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">How your prices compare to the market average.</p>
+          <div className="space-y-3">
+            {analytics.benchmarks.slice(0, 5).map((b) => {
+              const diff = b.your_price - b.avg_market_price;
+              const pct  = b.avg_market_price > 0 ? Math.round((diff / b.avg_market_price) * 100) : 0;
+              return (
+                <div key={b.listing_id} className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-800 dark:text-white truncate">{b.name}</p>
+                    <p className="text-[11px] text-gray-400">
+                      Yours: <strong>{formatCurrency(b.your_price)}</strong> · Market avg: {formatCurrency(b.avg_market_price)}
+                    </p>
+                  </div>
+                  <div className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+                    b.competitive
+                      ? "bg-success-50 dark:bg-success-500/10 text-success-600 dark:text-success-400"
+                      : "bg-error-50 dark:bg-error-500/10 text-error-600 dark:text-error-400"
+                  }`}>
+                    {diff > 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                    {Math.abs(pct)}% {diff > 0 ? "above" : "below"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

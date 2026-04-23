@@ -2,7 +2,7 @@
 Seller Dashboard API — stats, listings management, analytics.
 All endpoints require a valid JWT token (seller role).
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, timedelta
@@ -12,7 +12,7 @@ import asyncio
 import hashlib
 import json
 from app.database import get_db
-from app.models import Price, User, PointsTransaction, SellerVerification, Inquiry, Notification, Review, Order, Lead
+from app.models import Price, User, Profile, PointsTransaction, SellerVerification, Inquiry, Notification, Review, Order, Lead, KarmaLedger
 from app.routers.auth import get_current_user, get_user_allow_paused
 from app.limiter import limiter
 
@@ -76,7 +76,9 @@ async def get_seller_stats(
 
     total_listings = db.query(Price).filter(Price.submitted_by == uid).count()
     active_listings = db.query(Price).filter(
-        Price.submitted_by == uid, Price.listing_status == "active"
+        Price.submitted_by == uid,
+        Price.status == "approved",
+        Price.listing_status == "active",
     ).count()
     pending_listings = db.query(Price).filter(
         Price.submitted_by == uid, Price.status == "pending"
@@ -106,6 +108,14 @@ async def get_seller_stats(
         .first()
     )
 
+    avg_rating_row = db.query(func.avg(Review.rating)).filter(
+        Review.seller_id == current_user.id, Review.is_flagged == False
+    ).scalar()
+    avg_rating = round(float(avg_rating_row), 1) if avg_rating_row else None
+    review_count = db.query(Review).filter(
+        Review.seller_id == current_user.id, Review.is_flagged == False
+    ).count()
+
     return {
         "success": True,
         "data": {
@@ -118,9 +128,63 @@ async def get_seller_stats(
             "confirmedSales": confirmed_sales,
             "sellerPoints": current_user.seller_points or 0,
             "vacationMode": current_user.vacation_mode or False,
+            "availabilityStatus": "closed" if current_user.vacation_mode else (current_user.availability_status or "open"),
             "verificationStatus": verification.status if verification else "Not submitted",
+            "avgRating": avg_rating,
+            "reviewCount": review_count,
         },
     }
+
+
+# ── Karma ────────────────────────────────────────────────────────────────
+
+@router.get("/karma-history")
+async def get_karma_history(
+    limit: int = Query(10, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return recent karma ledger entries for the current seller."""
+    entries = (
+        db.query(KarmaLedger)
+        .filter(KarmaLedger.seller_id == current_user.id)
+        .order_by(KarmaLedger.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "success": True,
+        "total": current_user.seller_points or 0,
+        "history": [
+            {
+                "id": e.id,
+                "points": e.points,
+                "reason": e.reason,
+                "reference_id": e.reference_id,
+                "created_at": e.created_at.isoformat(),
+            }
+            for e in entries
+        ],
+    }
+
+
+@router.post("/karma/check-profile")
+async def check_profile_karma(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Award +50 one-time karma if the seller's profile is complete."""
+    try:
+        from app.services.karma import check_and_award_profile_complete
+        awarded = check_and_award_profile_complete(current_user.id, db)
+        db.commit()
+        return {
+            "success": True,
+            "awarded": awarded,
+            "new_total": current_user.seller_points or 0,
+        }
+    except Exception:
+        return {"success": False, "awarded": False, "new_total": 0}
 
 
 # ── Listings CRUD ────────────────────────────────────────────────────────
@@ -185,6 +249,7 @@ async def create_listing(
     if data.duration_days:
         expires_at = datetime.utcnow() + timedelta(days=data.duration_days)
 
+    is_draft = (data.listing_status or "active") == "draft"
     listing = Price(
         name=data.name,
         category_id=data.category_id,
@@ -232,7 +297,7 @@ async def create_listing(
     except Exception:
         pass
 
-    msg = "Listing saved as draft" if listing.listing_status == "draft" else "Listing submitted for approval"
+    msg = "Listing saved as draft" if is_draft else "Listing submitted for admin review"
     return {"success": True, "id": listing.id, "message": msg}
 
 
@@ -435,9 +500,108 @@ async def get_seller_verification(
             "email": v.email,
             "status": v.status,
             "adminNotes": v.admin_notes,
+            "documentUrl": v.document_url,
+            "portalScreenshotUrl": v.portal_screenshot_url,
             "submittedAt": v.submitted_at.isoformat(),
             "reviewedAt": v.reviewed_at.isoformat() if v.reviewed_at else None,
         },
+    }
+
+
+@router.post("/verification/docs")
+async def submit_seller_verification_docs(
+    matric_number: str = Form(...),
+    seller_name: str = Form(...),
+    email: str = Form(...),
+    user_id: int | None = Form(None),
+    id_card_url: str | None = Form(None),
+    portal_url: str | None = Form(None),
+    faculty: str | None = Form(None),
+    business_name: str | None = Form(None),
+    business_description: str | None = Form(None),
+    business_category: str | None = Form(None),
+    pickup_location: str | None = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Seller submits/updates their verification documents.
+    Creates a new SellerVerification row (or updates an existing Pending/Rejected one).
+    """
+    matric_number = matric_number.strip().upper()
+    if not id_card_url:
+        raise HTTPException(status_code=400, detail="Student ID card is required.")
+
+    # Reuse an existing Pending/Under Review/Rejected row for the same user
+    existing = (
+        db.query(SellerVerification)
+        .filter(SellerVerification.user_id == current_user.id)
+        .order_by(SellerVerification.submitted_at.desc())
+        .first()
+    )
+
+    if existing and existing.status in ("Pending", "Under Review", "Rejected"):
+        existing.matric_no = matric_number
+        existing.seller_name = seller_name or existing.seller_name
+        existing.email = email or existing.email
+        if faculty:
+            existing.faculty = faculty
+        if business_name:
+            existing.business_name = business_name
+        if business_description is not None:
+            existing.business_description = business_description
+        if business_category is not None:
+            existing.business_category = business_category
+        if pickup_location is not None:
+            existing.pickup_location = pickup_location
+        existing.document_url = id_card_url
+        if portal_url:
+            existing.portal_screenshot_url = portal_url
+        # Reset to Pending on resubmit from Rejected
+        existing.status = "Pending"
+        existing.admin_notes = None
+        existing.submitted_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        verification = existing
+    else:
+        if existing and existing.status == "Approved":
+            raise HTTPException(status_code=400, detail="You are already verified.")
+        verification = SellerVerification(
+            user_id=current_user.id,
+            seller_name=seller_name or current_user.display_name or current_user.username,
+            matric_no=matric_number,
+            faculty=faculty or "Unknown",
+            business_name=business_name or (current_user.display_name or current_user.username),
+            business_description=business_description,
+            business_category=business_category,
+            pickup_location=pickup_location,
+            email=email or current_user.email,
+            document_url=id_card_url,
+            portal_screenshot_url=portal_url,
+            status="Pending",
+        )
+        db.add(verification)
+        db.commit()
+        db.refresh(verification)
+
+    # Notify admin (best-effort)
+    try:
+        from app.services.admin_notifications import notify_admin
+        await notify_admin(
+            db, "verification_docs_uploaded", current_user.id,
+            current_user.email, "seller",
+            {"seller_name": verification.seller_name, "matric_no": matric_number},
+            requires_action=True,
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": "Verification documents submitted. An admin will review shortly.",
+        "verification_id": verification.id,
+        "status": verification.status,
     }
 
 
@@ -558,14 +722,77 @@ async def get_seller_inquiries(
                 "listing_id": i.listing_id,
                 "listing_name": i.listing.name if i.listing else "",
                 "buyer_id": i.buyer_id,
+                "buyer_uuid": i.buyer.uuid if i.buyer else None,
                 "buyer_name": i.buyer.display_name or i.buyer.username if i.buyer else "Unknown",
                 "message": i.message,
+                "seller_reply": i.seller_reply,
+                "replied_at": i.replied_at.isoformat() if i.replied_at else None,
                 "is_read": i.is_read,
+                "label": i.label,
                 "created_at": i.created_at.isoformat(),
             }
             for i in rows
         ],
         "unread_count": sum(1 for i in rows if not i.is_read),
+    }
+
+
+class InquiryReplyBody(BaseModel):
+    reply: str = Field(..., min_length=1, max_length=4000)
+
+
+@router.post("/inquiries/{inquiry_id}/reply")
+async def reply_to_inquiry(
+    inquiry_id: int,
+    body: InquiryReplyBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a reply to a buyer inquiry. Also mirrors message into direct_messages
+    so both parties see it in their unified inbox."""
+    inquiry = db.query(Inquiry).filter(
+        Inquiry.id == inquiry_id, Inquiry.seller_id == current_user.id
+    ).first()
+    if not inquiry:
+        raise HTTPException(status_code=404, detail="Inquiry not found")
+
+    text = body.reply.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Reply cannot be empty")
+
+    from datetime import datetime as _dt
+    inquiry.seller_reply = text
+    inquiry.replied_at = _dt.utcnow()
+
+    # Also store in direct messages so the buyer receives it in /messages
+    try:
+        from app.routers.messages import Conversation, DirectMessage, _get_or_create_conversation
+        conv = _get_or_create_conversation(current_user.id, inquiry.buyer_id, db)
+        dm = DirectMessage(conversation_id=conv.id, sender_id=current_user.id, content=text)
+        db.add(dm)
+        conv.last_message_at = _dt.utcnow()
+        conv.last_message_preview = text[:200]
+    except Exception:
+        pass
+
+    # Notify buyer
+    try:
+        notif = Notification(
+            user_id=inquiry.buyer_id,
+            type="inquiry_reply",
+            title=f"Reply from {current_user.display_name or current_user.username}",
+            body=text[:140],
+            related_id=inquiry.id,
+            related_type="Inquiry",
+        )
+        db.add(notif)
+    except Exception:
+        pass
+
+    db.commit()
+    return {
+        "success": True,
+        "replied_at": inquiry.replied_at.isoformat() if inquiry.replied_at else None,
     }
 
 
@@ -586,7 +813,7 @@ async def mark_inquiry_read(
 
 
 class InquiryLabelUpdate(BaseModel):
-    label: str | None = None   # Pending / Completed / Spam / None (clear)
+    label: str | None = None   # Hot Lead / Pending / Completed / Spam / None (clear)
 
 
 @router.patch("/inquiries/{inquiry_id}/label")
@@ -596,10 +823,10 @@ async def set_inquiry_label(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Set a conversation label (Pending / Completed / Spam) on an inquiry."""
-    allowed = {None, "Pending", "Completed", "Spam"}
+    """Set a conversation label (Hot Lead / Pending / Completed / Spam) on an inquiry."""
+    allowed = {None, "", "Hot Lead", "Pending", "Completed", "Spam"}
     if data.label not in allowed:
-        raise HTTPException(status_code=400, detail="Label must be Pending, Completed, Spam, or null")
+        raise HTTPException(status_code=400, detail="Label must be Hot Lead, Pending, Completed, Spam, or null")
     inquiry = db.query(Inquiry).filter(
         Inquiry.id == inquiry_id, Inquiry.seller_id == current_user.id
     ).first()
@@ -630,6 +857,180 @@ async def update_seller_profile(
         "display_name": current_user.display_name,
         "email": current_user.email,
     }
+
+
+# ── Storefront & Profile Settings ───────────────────────────────────────
+
+def _get_or_create_profile(user: User, db: Session) -> Profile:
+    """Return the seller's Profile row, creating one if it doesn't exist yet."""
+    if user.profile:
+        return user.profile
+    p = Profile(user_id=user.id)
+    db.add(p)
+    db.flush()
+    return p
+
+
+@router.get("/profile-settings")
+async def get_profile_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return all data needed to populate the seller settings form."""
+    p = current_user.profile
+    meta = (p.metadata_ or {}) if p else {}
+    policies = meta.get("policies", {})
+    return {
+        "success": True,
+        "display_name": current_user.display_name or "",
+        "avatar_url": (p.avatar_url if p else None) or current_user.avatar_url or "",
+        "banner_url": (p.banner_url if p else None) or current_user.banner_url or "",
+        "bio": current_user.bio or "",
+        "slug": p.slug if p else "",
+        "category": p.category if p else "",
+        "business_name": p.business_name if p else "",
+        "whatsapp": p.whatsapp if p else "",
+        "show_whatsapp": (p.show_whatsapp if p else False) or False,
+        "instagram": p.instagram if p else "",
+        "availability_status": current_user.availability_status or "open",
+        "vacation_mode": current_user.vacation_mode or False,
+        "auto_reply": current_user.auto_reply_message or "",
+        "pickup_policy": policies.get("pickup_policy", ""),
+        "return_policy": policies.get("return_policy", ""),
+        "payment_policy": policies.get("payment_policy", ""),
+    }
+
+
+class StorefrontUpdate(BaseModel):
+    display_name: str | None = Field(None, max_length=100)
+    bio: str | None = Field(None, max_length=2000)
+    avatar_url: str | None = None
+    banner_url: str | None = None
+    slug: str | None = Field(None, max_length=80)
+    category: str | None = Field(None, max_length=100)
+    whatsapp: str | None = Field(None, max_length=30)
+    show_whatsapp: bool | None = None
+    instagram: str | None = Field(None, max_length=80)
+
+
+@router.patch("/storefront")
+async def update_storefront(
+    data: StorefrontUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update seller's storefront — display name, bio, avatar, banner, slug, socials."""
+    # Validate slug uniqueness if changing
+    if data.slug is not None:
+        safe_slug = data.slug.strip().lower().replace(" ", "-")
+        if safe_slug:
+            conflict = (
+                db.query(Profile)
+                .filter(Profile.slug == safe_slug, Profile.user_id != current_user.id)
+                .first()
+            )
+            if conflict:
+                raise HTTPException(status_code=409, detail="That store URL is already taken")
+        data.slug = safe_slug or None
+
+    # Update User columns
+    if data.display_name is not None:
+        current_user.display_name = data.display_name.strip() or None
+    if data.bio is not None:
+        current_user.bio = data.bio.strip() or None
+    if data.avatar_url is not None:
+        current_user.avatar_url = data.avatar_url.strip() or None
+    if data.banner_url is not None:
+        current_user.banner_url = data.banner_url.strip() or None
+
+    # Update Profile columns
+    p = _get_or_create_profile(current_user, db)
+    if data.display_name is not None:
+        p.display_name = data.display_name.strip() or None
+    if data.avatar_url is not None:
+        p.avatar_url = data.avatar_url.strip() or None
+    if data.banner_url is not None:
+        p.banner_url = data.banner_url.strip() or None
+    if data.slug is not None:
+        p.slug = data.slug or None
+    if data.category is not None:
+        p.category = data.category.strip() or None
+    if data.whatsapp is not None:
+        p.whatsapp = data.whatsapp.strip() or None
+    if data.show_whatsapp is not None:
+        p.show_whatsapp = data.show_whatsapp
+    if data.instagram is not None:
+        p.instagram = data.instagram.strip().lstrip("@") or None
+
+    db.commit()
+    return {
+        "success": True,
+        "message": "Storefront updated",
+        "display_name": current_user.display_name,
+        "avatar_url": p.avatar_url or current_user.avatar_url,
+        "banner_url": p.banner_url or current_user.banner_url,
+    }
+
+
+class PoliciesUpdate(BaseModel):
+    pickup_policy: str | None = Field(None, max_length=1000)
+    return_policy: str | None = Field(None, max_length=1000)
+    payment_policy: str | None = Field(None, max_length=1000)
+
+
+@router.patch("/policies")
+async def update_policies(
+    data: PoliciesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Store pick-up, return, and payment policy text in profile metadata."""
+    p = _get_or_create_profile(current_user, db)
+    meta = dict(p.metadata_ or {})
+    meta["policies"] = {
+        "pickup_policy": (data.pickup_policy or "").strip(),
+        "return_policy": (data.return_policy or "").strip(),
+        "payment_policy": (data.payment_policy or "").strip(),
+    }
+    p.metadata_ = meta
+    db.commit()
+    return {"success": True, "message": "Policies updated"}
+
+
+class AvailabilityUpdate(BaseModel):
+    availability_status: str | None = Field(None, pattern="^(open|limited|closed)$")
+
+
+@router.patch("/availability")
+async def update_availability(
+    data: AvailabilityUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update the seller's store availability status (open / limited / closed)."""
+    if data.availability_status:
+        current_user.availability_status = data.availability_status
+    db.commit()
+    return {
+        "success": True,
+        "availability_status": current_user.availability_status,
+    }
+
+
+@router.get("/check-slug")
+async def check_slug_available(
+    slug: str = Query(..., min_length=2, max_length=80),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Check whether a store URL slug is available."""
+    safe = slug.lower().strip().replace(" ", "-")
+    taken = (
+        db.query(Profile)
+        .filter(Profile.slug == safe, Profile.user_id != current_user.id)
+        .first()
+    )
+    return {"available": taken is None, "slug": safe}
 
 
 # ── Quick Replies ─────────────────────────────────────────────────────────
@@ -829,12 +1230,25 @@ class OrderStatusUpdate(BaseModel):
 
 
 def _order_dict(o: Order) -> dict:
+    photos_raw = (o.listing.photos if o.listing else None) or "[]"
+    try:
+        photos = json.loads(photos_raw) if isinstance(photos_raw, str) else photos_raw
+    except Exception:
+        photos = []
+    seller = o.seller
     return {
         "id": o.id,
+        "uuid": o.uuid,
         "listing_id": o.listing_id,
+        "listing_uuid": o.listing.uuid if o.listing else None,
         "listing_name": o.listing.name if o.listing else None,
+        "listing_price": o.listing.price if o.listing else 0,
+        "listing_condition": o.listing.condition if o.listing else None,
+        "listing_photos": photos,
         "buyer_id": o.buyer_id,
         "seller_id": o.seller_id,
+        "seller_name": (seller.display_name or seller.username) if seller else "Unknown",
+        "seller_avatar": seller.avatar_url if seller else None,
         "status": o.status,
         "meetup_location": o.meetup_location,
         "created_at": o.created_at.isoformat(),
@@ -883,15 +1297,14 @@ async def create_order(
 async def get_buyer_orders(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    status: str | None = Query(None),
 ):
     """Buyer sees their own orders."""
-    orders = (
-        db.query(Order)
-        .filter(Order.buyer_id == current_user.id)
-        .order_by(Order.created_at.desc())
-        .all()
-    )
-    return [_order_dict(o) for o in orders]
+    q = db.query(Order).filter(Order.buyer_id == current_user.id)
+    if status:
+        q = q.filter(Order.status == status)
+    orders = q.order_by(Order.created_at.desc()).all()
+    return {"success": True, "data": [_order_dict(o) for o in orders]}
 
 
 @router.get("/orders")
@@ -909,15 +1322,20 @@ async def get_seller_orders(
     return [_order_dict(o) for o in orders]
 
 
-@orders_router.patch("/{order_id}/status")
+@orders_router.patch("/{order_ref}/status")
 async def update_order_status(
-    order_id: int,
+    order_ref: str,
     body: OrderStatusUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Buyer or seller updates order status."""
-    order = db.query(Order).filter(Order.id == order_id).first()
+    """Buyer or seller updates order status. order_ref may be a UUID or numeric ID."""
+    order = db.query(Order).filter(Order.uuid == order_ref).first()
+    if not order:
+        try:
+            order = db.query(Order).filter(Order.id == int(order_ref)).first()
+        except (ValueError, TypeError):
+            pass
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if current_user.id not in (order.buyer_id, order.seller_id):

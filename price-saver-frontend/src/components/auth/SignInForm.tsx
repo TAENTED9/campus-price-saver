@@ -30,10 +30,10 @@ export default function SignInForm() {
 
   useEffect(() => {
     const v = params.get("verified");
-    const e = params.get("email");
+    const u = params.get("username");
     if (v === "true") {
       setVerifiedBanner(true);
-      if (e) setUsername(e);   // pre-fill so user just types password
+      if (u) setUsername(u);   // pre-fill username so user just types password
     }
   }, [params]);
 

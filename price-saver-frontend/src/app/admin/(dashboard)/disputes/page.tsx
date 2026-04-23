@@ -82,7 +82,7 @@ export default function DisputesPage() {
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{d.listing_name}</td>
                 <td className="px-5 py-4 text-gray-500 dark:text-gray-400 max-w-xs truncate">{d.issue}</td>
                 <td className="px-5 py-4">{statusBadge(d.status)}</td>
-                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(d.created_at).toLocaleDateString()}</td>
+                <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(d.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
                 <td className="px-5 py-4">
                   {d.status !== "resolved" ? (
                     <div className="flex gap-2">

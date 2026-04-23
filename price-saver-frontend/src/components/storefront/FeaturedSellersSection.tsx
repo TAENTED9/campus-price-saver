@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { ShieldCheck, Package } from "lucide-react";
 import { storefrontApi } from "@/lib/api";
@@ -81,9 +82,11 @@ export default function FeaturedSellersSection() {
                   {/* Avatar */}
                   <div className="-mt-6 ml-3 w-12 h-12 rounded-full border-2 border-white dark:border-gray-900 ring-2 ring-blue-500 overflow-hidden flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-500 relative z-10">
                     {seller.avatar_url ? (
-                      <img
+                      <Image
                         src={seller.avatar_url}
                         alt={seller.display_name}
+                        width={48}
+                        height={48}
                         className="w-full h-full object-cover"
                       />
                     ) : (

@@ -371,7 +371,7 @@ function SellerForm({ onBack }: { onBack: () => void }) {
 
     setIsLoading(true);
     try {
-      await authApi.register(username.trim(), password, email.trim());
+      await authApi.register(username.trim(), password, email.trim(), "seller");
       localStorage.setItem("pendingMatric", matric.trim().toUpperCase());
       setStep("check_email");
     } catch (err: unknown) {
@@ -464,7 +464,7 @@ function SellerForm({ onBack }: { onBack: () => void }) {
             id="seller-matric"
             name="matric"
             type="text"
-            placeholder="e.g. 190101001 or 190101001/ED"
+            placeholder="e.g. 210101001"
             value={matric}
             onChange={handleMatricChange}
             onBlur={() => setMatricError(validateMatric(matric))}
@@ -474,7 +474,7 @@ function SellerForm({ onBack }: { onBack: () => void }) {
           {matricError ? (
             <p className="mt-1 text-xs text-red-500">{matricError}</p>
           ) : (
-            <p className="mt-1 text-xs text-gray-400">9-digit format, e.g. 190101001 or 190101001/ED</p>
+            <p className="mt-1 text-xs text-gray-400">9-digit format, e.g. 210101001</p>
           )}
         </div>
 

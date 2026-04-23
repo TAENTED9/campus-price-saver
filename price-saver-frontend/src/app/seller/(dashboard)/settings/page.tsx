@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { Store, Shield, FileText, MapPin, List, Lock, Bell, AlertTriangle, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, authApi, userApi, uploadApi } from "@/lib/api";
+import { settingsApi } from "@/lib/settingsApi";
 
 type Section =
   | "business"
@@ -15,6 +17,8 @@ type Section =
   | "security"
   | "notifications"
   | "danger";
+
+type NavItem = { id: Section; label: string; Icon: LucideIcon; danger?: boolean };
 
 interface SellerNotifs {
   inquiry_email: boolean; inquiry_push: boolean;
@@ -35,7 +39,7 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
     <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-white text-sm font-semibold ${type === "success" ? "bg-green-500" : "bg-red-500"}`}>
       <span>{type === "success" ? "✓" : "✕"}</span>
       {message}
-      <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100">×</button>
+      <button onClick={onClose} title="Dismiss notification" className="ml-2 opacity-70 hover:opacity-100">×</button>
     </div>
   );
 }
@@ -43,6 +47,7 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
 function Toggle({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button onClick={() => !disabled && onChange(!value)} disabled={disabled}
+      aria-label={value ? "Enabled — click to disable" : "Disabled — click to enable"}
       className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${value ? "translate-x-5" : "translate-x-0"}`} />
     </button>
@@ -85,8 +90,7 @@ function Input({ label, value, onChange, type = "text", placeholder, hint, readO
       <FieldLabel>{label}</FieldLabel>
       <div className="relative flex items-center">
         <input type={type} value={value} onChange={e => onChange?.(e.target.value)} placeholder={placeholder} readOnly={readOnly}
-          className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors read-only:bg-gray-50 dark:read-only:bg-gray-800 read-only:text-gray-400"
-          style={{ paddingRight: suffix ? "80px" : undefined }} />
+          className={`w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors read-only:bg-gray-50 dark:read-only:bg-gray-800 read-only:text-gray-400${suffix ? " pr-20" : ""}`} />
         {suffix && <span className="absolute right-3 text-xs text-gray-400 font-semibold">{suffix}</span>}
       </div>
       {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
@@ -180,12 +184,45 @@ export default function SellerSettingsPage() {
   const [deleteInput, setDeleteInput] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  const settingsVersionRef = useRef(1);
   const showToast = (message: string, type: "success" | "error") => setToast({ message, type });
   const setLoad = (key: string, val: boolean) => setLoading(p => ({ ...p, [key]: val }));
 
   useEffect(() => {
     fetchProfile();
     fetchVerifStatus();
+    if (token) {
+      settingsApi.getSettings(token).then(({ settings }) => {
+        settingsVersionRef.current = settings.version;
+        setStoreStatus(settings.store_status);
+        setVacationMode(settings.vacation_mode);
+        setVacationDate(settings.vacation_resume_date || "");
+        setDefaultLocation(settings.default_pickup_location || "");
+        setDefaultDuration(String(settings.default_listing_duration));
+        setAutoRenew(settings.auto_renew_listings);
+        setDefaultNegotiable(settings.default_negotiable);
+        const e = settings.notifications.email;
+        const p = settings.notifications.push;
+        setNotifs({
+          inquiry_email:    e.inquiry,
+          inquiry_push:     p.inquiry,
+          review_email:     e.review,
+          review_push:      p.review,
+          follower_email:   e.follower,
+          follower_push:    p.follower,
+          expiry_email:     e.expiry,
+          expiry_push:      false,
+          verif_email:      e.verification,
+          verif_push:       false,
+          competitor_email: e.competitor,
+          competitor_push:  false,
+          karma_email:      e.karma,
+          karma_push:       false,
+          weekly_email:     e.weekly_digest,
+          weekly_push:      false,
+        });
+      }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -270,7 +307,7 @@ export default function SellerSettingsPage() {
 
       const bannerFile = bannerRef.current?.files?.[0];
       if (bannerFile) {
-        banner_url = await uploadApi.uploadAvatar(token!, bannerFile);
+        banner_url = await uploadApi.uploadBanner(token!, bannerFile);
       }
       const logoFile = logoRef.current?.files?.[0];
       if (logoFile) {
@@ -306,8 +343,15 @@ export default function SellerSettingsPage() {
   async function saveAvailability() {
     setLoad("availability", true);
     try {
-      await sellerApi.updateAvailability(token!, { status: storeStatus });
-      await sellerApi.updateAutoReplyMsg(token!, { message: autoReply });
+      const [res] = await Promise.all([
+        settingsApi.patchSettings(token!, {
+          store_status:   storeStatus,
+          client_version: settingsVersionRef.current,
+        }),
+        sellerApi.setAvailability(token!, storeStatus),
+        sellerApi.updateAutoReplyMsg(token!, { message: autoReply }),
+      ]);
+      settingsVersionRef.current = res.settings.version;
       showToast("Availability settings saved", "success");
     } catch (e: unknown) {
       showToast((e instanceof Error ? e.message : null) || "Failed to save availability", "error");
@@ -323,7 +367,12 @@ export default function SellerSettingsPage() {
     } else {
       setLoad("vacation", true);
       try {
-        await sellerApi.setVacation(token!, { enabled: false, resume_date: null });
+        const res = await settingsApi.patchSettings(token!, {
+          vacation_mode:        false,
+          vacation_resume_date: null,
+          client_version:       settingsVersionRef.current,
+        });
+        settingsVersionRef.current = res.settings.version;
         setVacationMode(false);
         showToast("Vacation mode disabled — listings restored", "success");
       } catch (e: unknown) {
@@ -338,7 +387,12 @@ export default function SellerSettingsPage() {
     setShowVacationConfirm(false);
     setLoad("vacation", true);
     try {
-      await sellerApi.setVacation(token!, { enabled: true, resume_date: vacationDate || null });
+      const res = await settingsApi.patchSettings(token!, {
+        vacation_mode:        true,
+        vacation_resume_date: vacationDate || null,
+        client_version:       settingsVersionRef.current,
+      });
+      settingsVersionRef.current = res.settings.version;
       setVacationMode(true);
       setPendingVacation(false);
       showToast("Vacation mode enabled — all listings paused", "success");
@@ -353,12 +407,14 @@ export default function SellerSettingsPage() {
   async function saveDefaults() {
     setLoad("defaults", true);
     try {
-      await sellerApi.updateDefaults(token!, {
-        default_location: defaultLocation,
-        default_duration: parseInt(defaultDuration),
-        auto_renew: autoRenew,
-        default_negotiable: defaultNegotiable,
+      const res = await settingsApi.patchSettings(token!, {
+        default_pickup_location:  defaultLocation || null,
+        default_listing_duration: parseInt(defaultDuration) as 7 | 14 | 30,
+        auto_renew_listings:      autoRenew,
+        default_negotiable:       defaultNegotiable,
+        client_version:           settingsVersionRef.current,
       });
+      settingsVersionRef.current = res.settings.version;
       showToast("Listing defaults saved", "success");
     } catch (e: unknown) {
       showToast((e instanceof Error ? e.message : null) || "Failed to save defaults", "error");
@@ -399,7 +455,27 @@ export default function SellerSettingsPage() {
   async function saveNotifications() {
     setLoad("notifs", true);
     try {
-      await userApi.updateNotifications(token!, notifs as unknown as Record<string, unknown>);
+      const res = await settingsApi.patchSettings(token!, {
+        notifications: {
+          email: {
+            inquiry:      notifs.inquiry_email,
+            review:       notifs.review_email,
+            follower:     notifs.follower_email,
+            expiry:       notifs.expiry_email,
+            verification: notifs.verif_email,
+            competitor:   notifs.competitor_email,
+            karma:        notifs.karma_email,
+            weekly_digest: notifs.weekly_email,
+          },
+          push: {
+            inquiry:  notifs.inquiry_push,
+            review:   notifs.review_push,
+            follower: notifs.follower_push,
+          },
+        },
+        client_version: settingsVersionRef.current,
+      });
+      settingsVersionRef.current = res.settings.version;
       showToast("Notification preferences saved", "success");
     } catch (e: unknown) {
       showToast((e instanceof Error ? e.message : null) || "Failed to save preferences", "error");
@@ -436,15 +512,15 @@ export default function SellerSettingsPage() {
     }
   }
 
-  const navItems: { id: Section; label: string; icon: string; danger?: boolean }[] = [
-    { id: "business", label: "Business Profile", icon: "🏪" },
-    { id: "verification", label: "Verification", icon: "🛡️" },
-    { id: "policies", label: "Store Policies", icon: "📋" },
-    { id: "availability", label: "Availability", icon: "🕐" },
-    { id: "defaults", label: "Listing Defaults", icon: "📝" },
-    { id: "security", label: "Security", icon: "🔐" },
-    { id: "notifications", label: "Notifications", icon: "🔔" },
-    { id: "danger", label: "Danger Zone", icon: "⚠️", danger: true },
+  const navItems: NavItem[] = [
+    { id: "business",      label: "Business Profile", Icon: Store },
+    { id: "verification", label: "Verification",      Icon: Shield },
+    { id: "policies",     label: "Store Policies",   Icon: FileText },
+    { id: "availability", label: "Availability",     Icon: MapPin },
+    { id: "defaults",     label: "Listing Defaults", Icon: List },
+    { id: "security",     label: "Security",         Icon: Lock },
+    { id: "notifications",label: "Notifications",    Icon: Bell },
+    { id: "danger",       label: "Danger Zone",      Icon: AlertTriangle, danger: true },
   ];
 
   const CATEGORIES = ["Tech Accessories", "Food & Drinks", "Fashion", "Books & Stationery", "Beauty & Skincare", "Services", "Handmade & Crafts", "Hostel Items", "Other"];
@@ -509,7 +585,7 @@ export default function SellerSettingsPage() {
                                     : "bg-blue-50 dark:bg-blue-950/40 text-blue-600 border-l-[3px] border-blue-500"
                       : item.danger ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 border-l-[3px] border-transparent"
                                     : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 border-l-[3px] border-transparent"}`}>
-                  <span>{item.icon}</span>
+                  <item.Icon size={15} />
                   {item.label}
                 </button>
               ))}

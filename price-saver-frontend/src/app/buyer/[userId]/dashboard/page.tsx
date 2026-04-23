@@ -1,171 +1,114 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
+import { useNotifications } from "@/context/NotificationContext";
+import { MessageCircle, Heart, Package, Search, ArrowRight } from "lucide-react";
 
-/**
- * Buyer Dashboard
- * Personalized shopping experience, recommendations, recent purchases
- */
-
-interface RecommendedProduct {
-  id: string;
-  name: string;
-  price: number;
-  image?: string;
-  seller: {
-    id: string;
-    name: string;
-  };
-  category: string;
-}
-
-interface RecentPurchase {
-  id: string;
-  productName: string;
-  seller: string;
-  purchaseDate: string;
-  total: number;
-}
-
-export default function BuyerDashboard({
-  params,
-}: {
-  params: { userId: string };
-}) {
+export default function BuyerDashboard({ params }: { params: { userId: string } }) {
   const { user } = useAuth();
-  const router = useRouter();
-  const [recommended, setRecommended] = useState<RecommendedProduct[]>([]);
-  const [purchases, setPurchases] = useState<RecentPurchase[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { counts } = useNotifications();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // TODO: Fetch recommended products from API
-        // const recommended = await api.getRecommended(params.userId);
-        // setRecommended(recommended);
-
-        // TODO: Fetch recent purchases from API
-        // const purchases = await api.getRecentPurchases(params.userId);
-        // setPurchases(purchases);
-
-        // Mock data for now
-        setRecommended([
-          {
-            id: "1",
-            name: "Sample Product",
-            price: 29.99,
-            seller: { id: "1", name: "Sample Seller" },
-            category: "Electronics",
-          },
-        ]);
-      } catch (err) {
-        console.error("Failed to load dashboard:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (user) {
-      fetchData();
-    }
-  }, [user, params.userId]);
-
-  if (loading) {
-    return <div className="text-center py-10">Loading dashboard...</div>;
-  }
+  const quickActions = [
+    {
+      label: "Browse Listings",
+      description: "Discover products across campus",
+      icon: <Search size={20} className="text-brand-500" />,
+      href: "/search",
+      accent: "from-brand-500/10 to-[#06b6d4]/10 border-brand-200/60 dark:border-brand-800/60",
+    },
+    {
+      label: "Messages",
+      description: counts.messages > 0
+        ? `${counts.messages} unread message${counts.messages > 1 ? "s" : ""}`
+        : "Chat with sellers",
+      icon: <MessageCircle size={20} className="text-brand-500" />,
+      href: "/messages",
+      badge: counts.messages || undefined,
+      accent: "from-brand-500/10 to-[#06b6d4]/10 border-brand-200/60 dark:border-brand-800/60",
+    },
+    {
+      label: "Wishlist",
+      description: "Items you've saved",
+      icon: <Heart size={20} className="text-rose-500" />,
+      href: `/buyer/${params.userId}/wishlist`,
+      accent: "from-rose-500/10 to-pink-500/10 border-rose-200/60 dark:border-rose-800/60",
+    },
+    {
+      label: "Orders",
+      description: "Coming soon",
+      icon: <Package size={20} className="text-amber-500" />,
+      href: `/buyer/${params.userId}/orders`,
+      accent: "from-amber-500/10 to-yellow-400/10 border-amber-200/60 dark:border-amber-800/60",
+    },
+  ];
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold mb-8">Welcome to Price Saver</h1>
+    <div className="max-w-2xl space-y-8">
+      {/* Welcome */}
+      <div>
+        <h1 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">
+          Welcome back{user?.username ? `, ${user.username}` : ""} 👋
+        </h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Find the best prices across campus.
+        </p>
+      </div>
 
-      {/* Featured Recommendations */}
-      <section className="mb-12">
-        <h2 className="text-2xl font-bold mb-4">Recommended for You</h2>
-        {recommended.length === 0 ? (
-          <div className="bg-gray-100 rounded-lg p-8 text-center">
-            <p className="text-gray-600 mb-4">No recommendations yet</p>
-            <button
-              onClick={() => router.push("/explore")}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Browse Products
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {recommended.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Recent Purchases */}
+      {/* Quick Actions */}
       <section>
-        <h2 className="text-2xl font-bold mb-4">Recent Purchases</h2>
-        {purchases.length === 0 ? (
-          <div className="bg-gray-100 rounded-lg p-8 text-center">
-            <p className="text-gray-600">You haven't made any purchases yet</p>
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg border border-gray-200">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left px-6 py-3">Product</th>
-                  <th className="text-left px-6 py-3">Seller</th>
-                  <th className="text-right px-6 py-3">Amount</th>
-                  <th className="text-left px-6 py-3">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {purchases.map((purchase) => (
-                  <tr key={purchase.id} className="border-b hover:bg-gray-50">
-                    <td className="px-6 py-3">{purchase.productName}</td>
-                    <td className="px-6 py-3">{purchase.seller}</td>
-                    <td className="px-6 py-3 text-right font-semibold">
-                      ${purchase.total.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-3">
-                      {new Date(purchase.purchaseDate).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-3">
+          Quick Actions
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {quickActions.map((a) => (
+            <Link
+              key={a.href}
+              href={a.href}
+              className={`relative rounded-2xl border bg-gradient-to-br ${a.accent} bg-white dark:bg-white/[0.03] p-4 flex items-center gap-3 hover:shadow-sm transition-shadow`}
+            >
+              <div className="w-10 h-10 rounded-xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 flex items-center justify-center flex-shrink-0 shadow-sm">
+                {a.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-800 dark:text-white">{a.label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{a.description}</p>
+              </div>
+              {a.badge ? (
+                <span className="w-5 h-5 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                  {a.badge > 9 ? "9+" : a.badge}
+                </span>
+              ) : (
+                <ArrowRight size={14} className="text-gray-300 dark:text-gray-600 flex-shrink-0" />
+              )}
+            </Link>
+          ))}
+        </div>
       </section>
-    </div>
-  );
-}
 
-function ProductCard({ product }: { product: RecommendedProduct }) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow cursor-pointer">
-      <div className="aspect-square bg-gray-200 flex items-center justify-center">
-        {product.image ? (
-          <img
-            src={product.image}
-            alt={product.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <span className="text-gray-400">No image</span>
-        )}
-      </div>
-      <div className="p-4">
-        <p className="text-xs text-gray-500 mb-1">{product.category}</p>
-        <h3 className="font-semibold text-sm mb-2 line-clamp-2">
-          {product.name}
-        </h3>
-        <p className="text-sm text-gray-600 mb-3">{product.seller.name}</p>
-        <p className="text-lg font-bold">${product.price.toFixed(2)}</p>
-      </div>
+      {/* Messages CTA if unread */}
+      {counts.messages > 0 && (
+        <section className="rounded-2xl border border-brand-200/60 dark:border-brand-800/60 bg-gradient-to-br from-brand-500/8 to-[#06b6d4]/6 p-5 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-brand-500 flex items-center justify-center flex-shrink-0">
+            <MessageCircle size={22} className="text-white" />
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-gray-800 dark:text-white text-sm">
+              You have {counts.messages} unread message{counts.messages > 1 ? "s" : ""}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Sellers are waiting for your reply.
+            </p>
+          </div>
+          <Link
+            href="/messages"
+            className="rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold px-4 py-2 flex-shrink-0 transition-colors"
+          >
+            View
+          </Link>
+        </section>
+      )}
     </div>
   );
 }

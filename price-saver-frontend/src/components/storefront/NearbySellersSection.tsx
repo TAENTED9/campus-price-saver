@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MapPin, Package } from "lucide-react";
 import { itemsApi, type Price } from "@/lib/api";
 import { CategoryIcon } from "@/lib/categoryIcons";
+import { formatPrice } from "@/lib/formatPrice";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function ListingCard({ item }: { item: ListingPrice }) {
             </p>
           )}
           <p className="text-sm font-black text-brand-600 dark:text-brand-400 mt-auto pt-2">
-            ₦{item.price.toLocaleString()}
+            {formatPrice(item.price)}
           </p>
         </div>
       </div>

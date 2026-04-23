@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { User, Lock, Bell, Eye, Palette, AlertTriangle, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { authApi, uploadApi, userApi } from "@/lib/api";
+import { settingsApi } from "@/lib/settingsApi";
 
 type Section = "profile" | "security" | "notifications" | "privacy" | "appearance" | "danger";
+type NavItem = { id: Section; label: string; Icon: LucideIcon; danger?: boolean };
 
 interface NotifPrefs {
   msg_email: boolean; msg_push: boolean;
@@ -32,7 +35,7 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
     <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-white text-sm font-semibold transition-all ${type === "success" ? "bg-green-500" : "bg-red-500"}`}>
       <span>{type === "success" ? "✓" : "✕"}</span>
       {message}
-      <button onClick={onClose} className="ml-2 opacity-70 hover:opacity-100">×</button>
+      <button onClick={onClose} title="Dismiss notification" className="ml-2 opacity-70 hover:opacity-100">×</button>
     </div>
   );
 }
@@ -40,6 +43,7 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
 function Toggle({ value, onChange, disabled }: { value: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button onClick={() => !disabled && onChange(!value)} disabled={disabled}
+      aria-label={value ? "Enabled — click to disable" : "Disabled — click to enable"}
       className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${value ? "bg-blue-600" : "bg-gray-300 dark:bg-gray-600"} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${value ? "translate-x-5" : "translate-x-0"}`} />
     </button>
@@ -181,6 +185,59 @@ export default function BuyerSettingsPage() {
   const [deleteInput, setDeleteInput] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  const settingsVersionRef = useRef(1);
+  const notifsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const privacyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const debouncedSaveNotifs = useCallback((prefs: NotifPrefs) => {
+    if (notifsDebounceRef.current) clearTimeout(notifsDebounceRef.current);
+    notifsDebounceRef.current = setTimeout(() => {
+      settingsApi.patchSettings(token!, {
+        notifications: {
+          email: {
+            messages:       prefs.msg_email,
+            price_drop:     prefs.price_email,
+            new_listing:    prefs.follow_email,
+            order_update:   prefs.order_email,
+            review:         prefs.review_email,
+            weekly_digest:  prefs.weekly_email,
+            announcements:  prefs.announce_email,
+          },
+          push: {
+            messages:       prefs.msg_push,
+            price_drop:     prefs.price_push,
+            new_listing:    prefs.follow_push,
+            order_update:   prefs.order_push,
+            review:         prefs.review_push,
+            announcements:  prefs.announce_push,
+          },
+        },
+        client_version: settingsVersionRef.current,
+      }).then(res => {
+        settingsVersionRef.current = res.settings.version;
+      }).catch(() => {});
+    }, 600);
+  }, [token]);
+
+  const debouncedSavePrivacy = useCallback((prefs: PrivacyPrefs) => {
+    if (privacyDebounceRef.current) clearTimeout(privacyDebounceRef.current);
+    privacyDebounceRef.current = setTimeout(() => {
+      settingsApi.patchSettings(token!, {
+        profile_visibility: prefs.profile_visibility,
+        show_dept:          prefs.show_dept,
+        read_receipts:      prefs.read_receipts,
+        client_version:     settingsVersionRef.current,
+      }).then(res => {
+        settingsVersionRef.current = res.settings.version;
+      }).catch(() => {});
+    }, 600);
+  }, [token]);
+
+  useEffect(() => {return () => {
+    if (notifsDebounceRef.current) clearTimeout(notifsDebounceRef.current);
+    if (privacyDebounceRef.current) clearTimeout(privacyDebounceRef.current);
+  };}, []);
+
   useEffect(() => {
     if (user) {
       setDisplayName(user.display_name || "");
@@ -192,6 +249,40 @@ export default function BuyerSettingsPage() {
     const saved = localStorage.getItem("campify_dark");
     if (saved) setDarkMode(saved === "true");
   }, [user]);
+
+  useEffect(() => {
+    if (!token) return;
+    settingsApi.getSettings(token).then(({ settings }) => {
+      settingsVersionRef.current = settings.version;
+      const e = settings.notifications.email;
+      const p = settings.notifications.push;
+      setNotifs({
+        msg_email:      e.messages,
+        msg_push:       p.messages,
+        price_email:    e.price_drop,
+        price_push:     p.price_drop,
+        follow_email:   e.new_listing,
+        follow_push:    p.new_listing,
+        order_email:    e.order_update,
+        order_push:     p.order_update,
+        review_email:   e.review,
+        review_push:    p.review,
+        weekly_email:   e.weekly_digest,
+        weekly_push:    false,
+        announce_email: e.announcements,
+        announce_push:  p.announcements,
+      });
+      setPrivacy({
+        profile_visibility: settings.profile_visibility,
+        show_dept:          settings.show_dept,
+        read_receipts:      settings.read_receipts,
+      });
+      const isDark = settings.theme === "dark";
+      setDarkMode(isDark);
+      localStorage.setItem("campify_dark", String(isDark));
+      document.documentElement.classList.toggle("dark", isDark);
+    }).catch(() => {});
+  }, [token]);
 
   useEffect(() => {
     if (active === "security") fetchSessions();
@@ -297,7 +388,29 @@ export default function BuyerSettingsPage() {
   async function saveNotifications() {
     setLoad("notifs", true);
     try {
-      await userApi.updateNotifications(token!, notifs as unknown as Record<string, unknown>);
+      const res = await settingsApi.patchSettings(token!, {
+        notifications: {
+          email: {
+            messages:       notifs.msg_email,
+            price_drop:     notifs.price_email,
+            new_listing:    notifs.follow_email,
+            order_update:   notifs.order_email,
+            review:         notifs.review_email,
+            weekly_digest:  notifs.weekly_email,
+            announcements:  notifs.announce_email,
+          },
+          push: {
+            messages:       notifs.msg_push,
+            price_drop:     notifs.price_push,
+            new_listing:    notifs.follow_push,
+            order_update:   notifs.order_push,
+            review:         notifs.review_push,
+            announcements:  notifs.announce_push,
+          },
+        },
+        client_version: settingsVersionRef.current,
+      });
+      settingsVersionRef.current = res.settings.version;
       showToast("Notification preferences saved", "success");
     } catch (e: unknown) {
       showToast((e instanceof Error ? e.message : null) || "Failed to save preferences", "error");
@@ -309,7 +422,13 @@ export default function BuyerSettingsPage() {
   async function savePrivacy() {
     setLoad("privacy", true);
     try {
-      await userApi.updateSettings(token!, privacy as unknown as Record<string, unknown>);
+      const res = await settingsApi.patchSettings(token!, {
+        profile_visibility: privacy.profile_visibility,
+        show_dept:          privacy.show_dept,
+        read_receipts:      privacy.read_receipts,
+        client_version:     settingsVersionRef.current,
+      });
+      settingsVersionRef.current = res.settings.version;
       showToast("Privacy settings saved", "success");
     } catch (e: unknown) {
       showToast((e instanceof Error ? e.message : null) || "Failed to save privacy settings", "error");
@@ -322,6 +441,11 @@ export default function BuyerSettingsPage() {
     setDarkMode(val);
     localStorage.setItem("campify_dark", String(val));
     document.documentElement.classList.toggle("dark", val);
+    if (token) {
+      settingsApi.patchSettings(token, { theme: val ? "dark" : "light" }).then(res => {
+        settingsVersionRef.current = res.settings.version;
+      }).catch(() => {});
+    }
   }
 
   async function deleteAccount() {
@@ -346,13 +470,13 @@ export default function BuyerSettingsPage() {
     setAvatarPreview(URL.createObjectURL(file));
   }
 
-  const navItems: { id: Section; label: string; icon: string; danger?: boolean }[] = [
-    { id: "profile", label: "Profile", icon: "👤" },
-    { id: "security", label: "Security", icon: "🔐" },
-    { id: "notifications", label: "Notifications", icon: "🔔" },
-    { id: "privacy", label: "Privacy", icon: "🔒" },
-    { id: "appearance", label: "Appearance", icon: "🎨" },
-    { id: "danger", label: "Danger Zone", icon: "⚠️", danger: true },
+  const navItems: NavItem[] = [
+    { id: "profile",       label: "Profile",       Icon: User },
+    { id: "security",      label: "Security",      Icon: Lock },
+    { id: "notifications", label: "Notifications", Icon: Bell },
+    { id: "privacy",       label: "Privacy",       Icon: Eye },
+    { id: "appearance",    label: "Appearance",    Icon: Palette },
+    { id: "danger",        label: "Danger Zone",   Icon: AlertTriangle, danger: true },
   ];
 
   const strength = pwStrength(newPw);
@@ -383,7 +507,7 @@ export default function BuyerSettingsPage() {
                                     : "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
                       : item.danger ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
                                     : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
-                  <span>{item.icon}</span>
+                  <item.Icon size={15} />
                   {item.label}
                 </button>
               ))}
@@ -396,8 +520,8 @@ export default function BuyerSettingsPage() {
           <div className="flex gap-2">
             {navItems.map(item => (
               <button key={item.id} onClick={() => setActive(item.id)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${active === item.id ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>
-                {item.icon} {item.label}
+                className={`flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${active === item.id ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>
+                <item.Icon size={12} /> {item.label}
               </button>
             ))}
           </div>
@@ -547,25 +671,25 @@ export default function BuyerSettingsPage() {
               </div>
               <NotifRow label="New message" sub="When a seller replies to you"
                 emailVal={notifs.msg_email} pushVal={notifs.msg_push}
-                onEmail={v => setNotifs(p => ({ ...p, msg_email: v }))} onPush={v => setNotifs(p => ({ ...p, msg_push: v }))} />
+                onEmail={v => { const n = { ...notifs, msg_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, msg_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} />
               <NotifRow label="Price drop alert" sub="Wishlisted item drops in price"
                 emailVal={notifs.price_email} pushVal={notifs.price_push}
-                onEmail={v => setNotifs(p => ({ ...p, price_email: v }))} onPush={v => setNotifs(p => ({ ...p, price_push: v }))} />
+                onEmail={v => { const n = { ...notifs, price_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, price_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} />
               <NotifRow label="New listing from followed seller"
                 emailVal={notifs.follow_email} pushVal={notifs.follow_push}
-                onEmail={v => setNotifs(p => ({ ...p, follow_email: v }))} onPush={v => setNotifs(p => ({ ...p, follow_push: v }))} />
+                onEmail={v => { const n = { ...notifs, follow_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, follow_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} />
               <NotifRow label="Order status update"
                 emailVal={notifs.order_email} pushVal={notifs.order_push}
-                onEmail={v => setNotifs(p => ({ ...p, order_email: v }))} onPush={v => setNotifs(p => ({ ...p, order_push: v }))} />
+                onEmail={v => { const n = { ...notifs, order_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, order_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} />
               <NotifRow label="Review reminder" sub="After completing a transaction"
                 emailVal={notifs.review_email} pushVal={notifs.review_push}
-                onEmail={v => setNotifs(p => ({ ...p, review_email: v }))} onPush={v => setNotifs(p => ({ ...p, review_push: v }))} />
+                onEmail={v => { const n = { ...notifs, review_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, review_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} />
               <NotifRow label="Weekly deals digest" sub="Every Monday morning"
                 emailVal={notifs.weekly_email} pushVal={notifs.weekly_push}
-                onEmail={v => setNotifs(p => ({ ...p, weekly_email: v }))} onPush={v => setNotifs(p => ({ ...p, weekly_push: v }))} />
+                onEmail={v => { const n = { ...notifs, weekly_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, weekly_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} />
               <NotifRow label="Platform announcements"
                 emailVal={notifs.announce_email} pushVal={notifs.announce_push}
-                onEmail={v => setNotifs(p => ({ ...p, announce_email: v }))} onPush={v => setNotifs(p => ({ ...p, announce_push: v }))} last />
+                onEmail={v => { const n = { ...notifs, announce_email: v }; setNotifs(n); debouncedSaveNotifs(n); }} onPush={v => { const n = { ...notifs, announce_push: v }; setNotifs(n); debouncedSaveNotifs(n); }} last />
             </Card>
           )}
 
@@ -603,7 +727,7 @@ export default function BuyerSettingsPage() {
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{label}</p>
                       <p className="text-xs text-gray-400">{sub}</p>
                     </div>
-                    <Toggle value={privacy[key]} onChange={v => setPrivacy(p => ({ ...p, [key]: v }))} />
+                    <Toggle value={privacy[key]} onChange={v => { const p = { ...privacy, [key]: v }; setPrivacy(p); debouncedSavePrivacy(p); }} />
                   </div>
                 ))}
               </div>

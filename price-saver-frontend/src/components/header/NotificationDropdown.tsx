@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { Bell, X, Check, Megaphone, ShoppingBag, MessageCircle, Star, AlertCircle, BadgeCheck, BadgeX } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { notificationsApi, type AppNotification } from "@/lib/api";
 import { useRouter as _useRouter } from "next/navigation";
 
@@ -34,11 +35,16 @@ function NotifIcon({ type }: { type: string }) {
 
 export default function NotificationDropdown({ scope }: { scope?: string }) {
   const { token } = useAuth();
+  const { counts, markCategoryRead, refresh: refreshCounts } = useNotifications();
   const router    = _useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // Derive badge count — scope=seller shows all, scope=messages shows messages only
+  const unreadCount = scope === "messages"
+    ? counts.messages
+    : counts.total;
 
   const fetchNotifications = useCallback(async () => {
     if (!token) return;
@@ -46,37 +52,34 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
     try {
       const res = await notificationsApi.list(token, 0, 30, scope);
       setNotifications(res.notifications);
-      setUnreadCount(res.unread_count);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, [token, scope]);
 
-  useEffect(() => {
-    if (!token) return;
-    notificationsApi.unreadCount(token, scope).then((r) => setUnreadCount(r.unread_count)).catch(() => {});
-    const interval = setInterval(() => {
-      notificationsApi.unreadCount(token, scope).then((r) => setUnreadCount(r.unread_count)).catch(() => {});
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [token, scope]);
-
   async function handleOpen() {
-    if (!isOpen) await fetchNotifications();
-    setIsOpen(!isOpen);
+    const opening = !isOpen;
+    if (opening) {
+      await fetchNotifications();
+      // Feature 5: optimistically zero the badge when dropdown opens
+      if (unreadCount > 0) {
+        markCategoryRead(scope === "messages" ? "messages" : "all");
+      }
+    }
+    setIsOpen(opening);
   }
 
   async function markAllRead() {
     if (!token) return;
     await notificationsApi.markAllRead(token).catch(() => {});
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    setUnreadCount(0);
+    await markCategoryRead("all");
   }
 
   async function markOneRead(n: AppNotification) {
     if (!token || n.is_read) return;
     await notificationsApi.markRead(token, n.id).catch(() => {});
     setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x));
-    setUnreadCount((c) => Math.max(0, c - 1));
+    refreshCounts();
   }
 
   if (!token) return null;
