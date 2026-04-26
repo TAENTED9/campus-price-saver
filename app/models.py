@@ -289,10 +289,14 @@ class KarmaLedger(Base):
     seller_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     points       = Column(Integer, nullable=False)          # positive or negative
     reason       = Column(String(100), nullable=False)      # 'sale_completed', 'five_star_review', etc.
-    reference_id = Column(String(100), nullable=True)       # e.g. order_id, review_id
+    reference_id = Column(String(200), nullable=True)       # e.g. order_id, review_id
     created_at   = timestamp_col()
 
     seller = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("seller_id", "reason", "reference_id", name="uq_karma_ledger_dedup"),
+    )
 
 
 class PendingPrice(Base):

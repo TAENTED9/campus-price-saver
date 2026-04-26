@@ -195,6 +195,35 @@ async def upload_banner_slide(
     return {"success": True, "url": result["url"]}
 
 
+@router.post("/banner")
+async def upload_banner(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload a seller storefront cover / banner photo to Cloudinary.
+    Returns { url: "https://..." } — caller must PATCH /api/storefront/cover-photo to persist.
+    """
+    data = await _validate_file(file)
+    from app.services.cloudinary_service import upload_file, save_asset_record
+    import time
+    ts = int(time.time())
+    result = upload_file(
+        data,
+        user_id=current_user.id,
+        folder_path="storefront/banner",
+        public_id=f"banner_{ts}",
+    )
+    if not result:
+        raise HTTPException(status_code=503, detail="File upload service unavailable.")
+    try:
+        save_asset_record(db, current_user.id, result, "banner")
+    except Exception as e:
+        print(f"[uploads] Failed to save asset record: {e}")
+    return {"success": True, "url": result["url"]}
+
+
 @router.post("/avatar")
 async def upload_avatar(
     file: UploadFile = File(...),

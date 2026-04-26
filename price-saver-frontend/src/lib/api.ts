@@ -664,11 +664,32 @@ export const userApi = {
 // ===================== VERIFICATION API =====================
 
 export const verificationApi = {
-  submit: (data: SellerVerificationSubmit) =>
-    request<{ success: boolean; message: string; verification_id: number }>(
-      "/api/admin/verification/submit",
-      { method: "POST", body: JSON.stringify(data) }
-    ),
+  submit: async (
+    data: SellerVerificationSubmit,
+    token: string,
+  ): Promise<{ success: boolean; message: string; verification_id: number }> => {
+    const form = new FormData();
+    form.append("seller_name", data.seller_name);
+    form.append("matric_number", data.matric_no);
+    form.append("email", data.email);
+    form.append("faculty", data.faculty || "");
+    form.append("business_name", data.business_name || "");
+    form.append("business_category", data.business_category || "");
+    form.append("pickup_location", data.pickup_location || "");
+    form.append("document_url", data.document_url || "");
+    form.append("portal_screenshot_url", data.portal_screenshot_url || "");
+    form.append("user_id", String(data.user_id));
+    const res = await fetch(`${API_BASE}/api/seller/verification/docs`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Submission failed" }));
+      throw new Error(err.detail || "Submission failed");
+    }
+    return res.json();
+  },
 };
 
 // ===================== UPLOAD API =====================

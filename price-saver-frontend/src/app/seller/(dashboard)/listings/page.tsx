@@ -67,6 +67,7 @@ export default function SellerListingsPage() {
   const [loading, setLoading]       = useState(true);
   const [vacationMode, setVacationMode] = useState(false);
   const [togglingVacation, setTogglingVacation] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<string>("");
   const [deleting, setDeleting]     = useState<number | null>(null);
   const [actioning, setActioning]   = useState<number | null>(null);
   const [error, setError]           = useState<string | null>(null);
@@ -90,7 +91,10 @@ export default function SellerListingsPage() {
       if (res.success) setListings(res.data);
       // Also get vacation mode from stats
       const stats = await sellerApi.getStats(token);
-      if (stats.success) setVacationMode(stats.data.vacationMode);
+      if (stats.success) {
+        setVacationMode(stats.data.vacationMode);
+        setVerificationStatus(stats.data.verificationStatus || "");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load listings");
     } finally {
@@ -216,10 +220,18 @@ export default function SellerListingsPage() {
               )}
             </div>
           )}
-          <Link href="/seller/listings/new"
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity">
-            <Plus size={15} /> New Listing
-          </Link>
+          {verificationStatus === "Approved" ? (
+            <Link href="/seller/listings/new"
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity">
+              <Plus size={15} /> New Listing
+            </Link>
+          ) : (
+            <Link href="/seller/verification?ref=listing"
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-gray-400 to-gray-500 text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+              title="Complete seller verification to create listings">
+              <AlertTriangle size={15} /> Get Verified to List
+            </Link>
+          )}
         </div>
       </div>
 

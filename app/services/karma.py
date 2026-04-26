@@ -20,7 +20,25 @@ def award_karma(
     db: Session,
     reference_id: str | None = None,
 ) -> int:
-    """Insert a karma_ledger row, update seller_points, and return the new total."""
+    """Insert a karma_ledger row, update seller_points, and return the new total.
+
+    When reference_id is provided the operation is idempotent: a duplicate
+    (seller_id, reason, reference_id) triple is silently skipped.
+    """
+    if reference_id is not None:
+        exists = (
+            db.query(KarmaLedger)
+            .filter(
+                KarmaLedger.seller_id == seller_id,
+                KarmaLedger.reason == reason,
+                KarmaLedger.reference_id == reference_id,
+            )
+            .first()
+        )
+        if exists:
+            user = db.query(User).filter(User.id == seller_id).first()
+            return (user.seller_points or 0) if user else 0
+
     entry = KarmaLedger(
         seller_id=seller_id,
         points=points,

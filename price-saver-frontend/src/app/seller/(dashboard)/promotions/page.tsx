@@ -191,11 +191,11 @@ export default function PromotionsPage() {
         <h3 className="font-bold text-gray-900 dark:text-white mb-4">How to Earn Karma Points</h3>
         <div className="space-y-0">
           {[
-            { action: "Complete a sale",              pts: "+25 pts",  icon: "🤝" },
+            { action: "Publish your first listing",   pts: "+25 pts",  icon: "📦" },
             { action: "Receive a 5-star review",      pts: "+15 pts",  icon: "⭐" },
             { action: "Complete your profile",        pts: "+50 pts",  icon: "👤" },
             { action: "Get verified",                 pts: "+100 pts", icon: "✅" },
-            { action: "Respond to inquiries within 1h", pts: "+5 pts", icon: "💬" },
+            { action: "Reply to 5 inquiries fast",    pts: "+5 pts",   icon: "💬" },
           ].map(({ action, pts, icon }) => (
             <div key={action} className="flex items-center justify-between py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
               <div className="flex items-center gap-3">

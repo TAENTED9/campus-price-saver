@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Store, Shield, FileText, MapPin, List, Lock, Bell, AlertTriangle, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, authApi, userApi, uploadApi } from "@/lib/api";
+import { VerificationSubmitForm } from "@/components/seller/VerificationForm";
 import { settingsApi } from "@/lib/settingsApi";
 
 type Section =
@@ -140,8 +141,6 @@ export default function SellerSettingsPage() {
 
   // Verification
   const [verifStatus, setVerifStatus] = useState<{ status: string; reason?: string } | null>(null);
-  const idRef = useRef<HTMLInputElement>(null);
-  const portalRef = useRef<HTMLInputElement>(null);
 
   // Policies
   const [pickupPolicy, setPickupPolicy] = useState("");
@@ -694,7 +693,8 @@ export default function SellerSettingsPage() {
           {/* VERIFICATION */}
           {active === "verification" && (
             <Card title="Verification Status" subtitle="Your UNILAG student verification documents">
-              {verifStatus && (
+              {/* Status badge — only shown for known non-unsubmitted statuses */}
+              {verifStatus && verifStatus.status !== "not_submitted" && verifStatus.status !== "unknown" && (
                 <div className={`flex items-center gap-4 p-4 rounded-xl mb-5 border ${
                   verifStatus.status === "verified" ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800" :
                   verifStatus.status === "pending" ? "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800" :
@@ -708,7 +708,7 @@ export default function SellerSettingsPage() {
                   </div>
                   <div>
                     <p className={`font-bold text-sm ${verifStatus.status === "verified" ? "text-green-700 dark:text-green-400" : verifStatus.status === "pending" ? "text-yellow-700 dark:text-yellow-400" : "text-red-700 dark:text-red-400"}`}>
-                      {verifStatus.status === "verified" ? "Verified UNILAG Seller" : verifStatus.status === "pending" ? "Verification Pending" : "Not yet verified"}
+                      {verifStatus.status === "verified" ? "Verified UNILAG Seller" : verifStatus.status === "pending" ? "Verification Pending" : "Verification Rejected"}
                     </p>
                     {verifStatus.status === "rejected" && verifStatus.reason && (
                       <p className="text-xs text-red-500 mt-0.5">Reason: {verifStatus.reason}</p>
@@ -716,50 +716,24 @@ export default function SellerSettingsPage() {
                     {verifStatus.status === "pending" && (
                       <p className="text-xs text-yellow-600 mt-0.5">Under review · Usually within 24 hours</p>
                     )}
+                    {verifStatus.status === "verified" && (
+                      <p className="text-xs text-green-600 mt-0.5">Your verified seller badge is active on your storefront.</p>
+                    )}
                   </div>
                 </div>
               )}
-              <div className="space-y-4">
-                {[
-                  { label: "Student ID Card (Front)", ref: idRef, name: "id_card" },
-                  { label: "Portal Screenshot (Name + Matric + Session)", ref: portalRef, name: "portal" },
-                ].map(({ label, ref, name }) => (
-                  <div key={name}>
-                    <FieldLabel>{label}</FieldLabel>
-                    <div onClick={() => ref.current?.click()}
-                      className="flex items-center gap-3 p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl cursor-pointer hover:border-blue-400 transition-colors">
-                      <span className="text-blue-500 text-xl">↑</span>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Click to upload</p>
-                        <p className="text-xs text-gray-400">JPG or PNG · Max 5MB</p>
-                      </div>
-                    </div>
-                    <input ref={ref} type="file" accept="image/*" className="hidden" />
-                  </div>
-                ))}
-                <button onClick={async () => {
-                  const idFile = idRef.current?.files?.[0];
-                  const portalFile = portalRef.current?.files?.[0];
-                  if (!idFile || !portalFile) return showToast("Upload both documents first", "error");
-                  setLoad("docs", true);
-                  try {
-                    const fd = new FormData();
-                    fd.append("id_card", idFile);
-                    fd.append("portal_screenshot", portalFile);
-                    await sellerApi.submitVerificationDocs(token!, fd);
-                    await fetchVerifStatus();
-                    showToast("Documents submitted — under review", "success");
-                  } catch (e: unknown) {
-                    showToast((e instanceof Error ? e.message : null) || "Upload failed", "error");
-                  } finally {
-                    setLoad("docs", false);
-                  }
-                }} disabled={loading.docs}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-bold rounded-xl hover:opacity-90 disabled:opacity-50 transition-all">
-                  {loading.docs && <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
-                  Submit Documents
-                </button>
-              </div>
+              {/* Show form when not yet submitted or after rejection */}
+              {(!verifStatus || verifStatus.status === "not_submitted" || verifStatus.status === "rejected") && token && user && (
+                <VerificationSubmitForm
+                  token={token}
+                  userName={user.display_name || user.username}
+                  userEmail={user.email || ""}
+                  userId={user.id}
+                  isWelcome={false}
+                  isResubmission={verifStatus?.status === "rejected"}
+                  onDone={fetchVerifStatus}
+                />
+              )}
             </Card>
           )}
 

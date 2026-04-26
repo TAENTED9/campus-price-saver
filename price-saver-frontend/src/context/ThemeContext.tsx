@@ -1,6 +1,8 @@
 "use client";
 
-import React, { createContext, useState, useContext, useEffect } from "react";
+import React, { createContext, useContext, useMemo, useEffect } from "react";
+import { useSettingsStore, applyTheme } from "@/stores/settingsStore";
+import { getAccessToken } from "@/lib/api";
 
 type Theme = "light" | "dark";
 
@@ -12,29 +14,35 @@ type ThemeContextType = {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<Theme>("light");
-  const [isInitialized, setIsInitialized] = useState(false);
+  const rawTheme = useSettingsStore((s) => s.settings?.theme);
+  const updateLocal = useSettingsStore((s) => s.updateLocal);
+  const syncToServer = useSettingsStore((s) => s.syncToServer);
 
-  useEffect(() => {
-    const saved = localStorage.getItem("theme") as Theme | null;
-    setTheme(saved || "light");
-    setIsInitialized(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isInitialized) return;
-    localStorage.setItem("theme", theme);
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
+  // Resolve "system" to the actual OS preference
+  const resolvedTheme: Theme = useMemo(() => {
+    if (rawTheme === "dark") return "dark";
+    if (rawTheme === "system" && typeof window !== "undefined") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     }
-  }, [theme, isInitialized]);
+    return "light";
+  }, [rawTheme]);
 
-  const toggleTheme = () => setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  // Keep DOM in sync when theme changes (covers persisted cache on initial mount)
+  useEffect(() => {
+    applyTheme(rawTheme ?? "light");
+  }, [rawTheme]);
+
+  const toggleTheme = () => {
+    const next: Theme = resolvedTheme === "light" ? "dark" : "light";
+    updateLocal({ theme: next });
+    const token = getAccessToken();
+    if (token) {
+      syncToServer({ theme: next }, token).catch(() => {});
+    }
+  };
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme: resolvedTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

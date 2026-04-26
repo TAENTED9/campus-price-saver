@@ -245,6 +245,19 @@ async def create_listing(
     db: Session = Depends(get_db),
 ):
     """Create a new price listing (pending admin approval)."""
+    # Require an approved seller verification before allowing any listing
+    verif = (
+        db.query(SellerVerification)
+        .filter(SellerVerification.user_id == current_user.id)
+        .order_by(SellerVerification.submitted_at.desc())
+        .first()
+    )
+    if not (verif and verif.status == "Approved"):
+        raise HTTPException(
+            status_code=403,
+            detail="Seller verification required. Complete verification to start listing products.",
+        )
+
     expires_at = None
     if data.duration_days:
         expires_at = datetime.utcnow() + timedelta(days=data.duration_days)
@@ -276,6 +289,25 @@ async def create_listing(
     db.add(listing)
     db.commit()
     db.refresh(listing)
+
+    # Award one-time +25 karma for publishing the first non-draft listing
+    if listing.listing_status != "draft":
+        try:
+            from app.services.karma import award_karma
+            prior_count = (
+                db.query(Price)
+                .filter(
+                    Price.submitted_by == current_user.id,
+                    Price.id != listing.id,
+                    Price.listing_status != "draft",
+                )
+                .count()
+            )
+            if prior_count == 0:
+                award_karma(current_user.id, 25, "first_listing", db, reference_id="first_listing")
+                db.commit()
+        except Exception:
+            pass
 
     # Notify followers if listing is active (not draft)
     if listing.listing_status != "draft":
