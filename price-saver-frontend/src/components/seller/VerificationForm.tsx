@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useRef, useState } from "react";
-import { Upload, CircleCheck } from "lucide-react";
+import { Upload, CircleCheck, Clock, AlertCircle, RefreshCw } from "lucide-react";
 import { verificationApi, uploadApi } from "@/lib/api";
+
+type UploadState = "idle" | "uploading" | "done" | "error";
 
 export const inp =
   "rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-900 dark:[color-scheme:dark] dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500";
@@ -23,33 +25,106 @@ export function validateMatric(value: string): string | null {
 }
 
 export function FileUploadField({
-  label, hint, accept, file, onChange, uploading,
+  label, hint, accept, file, onChange, uploadState, onRetry,
 }: {
   label: string; hint: string; accept: string;
-  file: File | null; onChange: (f: File) => void; uploading: boolean;
+  file: File | null; onChange: (f: File) => void;
+  uploadState: UploadState; onRetry?: () => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+
+  const borderClass =
+    uploadState === "done"    ? "border-green-400 bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400" :
+    uploadState === "error"   ? "border-red-400 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400" :
+    uploadState === "uploading" ? "border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 animate-pulse" :
+    file ? "border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400"
+         : "border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-500 hover:border-brand-400";
+
+  const label_text =
+    uploadState === "uploading" ? "Uploading… please wait" :
+    uploadState === "done"      ? `✓ ${file?.name ?? "Uploaded"}` :
+    uploadState === "error"     ? `Upload failed — ${file?.name ?? "file"}` :
+    file ? file.name : hint;
+
   return (
     <div>
       <label className="block mb-1.5 text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
-      <button
-        type="button"
-        onClick={() => ref.current?.click()}
-        disabled={uploading}
-        className={`w-full flex items-center gap-3 rounded-2xl border-2 border-dashed px-4 py-3 text-sm transition-colors ${
-          file
-            ? "border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400"
-            : "border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 text-gray-500 hover:border-brand-400"
-        }`}
-      >
-        <Upload size={16} className="flex-shrink-0" />
-        <span className="flex-1 text-left truncate">
-          {uploading ? "Uploading…" : file ? file.name : hint}
-        </span>
-        {file && <CircleCheck size={15} className="text-brand-500 flex-shrink-0" />}
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => ref.current?.click()}
+          disabled={uploadState === "uploading"}
+          className={`flex-1 flex items-center gap-3 rounded-2xl border-2 border-dashed px-4 py-3 text-sm transition-colors ${borderClass}`}
+        >
+          {uploadState === "uploading" ? (
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent flex-shrink-0" />
+          ) : uploadState === "done" ? (
+            <CircleCheck size={16} className="flex-shrink-0 text-green-500" />
+          ) : uploadState === "error" ? (
+            <AlertCircle size={16} className="flex-shrink-0" />
+          ) : (
+            <Upload size={16} className="flex-shrink-0" />
+          )}
+          <span className="flex-1 text-left truncate">{label_text}</span>
+        </button>
+        {uploadState === "error" && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            title="Retry upload"
+            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-100 transition-colors"
+          >
+            <RefreshCw size={13} />
+            Retry
+          </button>
+        )}
+      </div>
+      {uploadState === "error" && (
+        <p className="mt-1 text-xs text-red-500">Upload failed. Check your connection and retry.</p>
+      )}
       <input ref={ref} type="file" accept={accept} className="hidden" title={label}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onChange(f); }} />
+    </div>
+  );
+}
+
+function SubmittedSuccessScreen({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="max-w-xl mx-auto">
+      <div className="rounded-2xl border border-gray-200 bg-white p-8 dark:border-gray-800 dark:bg-white/[0.03] text-center space-y-5">
+        <div className="flex justify-center">
+          <div className="flex items-center justify-center w-16 h-16 rounded-full bg-warning-50 dark:bg-warning-500/10">
+            <Clock className="size-8 text-warning-500" strokeWidth={1.5} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white/90">
+            We&apos;ve received your verification details
+          </h2>
+          <p className="text-base font-medium text-warning-600 dark:text-warning-400">
+            Hold on shortly while our team approve you for listing.
+          </p>
+        </div>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4 text-left space-y-2">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            <span className="font-semibold">Please note:</span> If your details are incorrect or false, you will be denied approval.
+            You can then return to submit the correct details.
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Approvals are typically completed within 24 hours on working days. You&apos;ll receive an email once a decision is made.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 justify-center pt-1">
+          <CircleCheck size={16} className="text-green-500" />
+          <span className="text-sm text-green-600 dark:text-green-400 font-medium">Documents submitted successfully</span>
+        </div>
+        <button
+          onClick={onDone}
+          className="w-full font-semibold text-white bg-brand-500 py-3 px-6 rounded-full hover:bg-brand-600 transition-colors"
+        >
+          Back to Dashboard
+        </button>
+      </div>
     </div>
   );
 }
@@ -63,6 +138,8 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
   onDone: () => void;
   isResubmission?: boolean;
 }) {
+  const [submitted, setSubmitted] = useState(false);
+
   const [matric, setMatric] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("pendingMatric") || "";
     return "";
@@ -70,13 +147,16 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
   const [faculty, setFaculty] = useState("");
   const [businessCategory, setBusinessCategory] = useState("");
   const [pickupLocation, setPickupLocation] = useState("");
+
   const [idFile, setIdFile] = useState<File | null>(null);
   const [portalFile, setPortalFile] = useState<File | null>(null);
-  const [uploadingId, setUploadingId] = useState(false);
-  const [uploadingPortal, setUploadingPortal] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [idUploadState, setIdUploadState] = useState<UploadState>("idle");
+  const [portalUploadState, setPortalUploadState] = useState<UploadState>("idle");
+  const [idUrl, setIdUrl] = useState<string | null>(null);
+  const [portalUrl, setPortalUrl] = useState<string | null>(null);
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [matricError, setMatricError] = useState<string | null>(null);
 
   const handleMatricChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,29 +165,62 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
     if (matricError) setMatricError(validateMatric(val));
   };
 
+  const uploadIdFile = async (file: File) => {
+    setIdUploadState("uploading");
+    setIdUrl(null);
+    try {
+      const url = await uploadApi.uploadSellerIdCard(token, file);
+      setIdUrl(url);
+      setIdUploadState("done");
+    } catch {
+      setIdUploadState("error");
+    }
+  };
+
+  const uploadPortalFile = async (file: File) => {
+    setPortalUploadState("uploading");
+    setPortalUrl(null);
+    try {
+      const url = await uploadApi.uploadPortalScreenshot(token, file);
+      setPortalUrl(url);
+      setPortalUploadState("done");
+    } catch {
+      setPortalUploadState("error");
+    }
+  };
+
+  const handleIdChange = (f: File) => {
+    setIdFile(f);
+    setIdUploadState("idle");
+    setIdUrl(null);
+    uploadIdFile(f);
+  };
+
+  const handlePortalChange = (f: File) => {
+    setPortalFile(f);
+    setPortalUploadState("idle");
+    setPortalUrl(null);
+    uploadPortalFile(f);
+  };
+
+  const canSubmit =
+    idUploadState === "done" &&
+    portalUploadState === "done" &&
+    !isSubmitting;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setSuccess(null);
+
     const mErr = validateMatric(matric);
     if (mErr) { setMatricError(mErr); return; }
-
     if (!idFile) { setError("Student ID Card is required."); return; }
-    if (!portalFile) { setError("Student Portal Screenshot is required."); return; }
+    if (!portalFile) { setError("Portal screenshot is required."); return; }
+    if (idUploadState !== "done" || !idUrl) { setError("Please wait for the ID card upload to finish or retry."); return; }
+    if (portalUploadState !== "done" || !portalUrl) { setError("Please wait for the portal upload to finish or retry."); return; }
 
-    setIsLoading(true);
-    let docUrl: string | null = null;
-    let prtUrl: string | null = null;
-
+    setIsSubmitting(true);
     try {
-      setUploadingId(true);
-      docUrl = await uploadApi.uploadSellerIdCard(token, idFile).catch(() => null);
-      setUploadingId(false);
-
-      setUploadingPortal(true);
-      prtUrl = await uploadApi.uploadPortalScreenshot(token, portalFile).catch(() => null);
-      setUploadingPortal(false);
-
       await verificationApi.submit({
         seller_name: userName,
         matric_no: matric.trim().toUpperCase(),
@@ -115,23 +228,24 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
         business_name: userName,
         business_category: businessCategory || undefined,
         pickup_location: pickupLocation.trim() || undefined,
-        document_url: docUrl || undefined,
-        portal_screenshot_url: prtUrl || undefined,
+        document_url: idUrl,
+        portal_screenshot_url: portalUrl,
         email: userEmail,
         user_id: Number(userId),
       }, token);
 
       localStorage.removeItem("pendingMatric");
-      setSuccess("Verification submitted! An admin will review your details shortly.");
-      setTimeout(() => onDone(), 1500);
+      setSubmitted(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Submission failed. Please try again.");
     } finally {
-      setIsLoading(false);
-      setUploadingId(false);
-      setUploadingPortal(false);
+      setIsSubmitting(false);
     }
   };
+
+  if (submitted) {
+    return <SubmittedSuccessScreen onDone={onDone} />;
+  }
 
   return (
     <div className="max-w-xl mx-auto space-y-5">
@@ -173,12 +287,6 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
         {error && (
           <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-          </div>
-        )}
-        {success && (
-          <div className="mb-5 p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-500/10 dark:border-green-500/20 flex items-center gap-2">
-            <CircleCheck size={18} className="text-green-500 shrink-0" />
-            <p className="text-sm text-green-700 dark:text-green-400 font-medium">{success}</p>
           </div>
         )}
 
@@ -253,26 +361,31 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
               hint="Upload a photo of your student ID card (JPEG/PNG)"
               accept="image/jpeg,image/png,image/webp"
               file={idFile}
-              onChange={setIdFile}
-              uploading={uploadingId}
+              onChange={handleIdChange}
+              uploadState={idUploadState}
+              onRetry={() => idFile && uploadIdFile(idFile)}
             />
             <FileUploadField
               label="Student Portal Screenshot (required)"
               hint="Screenshot of your UNILAG student portal showing your details"
               accept="image/jpeg,image/png,image/webp"
               file={portalFile}
-              onChange={setPortalFile}
-              uploading={uploadingPortal}
+              onChange={handlePortalChange}
+              uploadState={portalUploadState}
+              onRetry={() => portalFile && uploadPortalFile(portalFile)}
             />
             <p className="text-xs text-gray-400">Max 5 MB per file. Used only for verification.</p>
+            {(idUploadState === "uploading" || portalUploadState === "uploading") && (
+              <p className="text-xs text-brand-500 font-medium">Uploading files… the submit button will unlock when both uploads are complete.</p>
+            )}
           </div>
 
           <button
             type="submit"
-            disabled={isLoading || uploadingId || uploadingPortal}
-            className="w-full flex justify-center items-center font-semibold text-white bg-brand-500 py-3 px-6 rounded-full hover:bg-brand-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            disabled={!canSubmit}
+            className="w-full flex justify-center items-center font-semibold text-white bg-brand-500 py-3 px-6 rounded-full hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isLoading ? "Submitting…" : isResubmission ? "Resubmit Verification" : "Submit Verification"}
+            {isSubmitting ? "Submitting…" : isResubmission ? "Resubmit Verification" : "Submit Verification"}
           </button>
         </form>
       </div>

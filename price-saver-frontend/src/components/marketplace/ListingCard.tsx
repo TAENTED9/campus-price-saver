@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Heart, Eye, ShieldCheck, ShoppingBag, Zap, Star } from "lucide-react";
 import { thumbnailImage } from "@/lib/cloudinary";
 import { useOptimisticToggle } from "@/hooks/useOptimistic";
+import { InterestButton } from "./InterestButton";
 
 export interface ListingCardProps {
   id: string | number;
@@ -26,6 +27,7 @@ export interface ListingCardProps {
   isFeatured?: boolean;
   sellerAvatarUrl?: string | null;
   isNegotiable?: boolean;
+  showInterestButton?: boolean;
 }
 
 const CONDITION_BADGE: Record<
@@ -73,6 +75,7 @@ export default function ListingCard({
   isFeatured = false,
   sellerAvatarUrl,
   isNegotiable = false,
+  showInterestButton,
 }: ListingCardProps) {
   const badge = CONDITION_BADGE[condition] ?? CONDITION_BADGE.used;
   const thumb = imageUrl ? thumbnailImage(imageUrl, 400) : "";
@@ -197,6 +200,19 @@ export default function ListingCard({
               </span>
             )}
           </div>
+
+          {/* I'm Interested button */}
+          {showInterestButton && uuid && (
+            <div
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              className="mt-2.5"
+            >
+              <InterestButton
+                listingUuid={String(uuid)}
+                className="w-full"
+              />
+            </div>
+          )}
         </div>
 
       </div>

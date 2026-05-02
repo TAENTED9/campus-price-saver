@@ -9,7 +9,7 @@ from typing import List, Optional
 from app.database import get_db
 from app.limiter import limiter
 from app.models import Price, Category, Store, Item, User, PointsTransaction
-from app.routers.auth import get_current_admin
+from app.routers.auth import get_current_admin, get_current_user
 from app.schemas import PriceCreate, PriceOut, CategoryCreate, CategoryOut
 from sqlalchemy import func
 
@@ -52,7 +52,12 @@ def get_categories(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/categories/", response_model=CategoryOut)
 @limiter.limit("10/minute")
-def create_category(request: Request, category: CategoryCreate, db: Session = Depends(get_db)):
+def create_category(
+    request: Request,
+    category: CategoryCreate,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
     new_cat = Category(**category.dict())
     db.add(new_cat)
     db.commit()
@@ -172,6 +177,9 @@ def search_prices(
             filters.append(Price.price <= max_price)
         if category_id is not None:
             filters.append(Price.category_id == category_id)
+        if location:
+            loc_pattern = f"%{location.strip()}%"
+            filters.append(or_(Price.location.ilike(loc_pattern), Price.retailer.ilike(loc_pattern)))
         if condition:
             filters.append(Price.condition == condition)
 
@@ -227,6 +235,7 @@ def get_pending_prices(
     request: Request,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
+    current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     return db.query(Price).filter(Price.status == "pending").offset(skip).limit(limit).all()
@@ -259,16 +268,30 @@ def get_prices_for_category(
 
 @router.post("/prices/", response_model=PriceOut)
 @limiter.limit("30/minute")
-def submit_price(request: Request, price: PriceCreate, db: Session = Depends(get_db)):
+def submit_price(
+    request: Request,
+    price: PriceCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not db.query(Category).filter(Category.id == price.category_id).first():
         raise HTTPException(status_code=404, detail="Category not found")
     if price.store_id and not db.query(Store).filter(Store.id == price.store_id).first():
         raise HTTPException(status_code=404, detail="Store not found")
     new_price = Price(**price.dict())
+    new_price.submitted_by = current_user.id  # force identity from JWT
     new_price.status = "pending"
     db.add(new_price)
     db.commit()
     db.refresh(new_price)
+    # Award karma for price submission
+    try:
+        pts = 5
+        current_user.seller_points = max(0, (current_user.seller_points or 0) + pts)
+        db.add(PointsTransaction(user_id=current_user.id, amount=pts, reason="price_submission", related_price_id=new_price.id))
+        db.commit()
+    except Exception:
+        pass
     return new_price
 
 
@@ -321,23 +344,26 @@ def boost_listing(
     request: Request,
     price_id: int = Path(..., gt=0),
     days: int = Query(7, ge=7, le=30),
-    seller_id: int = Query(..., gt=0),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     from datetime import timedelta
+    seller = db.query(User).filter(
+        User.id == current_user.id,
+        User.role == "seller",
+    ).first()
+    if not seller:
+        raise HTTPException(status_code=403, detail="Only verified sellers can boost listings")
     price = db.query(Price).filter(Price.id == price_id, Price.status == "approved").first()
     if not price:
         raise HTTPException(status_code=404, detail="Price not found or not approved")
-    seller = db.query(User).filter(User.id == seller_id).first()
-    if not seller:
-        raise HTTPException(status_code=404, detail="Seller not found")
     cost = BOOST_COST_30_DAYS if days >= 30 else BOOST_COST_7_DAYS
     if (seller.seller_points or 0) < cost:
         raise HTTPException(status_code=400, detail=f"Insufficient points. Need {cost}, have {seller.seller_points or 0}.")
     seller.seller_points -= cost
     price.is_featured = True
     price.featured_until = datetime.utcnow() + timedelta(days=days)
-    db.add(PointsTransaction(user_id=seller_id, amount=-cost, reason="listing_boost", related_price_id=price_id))
+    db.add(PointsTransaction(user_id=current_user.id, amount=-cost, reason="listing_boost", related_price_id=price_id))
     db.commit()
     return {"ok": True, "points_spent": cost, "points_remaining": seller.seller_points, "featured_until": price.featured_until}
 
@@ -347,19 +373,16 @@ def boost_listing(
 def confirm_purchase(
     request: Request,
     price_id: int = Path(..., gt=0),
-    seller_id: int = Query(..., gt=0),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     price = db.query(Price).filter(Price.id == price_id).first()
     if not price:
         raise HTTPException(status_code=404, detail="Price not found")
-    seller = db.query(User).filter(User.id == seller_id).first()
-    if not seller:
-        raise HTTPException(status_code=404, detail="Seller not found")
-    seller.seller_points = (seller.seller_points or 0) + POINTS_PER_CONFIRMED_PURCHASE
-    db.add(PointsTransaction(user_id=seller_id, amount=POINTS_PER_CONFIRMED_PURCHASE, reason="purchase_confirmed", related_price_id=price_id))
+    current_user.seller_points = (current_user.seller_points or 0) + POINTS_PER_CONFIRMED_PURCHASE
+    db.add(PointsTransaction(user_id=current_user.id, amount=POINTS_PER_CONFIRMED_PURCHASE, reason="purchase_confirmed", related_price_id=price_id))
     db.commit()
-    return {"ok": True, "points_awarded": POINTS_PER_CONFIRMED_PURCHASE, "total_points": seller.seller_points}
+    return {"ok": True, "points_awarded": POINTS_PER_CONFIRMED_PURCHASE, "total_points": current_user.seller_points}
 
 
 @router.put("/prices/{price_id}/approve")
@@ -398,7 +421,12 @@ def reject_price(
 
 @router.delete("/{item_id}")
 @limiter.limit("30/minute")
-def delete_item(request: Request, item_id: int, db: Session = Depends(get_db)):
+def delete_item(
+    request: Request,
+    item_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")

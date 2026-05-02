@@ -186,7 +186,7 @@ export default function SellerVerifyPage() {
   }
 
   function canProceedStep2() {
-    return !!idFile && !uploadingId && !uploadingPortal;
+    return !!idUrl && !uploadingId && !uploadingPortal;
   }
 
   async function handleSubmit() {
@@ -202,7 +202,7 @@ export default function SellerVerifyPage() {
       if (idUrl)     fd.append("id_card_url", idUrl);
       if (portalUrl) fd.append("portal_url", portalUrl);
       await sellerApi.submitVerificationDocs(token, fd);
-      localStorage.removeItem("pendingMatric");
+      sessionStorage.removeItem("pendingMatric");
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Submission failed. Please try again.");

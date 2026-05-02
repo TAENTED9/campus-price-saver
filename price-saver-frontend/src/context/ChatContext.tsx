@@ -144,7 +144,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
 
       try {
         // Optimistic update: add message immediately to UI
-        const myNumericId = user?.numeric_id ?? (Number(user?.id) || 0);
+        const myNumericId = user?.id ?? 0;
         const optimisticMessage: Message = {
           id: -1, // Temporary ID
           conversation_id: activeConversation?.id || 0,

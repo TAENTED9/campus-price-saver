@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
-import { sellerApi, itemsApi, type SellerStats, type SellerListing } from "@/lib/api";
+import { sellerApi, type SellerStats, type SellerListing } from "@/lib/api";
 import { formatPrice } from "@/lib/formatPrice";
 import {
   Eye,
@@ -11,9 +11,7 @@ import {
   CheckCircle,
   ChevronUp,
   Plus,
-  ShieldCheck,
   Star,
-  Trophy,
   Clock,
   Sprout,
   Camera,
@@ -59,13 +57,6 @@ function statusColors(status: string, dark = false) {
   }
   return dark ? "bg-gray-800 text-gray-400" : "bg-gray-100 text-gray-600";
 }
-
-const SCORECARD_ROWS = [
-  { label: "Response Rate",    value: "96%",   bar: 96,  color: "bg-success-500" },
-  { label: "Response Time",    value: "18 min", bar: 85, color: "bg-brand-500"   },
-  { label: "Completion Rate",  value: "98%",   bar: 98,  color: "bg-[#06b6d4]"  },
-  { label: "No-show Rate",     value: "0%",    bar: 100, color: "bg-success-500" },
-];
 
 const TIER_PERKS = [
   { icon: <Camera size={13} />, label: "8 photos/listing" },
@@ -126,16 +117,25 @@ export default function SellerOverviewPage() {
       ? "bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400"
       : "bg-warning-50 dark:bg-warning-500/10 text-warning-700 dark:text-warning-400";
 
+  const parsedResponseMinutes = parseInt(avgResp);
+  const safeResponseMinutes = Number.isNaN(parsedResponseMinutes) ? 18 : parsedResponseMinutes;
+
   const SCORECARD_ROWS_DYNAMIC = [
-    { label: "Response Rate",   value: `${respRate}%`,  bar: respRate,   color: "bg-success-500" },
-    { label: "Response Time",   value: avgResp,         bar: Math.max(0, 100 - Math.min(parseInt(avgResp) || 18, 60) * 1.5), color: "bg-brand-500" },
-    { label: "Completion Rate", value: `${compRate}%`,  bar: compRate,   color: "bg-[#06b6d4]" },
-    { label: "No-show Rate",    value: `${noShowRate}%`, bar: Math.max(0, 100 - noShowRate * 4), color: "bg-success-500" },
+    { label: "Response Rate",   value: `${respRate}%`,   bar: respRate,   color: "bg-success-500" },
+    { label: "Response Time",   value: avgResp,          bar: Math.max(0, Math.round(100 - Math.min(safeResponseMinutes, 60) * (100 / 60))), color: "bg-brand-500" },
+    { label: "Completion Rate", value: `${compRate}%`,   bar: compRate,   color: "bg-[#06b6d4]" },
+    { label: "No-show Rate",    value: `${noShowRate}%`, bar: Math.max(0, 100 - noShowRate), color: "bg-success-500" },
   ];
 
-  /* health score: scale view_count relative to best listing */
-  const maxViews = Math.max(...topListings.map((l) => l.view_count), 1);
-  const healthScore = (v: number) => Math.max(Math.round((v / maxViews) * 100), 5);
+  /* health score: completeness-based, consistent with listings/page.tsx */
+  const healthScore = (l: SellerListing) => {
+    let score = 0;
+    if (l.description && l.description.length >= 20) score += 25;
+    if (l.photos && l.photos.length > 0) score += 35;
+    if (l.location) score += 20;
+    if (l.category_id) score += 20;
+    return score;
+  };
 
   return (
     <div className="space-y-6">
@@ -256,7 +256,7 @@ export default function SellerOverviewPage() {
         ) : (
           <div className="space-y-2.5">
             {topListings.map((l) => {
-              const score = healthScore(l.view_count);
+              const score = healthScore(l);
               return (
                 <div
                   key={l.id}

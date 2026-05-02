@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { authApi, setAccessToken, type LoginResponse, type UserInfo } from "@/lib/api";
+import { authApi, setAccessToken, type LoginResponse, type RegisterResponse, type UserInfo } from "@/lib/api";
 import { useSettingsStore, type UserSettingsState } from "@/stores/settingsStore";
 
 const AVATAR_CACHE_KEY = "campify_avatar_url";
@@ -14,8 +14,8 @@ type AuthContextType = {
   isAuthenticated: boolean;
   /** Resolved avatar URL: user.avatar_url ?? localStorage cache — instant on reload */
   avatarUrl: string | null;
-  login: (username: string, password: string) => Promise<LoginResponse>;
-  register: (username: string, password: string, email?: string) => Promise<LoginResponse>;
+  login: (username: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
+  register: (username: string, password: string, email?: string) => Promise<RegisterResponse>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   /** Call after a successful MFA verify step to complete the login flow */
@@ -93,8 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     _setSession(accessToken, { id: userId, username: userName, role: userRole });
   }, [_setSession]);
 
-  const login = useCallback(async (username: string, password: string): Promise<LoginResponse> => {
-    const res = await authApi.login(username, password);
+  const login = useCallback(async (username: string, password: string, rememberMe = false): Promise<LoginResponse> => {
+    const res = await authApi.login(username, password, rememberMe);
     if (res.mfa_required) {
       return res; // Caller renders MFA step; completeLogin() called after verify
     }
@@ -107,12 +107,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return res;
   }, [_setSession]);
 
-  const register = useCallback(async (username: string, password: string, email?: string): Promise<LoginResponse> => {
+  const register = useCallback(async (username: string, password: string, email?: string): Promise<RegisterResponse> => {
     const res = await authApi.register(username, password, email);
     if (res.access_token) {
       _setSession(res.access_token, { id: res.user_id!, username: res.user_name!, role: res.user_role! });
     }
-    return res as unknown as LoginResponse;
+    return res;
   }, [_setSession]);
 
   const logout = useCallback(async () => {

@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,7 +23,7 @@ from app.config import settings as _app_settings
 from app.routers import (
     items, prices, ml, pending, stores,
     admin_items, auth, google_maps, compare, admin_stats,
-    flash_sales, seller, admin_users, uploads, storefront,
+    flash_sales, seller, seller_orders, admin_users, uploads, storefront,
     reviews, wishlist, notifications, listings, messages,
 )
 from app.routers.settings import router as settings_router
@@ -130,6 +131,15 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"[422] {request.method} {request.url} — {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+
 # ── Block 12B: HTTPS redirect middleware (production only) ────────────────
 if _app_settings.IS_PRODUCTION:
     from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -199,8 +209,8 @@ app.include_router(google_maps.router,       prefix="/api")
 app.include_router(compare.router,           prefix="/api")
 app.include_router(admin_stats.router,       prefix="/api")
 app.include_router(flash_sales.router,       prefix="/api")
-app.include_router(seller.router,            prefix="/api")
-app.include_router(seller.orders_router,     prefix="/api")
+app.include_router(seller.router,                   prefix="/api")
+app.include_router(seller_orders.orders_router,     prefix="/api")
 app.include_router(admin_users.router,       prefix="/api")
 app.include_router(uploads.router,           prefix="/api")
 app.include_router(storefront.router,        prefix="/api")

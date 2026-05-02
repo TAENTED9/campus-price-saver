@@ -152,10 +152,18 @@ export default function Navbar() {
                       <ChevronDown size={13} className={`transition-transform duration-200 ${avatarOpen ? "rotate-180" : ""} text-gray-500`} />
                     </button>
                     {avatarOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 py-2 z-50">
-                        <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800">
-                          <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{user?.username ?? user?.display_name}</p>
-                          <p className="text-xs text-gray-400 capitalize">{user?.role ?? "buyer"}</p>
+                      <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 py-2 z-50">
+                        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-black text-sm shrink-0 overflow-hidden">
+                            {avatarUrl
+                              ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+                              : (user?.display_name ?? user?.username ?? "U")[0].toUpperCase()
+                            }
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{user?.display_name ?? user?.username}</p>
+                            <p className="text-xs text-gray-400 capitalize">{user?.role ?? "buyer"}</p>
+                          </div>
                         </div>
                         <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                           <User size={14} /> My Account

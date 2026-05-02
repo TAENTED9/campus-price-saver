@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import sellerApi from "@/lib/sellerApi";
+import { sellerApi } from "@/lib/api";
 
 /**
  * Seller Dashboard
@@ -30,7 +30,7 @@ export default function SellerDashboard({
 }: {
   params: { userId: string };
 }) {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [stats, setStats] = useState<SellerStats | null>(null);
   const [orders, setOrders] = useState<RecentOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,12 +41,12 @@ export default function SellerDashboard({
       try {
         setLoading(true);
         // Fetch seller stats
-        const statsRes = await sellerApi.getStats(params.userId);
-        setStats(statsRes);
+        const statsRes = await sellerApi.getStats(token!);
+        setStats(((statsRes as unknown) as { success?: boolean; data?: SellerStats })?.data ?? null);
 
         // Fetch recent orders
-        const ordersRes = await sellerApi.getRecentOrders(params.userId, 5);
-        setOrders(ordersRes);
+        const listingsRes = await sellerApi.getListings(token!);
+        setOrders(((listingsRes as unknown) as { success?: boolean; data?: RecentOrder[] })?.data ?? []);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to load dashboard"
@@ -56,10 +56,10 @@ export default function SellerDashboard({
       }
     };
 
-    if (user) {
+    if (user && token) {
       fetchDashboardData();
     }
-  }, [user, params.userId]);
+  }, [user, token, params.userId]);
 
   if (loading) {
     return <div className="text-center py-10">Loading dashboard...</div>;

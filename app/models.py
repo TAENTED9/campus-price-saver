@@ -132,6 +132,9 @@ class Profile(Base):
     whatsapp      = Column(String(30), nullable=True)
     show_whatsapp = Column(Boolean, default=False)
     instagram     = Column(String(80), nullable=True)
+    pickup_policy  = Column(Text, nullable=True)
+    return_policy  = Column(Text, nullable=True)
+    payment_policy = Column(Text, nullable=True)
     metadata_     = Column("metadata", _JsonType, default=dict, nullable=True)
     created_at   = timestamp_col(nullable=False, server_default=True)
     updated_at   = timestamp_col(nullable=False, server_default=True, onupdate=True)
@@ -146,15 +149,16 @@ class RefreshToken(Base):
     """
     __tablename__ = "refresh_tokens"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    token_hash = Column(String, nullable=False, unique=True)
-    expires_at = timestamp_col(auto=False, nullable=False)
-    created_at = timestamp_col()
-    revoked    = Column(Boolean, default=False, nullable=False, index=True)
-    revoked_at = timestamp_col(auto=False)
-    ip_address = Column(String, nullable=True)
-    user_agent = Column(String, nullable=True)
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash  = Column(String, nullable=False, unique=True)
+    expires_at  = timestamp_col(auto=False, nullable=False)
+    created_at  = timestamp_col()
+    revoked     = Column(Boolean, default=False, nullable=False, index=True)
+    revoked_at  = timestamp_col(auto=False)
+    ip_address  = Column(String, nullable=True)
+    user_agent  = Column(String, nullable=True)
+    remember_me = Column(Boolean, default=False, nullable=False)  # FIND-27
 
     user = relationship("User", back_populates="refresh_tokens")
 
@@ -710,6 +714,8 @@ class Review(Base):
     seller_response_at = timestamp_col(auto=False)
     is_flagged = Column(Boolean, default=False)
     flag_reason = Column(Text, nullable=True)
+    is_edited = Column(Boolean, default=False)
+    edited_at = Column(DateTime, nullable=True)
     created_at = timestamp_col()
     uuid = Column(String, unique=True, nullable=True,
                   default=lambda: str(uuid_lib.uuid4()))
@@ -727,10 +733,11 @@ class Review(Base):
 class Wishlist(Base):
     """Buyer saves a listing to their wishlist."""
     __tablename__ = "wishlists"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    listing_id = Column(Integer, ForeignKey("prices.id", ondelete="CASCADE"), nullable=False)
-    created_at = timestamp_col()
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    listing_id  = Column(Integer, ForeignKey("prices.id", ondelete="CASCADE"), nullable=False)
+    saved_price = Column(Float, nullable=True)  # BUG-008: price at time of saving
+    created_at  = timestamp_col()
 
     user    = relationship("User")
     listing = relationship("Price")

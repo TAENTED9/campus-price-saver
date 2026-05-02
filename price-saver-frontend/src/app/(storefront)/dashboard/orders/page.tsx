@@ -172,7 +172,7 @@ export default function OrdersPage() {
                   {/* Thumbnail */}
                   <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 relative flex-shrink-0">
                     {photo ? (
-                      <Image src={thumbnailImage(photo, 80)} alt={order.listing_name} fill className="object-cover" />
+                      <Image src={thumbnailImage(photo, 80)} alt={order.listing_name} fill sizes="56px" className="object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <Package size={20} className="text-gray-400" />

@@ -58,7 +58,7 @@ export default async function SellerStorefrontPage({
     notFound();
   }
 
-  const { seller, listings, listing_count } = data!;
+  const { seller, listings, listing_count, owner_user_id, owner_uuid } = data!;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -67,6 +67,8 @@ export default async function SellerStorefrontPage({
         seller={seller}
         listings={listings}
         listingCount={listing_count}
+        ownerUserId={owner_user_id ?? null}
+        ownerUuid={owner_uuid ?? null}
       />
     </div>
   );

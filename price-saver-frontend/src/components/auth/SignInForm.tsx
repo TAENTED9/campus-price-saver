@@ -5,18 +5,19 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api";
-import { Eye, EyeOff, CheckCircle, MailCheck } from "lucide-react";
+import { Eye, EyeOff, CheckCircle, MailCheck, ShieldCheck } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function SignInForm() {
   const router       = useRouter();
   const params       = useSearchParams();
-  const { login }    = useAuth();
+  const { login, completeLogin } = useAuth();
 
   const [username,    setUsername]    = useState("");
   const [password,    setPassword]    = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe,  setRememberMe]  = useState(false);
   const [isLoading,   setIsLoading]   = useState(false);
   const [error,       setError]       = useState<string | null>(null);
 
@@ -27,6 +28,13 @@ export default function SignInForm() {
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [resent,          setResent]          = useState(false);
   const [resending,       setResending]       = useState(false);
+
+  // MFA two-step state — BUG-001
+  const [mfaRequired,  setMfaRequired]  = useState(false);
+  const [mfaTempToken, setMfaTempToken] = useState<string | null>(null);
+  const [mfaCode,      setMfaCode]      = useState("");
+  const [mfaLoading,   setMfaLoading]   = useState(false);
+  const [mfaError,     setMfaError]     = useState<string | null>(null);
 
   useEffect(() => {
     const v = params.get("verified");
@@ -43,7 +51,7 @@ export default function SignInForm() {
     setUnverifiedEmail(null);
 
     if (!username.trim()) {
-      setError("Please enter your matric number or username.");
+      setError("Please enter your username or email.");
       return;
     }
     if (!password) {
@@ -53,7 +61,13 @@ export default function SignInForm() {
 
     setIsLoading(true);
     try {
-      const res = await login(username.trim(), password);
+      const res = await login(username.trim(), password, rememberMe);
+      // BUG-001: handle MFA requirement before any redirect
+      if (res?.mfa_required) {
+        setMfaRequired(true);
+        setMfaTempToken(res.temp_token ?? null);
+        return;
+      }
       if (res.user_role === "admin") {
         router.push("/admin");
       } else if (res.user_role === "seller") {
@@ -83,6 +97,25 @@ export default function SignInForm() {
     }
   };
 
+  async function handleMfaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mfaTempToken || mfaCode.length < 6) return;
+    setMfaLoading(true);
+    setMfaError(null);
+    try {
+      const verifyData = await authApi.mfaVerify(mfaTempToken, mfaCode);
+      const userInfo = await authApi.me(verifyData.access_token);
+      completeLogin(verifyData.access_token, userInfo.id, userInfo.username, userInfo.role);
+      if (userInfo.role === "admin") router.push("/admin");
+      else if (userInfo.role === "seller") router.push("/seller");
+      else router.push("/dashboard");
+    } catch (err: unknown) {
+      setMfaError(err instanceof Error ? err.message : "Invalid verification code");
+    } finally {
+      setMfaLoading(false);
+    }
+  }
+
   async function handleResendVerification() {
     const emailToUse = unverifiedEmail || username.trim();
     if (!emailToUse || resending) return;
@@ -99,6 +132,57 @@ export default function SignInForm() {
     } finally {
       setResending(false);
     }
+  }
+
+  // BUG-001: MFA verification step
+  if (mfaRequired) {
+    return (
+      <div className="max-w-[570px] w-full mx-auto rounded-xl bg-white shadow-md p-4 sm:p-7 xl:p-11 dark:bg-gray-800">
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-3">
+            <ShieldCheck size={40} className="text-brand-500" />
+          </div>
+          <h2 className="font-semibold text-xl sm:text-2xl text-gray-900 dark:text-white mb-1.5">
+            Two-Factor Authentication
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400">Enter the 6-digit code from your authenticator app</p>
+        </div>
+        {mfaError && (
+          <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
+            <p className="text-sm text-red-600 dark:text-red-400">{mfaError}</p>
+          </div>
+        )}
+        <form onSubmit={handleMfaSubmit}>
+          <div className="mb-5">
+            <label className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">Verification Code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="000000"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              autoFocus
+              className="rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 text-center text-xl tracking-[0.5em] outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={mfaLoading || mfaCode.length < 6}
+            className="w-full flex justify-center items-center font-medium text-white bg-gray-900 py-3 px-6 rounded-full ease-out duration-200 hover:bg-brand-500 mt-2 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-gray-700 dark:hover:bg-brand-500"
+          >
+            {mfaLoading ? "Verifying..." : "Verify Code"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMfaRequired(false); setMfaTempToken(null); setMfaCode(""); setMfaError(null); }}
+            className="w-full mt-3 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            ← Back to sign in
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -153,19 +237,18 @@ export default function SignInForm() {
         {/* Username */}
         <div className="mb-5">
           <label htmlFor="username" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-            Matric Number / Username
+            Username / Email
           </label>
           <input
             id="username"
             name="username"
             type="text"
-            placeholder="e.g. 190101001"
+            placeholder="Enter your username or email"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
             className="rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500"
           />
-          <p className="mt-1 text-xs text-gray-400">UNILAG matric: 9 digits (year + faculty + dept + serial)</p>
         </div>
 
         {/* Password */}
@@ -192,6 +275,20 @@ export default function SignInForm() {
               {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
           </div>
+        </div>
+
+        {/* Remember me */}
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            id="remember_me"
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+          />
+          <label htmlFor="remember_me" className="text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
+            Remember me for 30 days
+          </label>
         </div>
 
         {/* Submit */}

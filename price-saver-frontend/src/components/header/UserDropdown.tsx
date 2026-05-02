@@ -10,7 +10,7 @@ import { ChevronDown, UserCircle, Settings, Info, LogOut } from "lucide-react";
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const { user: adminUser, logout: adminLogout } = useAdminAuth();
-  const { user: sellerUser, logout: sellerLogout } = useAuth();
+  const { user: sellerUser, logout: sellerLogout, avatarUrl } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -49,10 +49,11 @@ export default function UserDropdown() {
         onClick={toggleDropdown}
         className="flex items-center text-gray-700 dark:text-gray-400 dropdown-toggle"
       >
-        <span className="mr-3 overflow-hidden rounded-full h-11 w-11 bg-brand-100 flex items-center justify-center">
-          <span className="text-brand-600 font-semibold text-sm">
-            {displayName.charAt(0).toUpperCase()}
-          </span>
+        <span className="mr-3 overflow-hidden rounded-full h-11 w-11 bg-brand-100 flex items-center justify-center flex-shrink-0">
+          {avatarUrl && !isAdmin
+            ? <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+            : <span className="text-brand-600 font-semibold text-sm">{displayName.charAt(0).toUpperCase()}</span>
+          }
         </span>
 
         <span className="block mr-1 font-medium text-theme-sm">
@@ -72,16 +73,24 @@ export default function UserDropdown() {
         onClose={closeDropdown}
         className="absolute right-0 mt-[17px] flex w-[260px] flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-theme-lg dark:border-gray-800 dark:bg-gray-dark"
       >
-        <div>
-          <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
-            {displayName}
+        <div className="flex items-center gap-3 pb-3 border-b border-gray-200 dark:border-gray-800 mb-1">
+          <span className="overflow-hidden rounded-full h-10 w-10 bg-brand-100 flex items-center justify-center flex-shrink-0">
+            {avatarUrl && !isAdmin
+              ? <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+              : <span className="text-brand-600 font-semibold text-sm">{displayName.charAt(0).toUpperCase()}</span>
+            }
           </span>
-          <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            {subtitle}
-          </span>
+          <div className="min-w-0">
+            <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400 truncate">
+              {displayName}
+            </span>
+            <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
+              {subtitle}
+            </span>
+          </div>
         </div>
 
-        <ul className="flex flex-col gap-1 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800">
+        <ul className="flex flex-col gap-1 pb-3 border-b border-gray-200 dark:border-gray-800">
           <li>
             <DropdownItem
               onItemClick={closeDropdown}

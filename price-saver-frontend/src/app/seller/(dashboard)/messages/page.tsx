@@ -4,12 +4,16 @@ import React from "react";
 import { ChatProvider } from "@/context/ChatContext";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function SellerMessagesPage() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { markCategoryRead } = useNotifications();
   const router = useRouter();
+
+  useEffect(() => { markCategoryRead("messages"); }, []);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {

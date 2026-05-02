@@ -13,13 +13,26 @@ Requires env vars: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SEC
 """
 
 import os
+import logging
 from datetime import datetime
+
+import requests.exceptions
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+logger = logging.getLogger("campify")
 
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "")
 CLOUDINARY_API_KEY    = os.getenv("CLOUDINARY_API_KEY", "")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
 
 _configured = False
+
+_UPLOAD_TIMEOUT = 30  # seconds — applied to both connect and read
 
 
 def _ensure_configured() -> bool:
@@ -35,12 +48,29 @@ def _ensure_configured() -> bool:
             api_key=CLOUDINARY_API_KEY,
             api_secret=CLOUDINARY_API_SECRET,
             secure=True,
+            timeout=_UPLOAD_TIMEOUT,
+            chunk_size=6_000_000,
         )
         _configured = True
         return True
     except ImportError:
-        print("[cloudinary_service] cloudinary package not installed. Run: pip install cloudinary")
+        logger.warning("[cloudinary_service] cloudinary package not installed. Run: pip install cloudinary")
         return False
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=8),
+    retry=retry_if_exception_type((
+        requests.exceptions.Timeout,
+        requests.exceptions.SSLError,
+        requests.exceptions.ConnectionError,
+    )),
+    reraise=True,
+)
+def _upload_with_retry(file_bytes: bytes, **kwargs) -> dict:
+    import cloudinary.uploader
+    return cloudinary.uploader.upload(file_bytes, **kwargs)
 
 
 def upload_file(
@@ -54,21 +84,22 @@ def upload_file(
     Upload bytes to Cloudinary under campify/users/{user_id}/{folder_path}.
     Returns a dict with url, public_id, folder, asset_id, bytes, format.
     Returns None if Cloudinary is not configured or upload fails.
+    Retries up to 3× on SSL / timeout errors with exponential back-off.
     """
     if not _ensure_configured():
-        print(f"[cloudinary_service] Not configured — skipping upload for user {user_id}")
+        logger.warning(f"[cloudinary_service] Not configured — skipping upload for user {user_id}")
         return None
 
     full_folder = f"campify/users/{user_id}/{folder_path}"
 
     try:
-        import cloudinary.uploader
-        result = cloudinary.uploader.upload(
+        result = _upload_with_retry(
             file_bytes,
             folder=full_folder,
             public_id=public_id,
             resource_type=resource_type,
             overwrite=True,
+            timeout=_UPLOAD_TIMEOUT,
             transformation=[
                 {"fetch_format": "auto", "quality": "auto"}
             ],
@@ -86,7 +117,7 @@ def upload_file(
             "format":     result.get("format"),
         }
     except Exception as e:
-        print(f"[cloudinary_service] Upload failed for user {user_id} / {folder_path}: {e}")
+        logger.error(f"[cloudinary_service] Upload failed for user {user_id} / {folder_path}: {e}")
         return None
 
 
@@ -102,7 +133,7 @@ def delete_asset(public_id: str, resource_type: str = "image") -> bool:
         result = cloudinary.uploader.destroy(public_id, resource_type=resource_type)
         return result.get("result") == "ok"
     except Exception as e:
-        print(f"[cloudinary_service] Delete failed for {public_id}: {e}")
+        logger.error(f"[cloudinary_service] Delete failed for {public_id}: {e}")
         return False
 
 
@@ -115,9 +146,28 @@ def save_asset_record(
 ):
     """
     Persist a CloudinaryAsset row after a successful upload.
+    Uses UPSERT logic (update on duplicate public_id) so re-uploads never
+    raise a UNIQUE constraint violation.
     asset_type: "avatar" | "banner" | "id_card" | "portal_screenshot" | "listing_photo"
     """
     from app.models import CloudinaryAsset
+
+    existing = (
+        db.query(CloudinaryAsset)
+        .filter(CloudinaryAsset.public_id == upload_result["public_id"])
+        .first()
+    )
+
+    if existing:
+        existing.url        = upload_result["url"]
+        existing.folder     = upload_result["folder"]
+        existing.bytes      = upload_result.get("bytes")
+        existing.format     = upload_result.get("format")
+        existing.uploaded_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return existing
+
     asset = CloudinaryAsset(
         user_id=user_id,
         public_id=upload_result["public_id"],

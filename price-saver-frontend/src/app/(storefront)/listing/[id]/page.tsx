@@ -5,11 +5,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { listingApi, storefrontApi, wishlistApi, reviewsApi, type ListingDetail, type FollowStatus, type Review } from "@/lib/api";
+import { listingApi, storefrontApi, wishlistApi, type ListingDetail, type FollowStatus } from "@/lib/api";
 import { messageApi } from "@/lib/messageApi";
 import { optimizeImage, thumbnailImage } from "@/lib/cloudinary";
 import { formatPrice } from "@/lib/formatPrice";
 import { Heart, Flag, Eye, MapPin, Package, Truck, ChevronRight, ArrowLeft, X, Star, ShieldCheck, MessageCircle, Award, Check, CheckCircle2 } from "lucide-react";
+import { InterestButton } from "@/components/marketplace/InterestButton";
+import { ReviewsSection } from "@/components/reviews/ReviewsSection";
 
 function Initials({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const letters = name.trim().slice(0, 2).toUpperCase();
@@ -67,12 +69,11 @@ export default function ListingDetailPage() {
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [followState, setFollowState] = useState<FollowStatus | null>(null);
   const [followLoading, setFollowLoading] = useState(false);
-  const [reviews, setReviews] = useState<{ total: number; avg_rating: number | null; reviews: Review[] } | null>(null);
-
   const [inquiryOpen, setInquiryOpen] = useState(false);
   const [inquiryMsg, setInquiryMsg] = useState("");
   const [sendingInquiry, setSendingInquiry] = useState(false);
   const [inquirySent, setInquirySent] = useState(false);
+  const [inquiryError, setInquiryError] = useState<string | null>(null);
   const [startingDM, setStartingDM] = useState(false);
 
   const [reportOpen, setReportOpen] = useState(false);
@@ -80,6 +81,7 @@ export default function ListingDetailPage() {
   const [reportNote, setReportNote] = useState("");
   const [sendingReport, setSendingReport] = useState(false);
   const [reportSent, setReportSent] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -88,17 +90,20 @@ export default function ListingDetailPage() {
     if (isNumeric) {
       const numId = Number(id);
       listingApi.getDetail(numId)
-        .then((data) => { setListing(data); setLoading(false); })
+        .then((data) => {
+          setListing(data);
+          setLoading(false);
+          // BUG-009: record view using UUID from fetched listing
+          if (data.uuid) listingApi.recordView(data.uuid).catch(() => {});
+        })
         .catch(() => setLoading(false));
       listingApi.getSimilar(numId).then(setSimilar).catch(() => {});
-      reviewsApi.getForListing(numId).then(setReviews).catch(() => {});
     } else {
       listingApi.getDetailBySlug(id)
         .then((data) => {
           setListing(data);
           setLoading(false);
           listingApi.getSimilar(data.id).then(setSimilar).catch(() => {});
-          reviewsApi.getForListing(data.id).then(setReviews).catch(() => {});
           listingApi.recordView(id).catch(() => {});
         })
         .catch(() => setLoading(false));
@@ -163,7 +168,7 @@ export default function ListingDetailPage() {
       setInquirySent(true);
       setInquiryMsg("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to send");
+      setInquiryError(err instanceof Error ? err.message : "Failed to send");
     } finally { setSendingInquiry(false); }
   }
 
@@ -175,7 +180,7 @@ export default function ListingDetailPage() {
       await listingApi.report(token, listing.id, reportReason, reportNote || undefined);
       setReportSent(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to report");
+      setReportError(err instanceof Error ? err.message : "Failed to report");
     } finally { setSendingReport(false); }
   }
 
@@ -223,7 +228,7 @@ export default function ListingDetailPage() {
             {/* Main photo */}
             <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 dark:to-[#06b6d4]/5 relative flex items-center justify-center">
               {photos.length > 0
-                ? <Image src={optimizeImage(photos[mainPhoto], 800)} alt={listing.name} fill className="object-cover" />
+                ? <Image src={optimizeImage(photos[mainPhoto], 800)} alt={listing.name} fill sizes="(max-width: 768px) 100vw, 800px" className="object-cover" />
                 : <span className="text-7xl font-black text-brand-200 dark:text-brand-800">
                     {listing.name.charAt(0).toUpperCase()}
                   </span>
@@ -307,17 +312,28 @@ export default function ListingDetailPage() {
 
               {/* Actions */}
               <div className="mt-4 space-y-2">
+                {/* I'm Interested button */}
+                {listing?.seller && user?.id !== seller?.id && listing.uuid && (
+                  <InterestButton
+                    listingUuid={listing.uuid}
+                    sellerUsername={seller?.username}
+                    className="w-full"
+                  />
+                )}
+{/* MISS-003: only render when seller is present */}
+                {listing?.seller && (
                 <button type="button"
                   onClick={() => {
                     if (id && !/^\d+$/.test(id)) listingApi.recordInterest(id).catch(() => {});
                     handleMessageSeller();
                   }}
                   disabled={startingDM}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white text-sm font-bold hover:opacity-90 disabled:opacity-60 transition-opacity flex items-center justify-center gap-2">
+                  className="w-full py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
                   {startingDM
-                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                     : <><MessageCircle size={14} /> Message Seller</>}
                 </button>
+                )}
                 <div className="flex gap-2">
                   <button type="button" onClick={toggleWishlist} disabled={wishlistLoading}
                     className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors disabled:opacity-60 ${
@@ -392,53 +408,13 @@ export default function ListingDetailPage() {
         </div>
 
         {/* Reviews */}
-        {reviews && (
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-lg font-black text-gray-800 dark:text-white">Reviews</h2>
-              {reviews.avg_rating != null && (
-                <span className="flex items-center gap-1 text-yellow-500 font-bold text-sm">
-                  <Star size={14} className="fill-yellow-400" />
-                  {reviews.avg_rating} <span className="text-gray-400 font-normal">({reviews.total})</span>
-                </span>
-              )}
-            </div>
-            {reviews.reviews.length === 0 ? (
-              <p className="text-sm text-gray-400">No reviews yet. Be the first to review after your interaction.</p>
-            ) : (
-              <div className="space-y-3">
-                {reviews.reviews.map((r) => (
-                  <div key={r.id} className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                        {(r.reviewer_name || "?").slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-800 dark:text-white">{r.reviewer_name}</p>
-                        <div className="flex items-center gap-2">
-                          <span className="flex">{Array.from({ length: 5 }).map((_, i) => (
-                            <Star key={i} size={11} className={i < r.rating ? "fill-yellow-400 text-yellow-400" : "text-gray-200 dark:text-gray-700"} />
-                          ))}</span>
-                          {r.is_verified_interaction && (
-                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-green-600 bg-green-50 dark:bg-green-500/10 px-1.5 py-0.5 rounded-full"><ShieldCheck size={9} /> Verified</span>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", timeZone: "Africa/Lagos" })}</span>
-                    </div>
-                    {r.comment && <p className="text-sm text-gray-600 dark:text-gray-400">{r.comment}</p>}
-                    {r.seller_response && (
-                      <div className="mt-3 pl-3 border-l-2 border-brand-200">
-                        <p className="text-xs font-semibold text-brand-500 mb-1">Seller response:</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{r.seller_response}</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        <div className="bg-white dark:bg-gray-900/50 rounded-2xl border border-gray-100 dark:border-gray-800 p-5">
+          <ReviewsSection
+            type="listing"
+            targetId={listing.id}
+            canReview={!!(user && seller && user.id !== seller.id)}
+          />
+        </div>
 
         {/* Similar listings */}
         {similar.length > 0 && (
@@ -450,7 +426,7 @@ export default function ListingDetailPage() {
                   className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] overflow-hidden hover:shadow-md transition-shadow group">
                   <div className="aspect-square bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 relative flex items-center justify-center overflow-hidden">
                     {s.photos?.[0]
-                      ? <Image src={thumbnailImage(s.photos[0], 200)} alt={s.name} fill className="object-cover group-hover:scale-105 transition-transform duration-300" />
+                      ? <Image src={thumbnailImage(s.photos[0], 200)} alt={s.name} fill sizes="(max-width: 640px) 50vw, 25vw" className="object-cover group-hover:scale-105 transition-transform duration-300" />
                       : <span className="text-2xl font-black text-brand-200 dark:text-brand-700">{s.name.charAt(0)}</span>}
                   </div>
                   <div className="p-2.5">
@@ -480,7 +456,8 @@ export default function ListingDetailPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Sending to <strong>{listing.seller?.display_name}</strong> about <strong>{listing.name}</strong>
               </p>
-              <textarea value={inquiryMsg} onChange={(e) => setInquiryMsg(e.target.value)} rows={4}
+              {inquiryError && <p className="text-sm text-red-500">{inquiryError}</p>}
+              <textarea value={inquiryMsg} onChange={(e) => { setInquiryError(null); setInquiryMsg(e.target.value); }} rows={4}
                 placeholder="Hi, I'm interested in this item. Is it still available?"
                 className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-4 py-3 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10" />
               <button type="button" onClick={sendInquiry} disabled={sendingInquiry || !inquiryMsg.trim()}
@@ -518,7 +495,8 @@ export default function ListingDetailPage() {
                   placeholder="Any extra details..."
                   className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-4 py-3 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10" />
               </div>
-              <button type="button" onClick={sendReport} disabled={sendingReport}
+              {reportError && <p className="text-sm text-red-500">{reportError}</p>}
+              <button type="button" onClick={() => { setReportError(null); sendReport(); }} disabled={sendingReport}
                 className="w-full py-2.5 rounded-xl bg-error-500 hover:bg-error-600 text-white text-sm font-bold transition-colors disabled:opacity-50">
                 {sendingReport ? "Submitting..." : "Submit Report"}
               </button>

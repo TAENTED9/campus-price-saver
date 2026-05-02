@@ -29,7 +29,7 @@ const PERKS = [
 ];
 
 export default function SellerApplyPage() {
-  const { token, user, isLoading } = useAuth();
+  const { token, user, isLoading, refreshUser } = useAuth();
   const router = useRouter();
 
   const [bizName, setBizName]               = useState(user?.display_name || "");
@@ -58,6 +58,7 @@ export default function SellerApplyPage() {
         pickup_location: pickupLocation,
         bio: bio.trim() || undefined,
       });
+      await refreshUser();
       router.push("/seller/verify?ref=welcome");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit. Please try again.");

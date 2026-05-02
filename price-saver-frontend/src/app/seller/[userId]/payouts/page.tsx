@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import sellerApi from "@/lib/sellerApi";
+import { sellerApi } from "@/lib/api";
 import NumberInput from "@/components/ui/NumberInput";
 
 /**

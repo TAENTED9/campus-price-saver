@@ -135,11 +135,12 @@ def create_refresh_token(
     expires_at = datetime.now(timezone.utc) + timedelta(days=expire_days)
 
     record = RefreshToken(
-        user_id    = user.id,
-        token_hash = token_hash,
-        expires_at = expires_at,
-        ip_address = ip_address,
-        user_agent = user_agent,
+        user_id     = user.id,
+        token_hash  = token_hash,
+        expires_at  = expires_at,
+        ip_address  = ip_address,
+        user_agent  = user_agent,
+        remember_me = remember_me,  # FIND-27
     )
     db.add(record)
     db.commit()
@@ -197,18 +198,25 @@ def rotate_refresh_token(
     if not user or getattr(user, "is_deleted", False) or getattr(user, "is_paused", False):
         return None
 
+    prev_remember_me = getattr(record, "remember_me", False)  # FIND-27: preserve preference
     new_raw  = generate_refresh_token()
     new_hash = hash_token(new_raw)
+    new_expire_days = (
+        REFRESH_TOKEN_REMEMBER_DAYS
+        if prev_remember_me
+        else REFRESH_TOKEN_SESSION_HOURS / 24
+    )
     new_record = RefreshToken(
-        user_id    = user.id,
-        token_hash = new_hash,
-        expires_at = now + timedelta(days=REFRESH_TOKEN_REMEMBER_DAYS),
-        ip_address = ip_address,
-        user_agent = user_agent,
+        user_id     = user.id,
+        token_hash  = new_hash,
+        expires_at  = now + timedelta(days=new_expire_days),
+        ip_address  = ip_address,
+        user_agent  = user_agent,
+        remember_me = prev_remember_me,  # FIND-27
     )
     db.add(new_record)
     db.commit()
-    return new_raw, user
+    return new_raw, user, prev_remember_me
 
 
 def revoke_all_user_tokens(user_id: int, db: "Session") -> None:
@@ -236,7 +244,9 @@ def set_refresh_cookie(
     is_production: bool,
 ) -> None:
     """
-    Attach the refresh token as an HttpOnly, SameSite=Lax cookie.
+    Attach the refresh token as an HttpOnly cookie.
+    Uses SameSite=None; Secure in production (supports cross-subdomain deploys).
+    Falls back to SameSite=Lax in development (HTTP-safe).
     Restricted to /api/auth so it is never sent on non-auth requests.
     """
     response.set_cookie(
@@ -244,18 +254,20 @@ def set_refresh_cookie(
         value    = raw_token,
         httponly = True,
         secure   = is_production,
-        samesite = "lax",
+        samesite = "none" if is_production else "lax",
         max_age  = COOKIE_MAX_AGE_FULL if remember_me else None,  # None = proper session cookie, not max_age=0 which deletes it
-        path     = "/api/auth",
+        path     = "/",
     )
 
 
 def clear_refresh_cookie(response: Response) -> None:
     """Delete the refresh cookie (logout / forced sign-out)."""
+    from app.config import settings as _cfg
+    _prod = getattr(_cfg, "IS_PRODUCTION", True)
     response.delete_cookie(
         key      = COOKIE_NAME,
         httponly = True,
-        secure   = True,
-        samesite = "lax",
-        path     = "/api/auth",
+        secure   = _prod,
+        samesite = "none" if _prod else "lax",
+        path     = "/",
     )

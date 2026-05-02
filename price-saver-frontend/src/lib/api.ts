@@ -97,7 +97,8 @@ async function _silentRefresh(): Promise<string | null> {
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs = 12_000
 ): Promise<T> {
   const supplied = (options.headers ?? {}) as Record<string, string>;
   const headers: Record<string, string> = {
@@ -110,14 +111,30 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${_accessToken}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-    credentials: "include", // always send the HttpOnly refresh cookie
-  });
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: "include", // always send the HttpOnly refresh cookie
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(tid);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out. Please check your connection and try again.");
+    }
+    throw err;
+  }
+  clearTimeout(tid);
 
   // ── 401 → silent refresh → retry once ─────────────────────────────────────
-  if (res.status === 401) {
+  // Skip for credential endpoints — a 401 there means wrong password, not expired token.
+  const _noSilentRefresh = new Set(["/api/auth/login", "/api/auth/register", "/api/auth/admin"]);
+  if (res.status === 401 && !_noSilentRefresh.has(endpoint)) {
     const newToken = await _silentRefresh();
     if (newToken) {
       const retryRes = await fetch(`${API_BASE}${endpoint}`, {
@@ -144,6 +161,8 @@ async function request<T>(
       message = body.detail;
     } else if (Array.isArray(body.detail)) {
       message = body.detail.map((e: { msg?: string }) => e.msg || "Validation error").join("; ");
+    } else if (body.detail && typeof body.detail === "object") {
+      message = JSON.stringify(body.detail);
     } else {
       message = "Request failed";
     }
@@ -185,10 +204,10 @@ export default apiClient;
 // ===================== AUTH API =====================
 
 export const authApi = {
-  login: (username: string, password: string) =>
+  login: (username: string, password: string, rememberMe = false) =>
     request<LoginResponse>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password, remember_me: true }),
+      body: JSON.stringify({ username, password, remember_me: rememberMe }),
     }),
 
   register: (username: string, password: string, email?: string, role?: string) =>
@@ -443,6 +462,8 @@ export type SellerStorefront = {
   seller: SellerInfo;
   listings: ListingDetail[];
   listing_count: number;
+  owner_user_id?: number | null;
+  owner_uuid?: string | null;
 };
 
 export type ThreadMessage = { sender: "buyer" | "seller"; text: string; at: string };
@@ -510,39 +531,45 @@ export const itemsApi = {
     request<Price[]>(`/api/items/prices/category/${categoryId}?skip=${skip}&limit=${limit}`),
 
   incrementView: (priceId: number) =>
-    request<{ ok: boolean; view_count: number }>(
+    request<{ counted: boolean; view_count: number }>(
       `/api/items/prices/${priceId}/view`, { method: "POST" }
     ),
 
-  boostListing: (priceId: number, sellerId: number, days: 7 | 30 = 7) =>
+  boostListing: (priceId: number, days: 7 | 30 = 7) =>
     request<{ ok: boolean; points_spent: number; points_remaining: number }>(
-      `/api/items/prices/${priceId}/boost?seller_id=${sellerId}&days=${days}`, { method: "POST" }
+      `/api/items/prices/${priceId}/boost?days=${days}`, { method: "POST" }
     ),
 
-  confirmPurchase: (priceId: number, sellerId: number) =>
+  confirmPurchase: (priceId: number) =>
     request<{ ok: boolean; points_awarded: number; total_points: number }>(
-      `/api/items/prices/${priceId}/confirm_purchase?seller_id=${sellerId}`, { method: "POST" }
+      `/api/items/prices/${priceId}/confirm_purchase`, { method: "POST" }
     ),
 };
 
 // ===================== FLASH SALES API =====================
 
 export const flashSalesApi = {
-  getActive: (limit = 6) =>
-    request<FlashSale[]>(`/api/flash-sales/active?limit=${limit}`),
+  getActive: async (limit = 6): Promise<FlashSale[]> => {
+    const res = await request<{ data: FlashSale[] } | FlashSale[]>(
+    `/api/flash-sales/active?limit=${limit}`
+  );
 
+  return Array.isArray(res) ? res : res.data ?? [];
+  },
   create: (
-    data: { price_id: number; title?: string; discount_pct: number; end_time: string },
-    sellerId: number
+    token: string,
+    data: { listing_id: number; title?: string; discount_pct: number; end_time: string }
   ) =>
-    request<FlashSale>(`/api/flash-sales/?seller_id=${sellerId}`, {
+    request<FlashSale>("/api/flash-sales/", {
       method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
       body: JSON.stringify(data),
     }),
 
-  cancel: (saleId: number, sellerId: number) =>
-    request<{ ok: boolean }>(`/api/flash-sales/${saleId}?seller_id=${sellerId}`, {
+  cancel: (token: string, saleId: number) =>
+    request<{ ok: boolean }>(`/api/flash-sales/${saleId}`, {
       method: "DELETE",
+      headers: authHeaders(token),
     }),
 };
 
@@ -641,7 +668,7 @@ export const userApi = {
     }),
 
   updateSettings: (token: string, body: Record<string, unknown>) =>
-    request<{ message: string }>("/api/auth/settings", {
+    request<{ message: string }>("/api/settings", {
       method: "PATCH",
       headers: authHeaders(token),
       body: JSON.stringify(body),
@@ -676,9 +703,11 @@ export const verificationApi = {
     form.append("business_name", data.business_name || "");
     form.append("business_category", data.business_category || "");
     form.append("pickup_location", data.pickup_location || "");
-    form.append("document_url", data.document_url || "");
-    form.append("portal_screenshot_url", data.portal_screenshot_url || "");
-    form.append("user_id", String(data.user_id));
+    form.append("id_card_url", data.document_url || "");
+    form.append("portal_url", data.portal_screenshot_url || "");
+    if (data.user_id != null && !Number.isNaN(data.user_id)) {
+      form.append("user_id", String(data.user_id));
+    }
     const res = await fetch(`${API_BASE}/api/seller/verification/docs`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -779,6 +808,22 @@ export const uploadApi = {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(`${API_BASE}/api/upload/banner-slide`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
+      throw new Error(err.detail || "Upload failed");
+    }
+    const data: { success: boolean; url: string } = await res.json();
+    return data.url;
+  },
+
+  uploadReviewImage: async (token: string, file: File): Promise<string> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/upload/review-image`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
@@ -1026,13 +1071,6 @@ export const sellerApi = {
   updateAvailability: (token: string, body: { status: string }) =>
     request<{ message: string; status: string }>("/api/seller/availability", {
       method: "PATCH",
-      headers: authHeaders(token),
-      body: JSON.stringify(body),
-    }),
-
-  setVacation: (token: string, body: { enabled: boolean; resume_date: string | null }) =>
-    request<{ message: string }>("/api/seller/vacation-mode", {
-      method: "POST",
       headers: authHeaders(token),
       body: JSON.stringify(body),
     }),
@@ -1614,7 +1652,7 @@ export const adminApi = {
 
   // Verifications
   getVerifications: (token: string, status?: string) =>
-    request<{ success: boolean; data: AdminVerification[] }>(`/api/admin/verification/${status ? `?status_filter=${status}` : ""}`, {
+    request<{ success: boolean; data: AdminVerification[] }>(`/api/admin/verification${status ? `?status_filter=${status}` : ""}`, {
       headers: authHeaders(token),
     }),
 
@@ -1736,11 +1774,27 @@ export const ordersApi = {
   },
 
   cancel: (token: string, uuid: string) =>
-    request<{ success: boolean; message: string }>(`/api/orders/${uuid}/status`, {
+    request<Order>(`/api/orders/${uuid}/status`, {
       method: "PATCH",
       headers: authHeaders(token),
       body: JSON.stringify({ status: "cancelled" }),
     }),
+
+  expressInterest: (token: string, listingUuid: string) =>
+    request<{ success: boolean; order_uuid: string; conversation_id: number; conversation_uuid: string | null; is_new_conversation: boolean; message: string }>(
+      `/api/orders/express-interest/${listingUuid}`,
+      { method: "POST", headers: authHeaders(token) }
+    ),
+
+  expressInterestBody: (listingUuid: string, token: string) =>
+    request<{ order_uuid: string; conversation_uuid: string; is_new_conversation: boolean; message: string }>(
+      "/api/orders/express-interest",
+      {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({ listing_uuid: listingUuid }),
+      }
+    ),
 };
 
 // ===================== NOTIFICATIONS API =====================
@@ -1759,25 +1813,32 @@ export type AppNotification = {
 export const notificationsApi = {
   list: (token: string, skip = 0, limit = 30, scope?: string) =>
     request<{ unread_count: number; notifications: AppNotification[] }>(
-      `/api/notifications/?token=${token}&skip=${skip}&limit=${limit}${scope ? `&scope=${scope}` : ""}`
+      `/api/notifications/?skip=${skip}&limit=${limit}${scope ? `&scope=${scope}` : ""}`,
+      { headers: authHeaders(token) }
     ),
 
   unreadCount: (token: string, scope?: string) =>
-    request<{ unread_count: number }>(`/api/notifications/unread-count?token=${token}${scope ? `&scope=${scope}` : ""}`),
+    request<{ unread_count: number }>(
+      `/api/notifications/unread-count${scope ? `?scope=${scope}` : ""}`,
+      { headers: authHeaders(token) }
+    ),
 
   markRead: (token: string, id: number) =>
-    request<{ success: boolean }>(`/api/notifications/${id}/read?token=${token}`, {
+    request<{ success: boolean }>(`/api/notifications/${id}/read`, {
       method: "PATCH",
+      headers: authHeaders(token),
     }),
 
   markAllRead: (token: string) =>
-    request<{ success: boolean }>(`/api/notifications/mark-all-read?token=${token}`, {
+    request<{ success: boolean }>(`/api/notifications/mark-all-read`, {
       method: "POST",
+      headers: authHeaders(token),
     }),
 
   delete: (token: string, id: number) =>
-    request<{ success: boolean }>(`/api/notifications/${id}?token=${token}`, {
+    request<{ success: boolean }>(`/api/notifications/${id}`, {
       method: "DELETE",
+      headers: authHeaders(token),
     }),
 };
 
@@ -1786,12 +1847,14 @@ export const notificationsApi = {
 export const wishlistApi = {
   toggle: (token: string, listingId: number) =>
     request<{ wishlisted: boolean }>(
-      `/api/wishlist/toggle/${listingId}?token=${token}`,
-      { method: "POST" }
+      `/api/wishlist/toggle/${listingId}`,
+      { method: "POST", headers: authHeaders(token) }
     ),
 
   status: (token: string, listingId: number) =>
-    request<{ wishlisted: boolean }>(`/api/wishlist/status/${listingId}?token=${token}`),
+    request<{ wishlisted: boolean }>(`/api/wishlist/status/${listingId}`, {
+      headers: authHeaders(token),
+    }),
 
   list: (token: string) =>
     request<Array<{
@@ -1803,7 +1866,7 @@ export const wishlistApi = {
       listing_status: string;
       photos: string[];
       saved_at: string;
-    }>>(`/api/wishlist/?token=${token}`),
+    }>>(`/api/wishlist/`, { headers: authHeaders(token) }),
 };
 
 // ===================== REVIEWS API =====================
@@ -1841,31 +1904,51 @@ export const reviewsApi = {
 
   submit: (token: string, listingId: number, rating: number, comment?: string, photoUrl?: string) =>
     request<Review>(
-      `/api/reviews/listing/${listingId}?token=${token}`,
+      `/api/reviews/listing/${listingId}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...authHeaders(token), "Content-Type": "application/json" },
         body: JSON.stringify({ rating, comment, photo_url: photoUrl }),
       }
     ),
 
   sellerRespond: (token: string, reviewId: number, response: string) =>
     request<{ success: boolean }>(
-      `/api/reviews/${reviewId}/respond?token=${token}`,
+      `/api/reviews/${reviewId}/respond`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...authHeaders(token), "Content-Type": "application/json" },
         body: JSON.stringify({ response }),
       }
     ),
 
   flag: (token: string, reviewId: number, reason?: string) =>
     request<{ success: boolean }>(
-      `/api/reviews/${reviewId}/flag?token=${token}`,
+      `/api/reviews/${reviewId}/flag`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...authHeaders(token), "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
+      }
+    ),
+
+  sellerRespondByUuid: (token: string, reviewUuid: string, reply: string) =>
+    request<{ success: boolean; review: Review }>(
+      `/api/reviews/${reviewUuid}/respond`,
+      {
+        method: "POST",
+        headers: { ...authHeaders(token), "Content-Type": "application/json" },
+        body: JSON.stringify({ reply }),
+      }
+    ),
+
+  editReview: (token: string, reviewRef: string, comment: string, photoUrl?: string | null) =>
+    request<{ success: boolean; review: Review }>(
+      `/api/reviews/${reviewRef}`,
+      {
+        method: "PATCH",
+        headers: { ...authHeaders(token), "Content-Type": "application/json" },
+        body: JSON.stringify({ comment, photo_url: photoUrl ?? null }),
       }
     ),
 };

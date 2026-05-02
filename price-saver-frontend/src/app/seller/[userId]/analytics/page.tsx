@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import sellerApi from "@/lib/sellerApi";
+import { sellerApi } from "@/lib/api";
 
 /**
  * Seller Analytics Dashboard
@@ -36,7 +36,7 @@ export default function AnalyticsPage({
 }: {
   params: { userId: string };
 }) {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [period, setPeriod] = useState<"week" | "month" | "year">("month");
   const [loading, setLoading] = useState(true);
@@ -47,7 +47,8 @@ export default function AnalyticsPage({
       try {
         setLoading(true);
         setError(null);
-        const data = await sellerApi.getAnalytics(params.userId, period);
+        const res = await sellerApi.getAnalytics(token!, period);
+        const data = (res as { success?: boolean; data?: AnalyticsData })?.data ?? (res as unknown as AnalyticsData);
         setAnalytics(data);
       } catch (err) {
         setError(
@@ -58,10 +59,10 @@ export default function AnalyticsPage({
       }
     };
 
-    if (user) {
+    if (user && token) {
       fetchAnalytics();
     }
-  }, [user, params.userId, period]);
+  }, [user, token, params.userId, period]);
 
   if (loading) {
     return <div className="text-center py-10">Loading analytics...</div>;

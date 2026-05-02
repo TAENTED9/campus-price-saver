@@ -4,6 +4,7 @@ import React, { useEffect } from "react";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { useAuth } from "@/context/AuthContext";
 import { ChatProvider } from "@/context/ChatContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { useRouter } from "next/navigation";
 
 /**
@@ -12,7 +13,10 @@ import { useRouter } from "next/navigation";
  */
 export default function MessagesPage() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { markCategoryRead } = useNotifications();
   const router = useRouter();
+
+  useEffect(() => { markCategoryRead("messages"); }, []);
 
   // Redirect to login if not authenticated
   useEffect(() => {

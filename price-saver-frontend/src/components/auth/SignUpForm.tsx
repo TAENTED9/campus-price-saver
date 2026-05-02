@@ -143,7 +143,7 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
     setError(null);
     if (!email.trim()) { setError("Email address is required."); return; }
     if (!username.trim() || username.length < 3) { setError("Username must be at least 3 characters."); return; }
-    if (password.length < 4) { setError("Password must be at least 4 characters."); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (!agreedToTerms) { setError("Please agree to the terms and conditions."); return; }
 
     setIsLoading(true);
@@ -366,13 +366,13 @@ function SellerForm({ onBack }: { onBack: () => void }) {
     if (mErr) { setMatricError(mErr); return; }
     if (!email.trim()) { setError("Email address is required."); return; }
     if (!username.trim() || username.length < 3) { setError("Store name must be at least 3 characters."); return; }
-    if (password.length < 4) { setError("Password must be at least 4 characters."); return; }
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (!agreedToTerms) { setError("Please agree to the terms and conditions."); return; }
 
     setIsLoading(true);
     try {
       await authApi.register(username.trim(), password, email.trim(), "seller");
-      localStorage.setItem("pendingMatric", matric.trim().toUpperCase());
+      sessionStorage.setItem("pendingMatric", matric.trim().toUpperCase());
       setStep("check_email");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");

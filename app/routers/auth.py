@@ -9,7 +9,7 @@ import json
 import logging
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
@@ -303,6 +303,11 @@ class UserLoginRequest(BaseModel):
     username: str
     password: str
     remember_me: bool = False
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, v: str) -> str:
+        return v.strip().lower()
 
 
 class AdminLoginRequest(BaseModel):
@@ -632,17 +637,41 @@ async def login_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Username and password are required")
 
-    user = db.query(User).filter(User.username == body.username).first()
-    if not user:
-        user = db.query(User).filter(User.email == body.username).first()
+    from sqlalchemy import or_ as _or
+    user = db.query(User).filter(
+        _or(User.username == body.username, User.email == body.username)
+    ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="Invalid username or password")
 
     try:
+        # FIND-26: admin-only accounts have no password_hash
+        if not user.password_hash:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This account uses admin-only authentication",
+            )
         if not verify_password(body.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="Invalid username or password")
+
+        # Lifecycle checks before issuing any token
+        if getattr(user, "is_deleted", False):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="Account no longer exists")
+        if getattr(user, "is_paused", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "ACCOUNT_PAUSED",
+                    "message": "Your account is currently paused.",
+                    "pause_reason": getattr(user, "pause_reason", None),
+                },
+            )
+        if not getattr(user, "is_active", True):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="Account is not active")
 
         # Block 1E — block login until email is verified
         if not getattr(user, "email_verified", True):
@@ -838,6 +867,16 @@ async def mfa_verify(
     user = db.query(User).filter(User.id == user_id).first()
     if not user or not getattr(user, "mfa_enabled", False):
         raise HTTPException(status_code=401, detail="Invalid MFA session")
+    # FIND-18: lifecycle guards for MFA verify
+    if getattr(user, "is_deleted", False):
+        raise HTTPException(status_code=401, detail="Account no longer exists")
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=403, detail="Account is not active")
+    if getattr(user, "is_paused", False):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "ACCOUNT_PAUSED", "message": "Account is paused"},
+        )
 
     code = body.code.strip().upper()
 
@@ -997,6 +1036,7 @@ async def reset_password(
 @limiter.limit("3/15minutes")
 async def login_admin(
     request: Request,
+    response: Response,
     data: AdminLoginRequest,
     db: Session = Depends(get_db),
 ):
@@ -1019,6 +1059,7 @@ async def login_admin(
             username=data.username,
             display_name=data.username.replace("_", " ").title(),
             role="admin",
+            password_hash=None,  # FIND-26: admin accounts have no password
             created_at=datetime.utcnow(),
         )
         db.add(admin_user)
@@ -1029,9 +1070,22 @@ async def login_admin(
         admin_user.role = "admin"
         db.commit()
 
-    access_token = create_access_token(
-        data={"sub": str(admin_user.id), "username": admin_user.username, "role": "admin"}
+    # FIND-11: use token_service for short-lived token + refresh cookie
+    from app.services.token_service import (
+        create_access_token as ts_create_token,
+        create_refresh_token, set_refresh_cookie,
     )
+    from app.config import settings as _settings_admin
+
+    client_ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+    access_token = ts_create_token(admin_user.id, "admin", str(admin_user.uuid or admin_user.id))
+    raw_refresh = create_refresh_token(
+        user=admin_user, db=db,
+        remember_me=False,
+        ip_address=client_ip, user_agent=ua,
+    )
+    set_refresh_cookie(response, raw_refresh, remember_me=False, is_production=_settings_admin.IS_PRODUCTION)
     admin_name = data.username.replace("_", " ").title()
     return LoginResponse(
         success=True,
@@ -1082,6 +1136,12 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
     user.email_verified_at = datetime.utcnow()
     user.email_verify_token = None
     user.email_verify_token_exp = None
+
+    # Award karma for email verification
+    from app.models import PointsTransaction
+    _email_pts = 20
+    user.seller_points = max(0, (user.seller_points or 0) + _email_pts)
+    db.add(PointsTransaction(user_id=user.id, amount=_email_pts, reason="email_verified"))
     db.commit()
 
     # Send welcome email with platform stats
@@ -1289,10 +1349,16 @@ async def update_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Block 8C — persist user settings to profile.metadata_."""
-    from app.services.metadata import ensure_profile, update_ui_settings
-    profile = ensure_profile(db, current_user.id)
-    update_ui_settings(db, profile, body.model_dump(exclude_none=True))
+    """Block 8C — persist user settings via settings_service."""
+    from app.services.settings_service import apply_settings_update, get_or_create_settings
+    settings = get_or_create_settings(current_user, db)
+    updates = {k: v for k, v in body.model_dump(exclude_none=True).items() if k != "client_version"}
+    apply_settings_update(
+        settings=settings,
+        updates=updates,
+        db=db,
+        client_version=getattr(body, "client_version", None),
+    )
     return {"message": "Settings saved"}
 
 
@@ -1361,10 +1427,34 @@ async def get_sessions(
 async def revoke_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    # BUG-004: real session revocation
+    from app.models import LoginHistory, RefreshToken as _RT
     if session_id == "current":
         raise HTTPException(status_code=400, detail="Cannot revoke current session here — use logout")
-    return {"message": "Session revoked"}
+    try:
+        session_id_int = int(session_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    history = db.query(LoginHistory).filter(
+        LoginHistory.id == session_id_int,
+        LoginHistory.user_id == current_user.id,
+    ).first()
+    if not history:
+        raise HTTPException(status_code=404, detail="Session not found")
+    now = datetime.now(timezone.utc)
+    tokens = db.query(_RT).filter(
+        _RT.user_id == current_user.id,
+        _RT.revoked == False,
+        _RT.ip_address == history.ip_address,
+    ).all()
+    for token in tokens:
+        token.revoked = True
+        token.revoked_at = now
+    db.delete(history)
+    db.commit()
+    return {"message": "Session revoked successfully"}
 
 
 @router.post("/validate-token")
@@ -1400,9 +1490,9 @@ async def refresh_token(
         clear_refresh_cookie(response)
         raise HTTPException(status_code=401, detail="Invalid or expired session. Please log in again.")
 
-    new_raw_token, user = result
+    new_raw_token, user, remember_me = result  # FIND-27: unpack persisted remember_me preference
     access_token = ts_create_token(user.id, user.role, str(user.uuid or user.id))
-    set_refresh_cookie(response, new_raw_token, remember_me=True, is_production=_settings.IS_PRODUCTION)
+    set_refresh_cookie(response, new_raw_token, remember_me=remember_me, is_production=_settings.IS_PRODUCTION)
     from app.services.settings_service import (
         get_or_create_settings as _gocs,
         serialize_settings as _ss,

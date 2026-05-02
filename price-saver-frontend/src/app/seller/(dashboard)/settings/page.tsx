@@ -258,14 +258,7 @@ export default function SellerSettingsPage() {
       setPickupPolicy((data.pickup_policy as string) || "");
       setReturnPolicy((data.return_policy as string) || "");
       setPaymentPolicy((data.payment_policy as string) || "");
-      setStoreStatus(((data.availability_status as string) || "open") as "open" | "limited" | "closed");
-      setVacationMode((data.vacation_mode as boolean) || false);
-      setVacationDate((data.vacation_resume_date as string) || "");
       setAutoReply((data.auto_reply as string) || "Hi! I'm currently unavailable. I'll reply as soon as possible.");
-      setDefaultLocation((data.default_location as string) || "");
-      setDefaultDuration((data.default_duration as number)?.toString() || "14");
-      setAutoRenew((data.auto_renew as boolean) ?? true);
-      setDefaultNegotiable((data.default_negotiable as boolean) ?? false);
     } catch { /* silent on initial load */ }
   }
 
@@ -620,7 +613,7 @@ export default function SellerSettingsPage() {
                 <div onClick={() => bannerRef.current?.click()}
                   className="h-24 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors overflow-hidden relative">
                   {bannerPreview
-                    ? <Image src={bannerPreview} alt="banner" fill className="object-cover" />
+                    ? <Image src={bannerPreview} alt="banner" fill sizes="100vw" className="object-cover" />
                     : <span className="text-sm text-gray-400">↑ Upload Banner (1200×300 recommended)</span>}
                 </div>
                 <input ref={bannerRef} type="file" accept="image/*" className="hidden"
@@ -906,7 +899,7 @@ export default function SellerSettingsPage() {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Temporarily hide all active listings. Reactivate anytime from your listings page.</p>
                 <button onClick={async () => {
                   setLoad("pauseAll", true);
-                  try { await sellerApi.setVacation(token!, { enabled: true, resume_date: null }); showToast("All listings paused", "success"); }
+                  try { await settingsApi.patchSettings(token!, { vacation_mode: true, vacation_resume_date: null, client_version: settingsVersionRef.current }); setVacationMode(true); showToast("All listings paused", "success"); }
                   catch (e: unknown) { showToast((e instanceof Error ? e.message : null) || "Failed", "error"); }
                   finally { setLoad("pauseAll", false); }
                 }} disabled={loading.pauseAll}

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import sellerApi from "@/lib/sellerApi";
+import { sellerApi } from "@/lib/api";
 import NumberInput from "@/components/ui/NumberInput";
 
 /**
@@ -24,7 +24,7 @@ export default function InventoryPage({
 }: {
   params: { userId: string };
 }) {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +34,8 @@ export default function InventoryPage({
     const fetchInventory = async () => {
       try {
         setLoading(true);
-        const data = await sellerApi.getInventory(params.userId);
-        setInventory(data);
+        const res = await sellerApi.getListings(token!);
+        setInventory(((res as unknown) as { success?: boolean; data?: InventoryItem[] })?.data ?? []);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to load inventory"
@@ -45,10 +45,10 @@ export default function InventoryPage({
       }
     };
 
-    if (user) {
+    if (user && token) {
       fetchInventory();
     }
-  }, [user, params.userId]);
+  }, [user, token, params.userId]);
 
   if (loading) {
     return <div className="text-center py-10">Loading inventory...</div>;
@@ -74,11 +74,12 @@ export default function InventoryPage({
 
       {showCreateForm && (
         <CreateProductForm
-          sellerId={params.userId}
           onSuccess={() => {
             setShowCreateForm(false);
             // Refresh inventory
-            sellerApi.getInventory(params.userId).then(setInventory);
+            sellerApi.getListings(token!).then(res =>
+              setInventory(((res as unknown) as { success?: boolean; data?: InventoryItem[] })?.data ?? [])
+            );
           }}
         />
       )}
@@ -156,12 +157,11 @@ export default function InventoryPage({
 }
 
 function CreateProductForm({
-  sellerId,
   onSuccess,
 }: {
-  sellerId: string;
   onSuccess: () => void;
 }) {
+  const { token } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -187,11 +187,11 @@ function CreateProductForm({
       setLoading(true);
       setError(null);
 
-      await sellerApi.createListing(sellerId, {
+      await sellerApi.createListing(token!, {
         name: formData.name,
         description: formData.description,
         price: parseFloat(formData.price),
-        category: formData.category,
+        category_id: parseInt(formData.category) || 0,
         quantity: parseInt(formData.quantity),
       });
 

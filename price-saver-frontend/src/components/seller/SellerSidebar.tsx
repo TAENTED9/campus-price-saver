@@ -61,6 +61,7 @@ const SellerSidebar: React.FC = () => {
   const [livePoints, setLivePoints] = useState<number | null>(null);
   const [liveRating, setLiveRating] = useState<number | null>(null);
   const [liveReviewCount, setLiveReviewCount] = useState<number>(0);
+  const [verificationStatus, setVerificationStatus] = useState<string>("");
 
   useEffect(() => {
     if (!token) return;
@@ -94,6 +95,9 @@ const SellerSidebar: React.FC = () => {
           if (typeof r.data.reviewCount === "number") {
             setLiveReviewCount(r.data.reviewCount);
           }
+          if (r.data.verificationStatus) {
+            setVerificationStatus(r.data.verificationStatus);
+          }
         })
         .catch(() => {});
     };
@@ -124,7 +128,7 @@ const SellerSidebar: React.FC = () => {
   };
 
   const storeName = user?.display_name || user?.username || "My Store";
-  const isVerified = user?.role === "seller";
+  const isVerified = verificationStatus === "Approved";
   const karmaPoints = livePoints ?? user?.seller_points ?? 0;
   const karmaMax = 2000;
   const karmaPct = Math.min(Math.round((karmaPoints / karmaMax) * 100), 100);

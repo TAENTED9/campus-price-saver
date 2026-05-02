@@ -102,7 +102,7 @@ export default function DealsPage() {
 
   useEffect(() => {
     flashSalesApi
-      .getActive(60)
+      .getActive(50)
       .then((data) => { setSales(data); setError(null); })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load deals"))
       .finally(() => setLoading(false));

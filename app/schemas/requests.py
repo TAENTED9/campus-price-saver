@@ -143,7 +143,6 @@ class PriceCreate(SafeTextMixin):
     photos: list[str] = Field(default_factory=list)
     subcategory: str | None = None
     status: str | None = None
-    submitted_by: int | None = None
 
     @field_validator("price")
     @classmethod

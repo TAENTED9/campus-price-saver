@@ -32,24 +32,27 @@ async def toggle_wishlist(
     db: Session = Depends(get_db),
 ):
     """Add or remove a listing from the user's wishlist."""
-    listing = db.query(Price).filter(Price.id == listing_id, Price.listing_status == "active").first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-
     existing = db.query(Wishlist).filter(
         Wishlist.user_id == current_user.id,
         Wishlist.listing_id == listing_id,
     ).first()
 
+    # BUG-005: always allow removal regardless of listing status
     if existing:
         db.delete(existing)
         db.commit()
-        return {"wishlisted": False}
+        return {"wishlisted": False, "listing_id": listing_id}
 
-    wish = Wishlist(user_id=current_user.id, listing_id=listing_id)
+    # BUG-005: only check active status when adding
+    listing = db.query(Price).filter(Price.id == listing_id, Price.listing_status == "active").first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found or no longer available")
+
+    # BUG-008: record the price at time of saving
+    wish = Wishlist(user_id=current_user.id, listing_id=listing_id, saved_price=listing.price)
     db.add(wish)
     db.commit()
-    return {"wishlisted": True}
+    return {"wishlisted": True, "listing_id": listing_id}
 
 
 @router.get("/status/{listing_id}")
@@ -93,6 +96,10 @@ async def get_wishlist(
             "listing_id": listing.id,
             "name": listing.name,
             "price": listing.price,
+            "saved_price": w.saved_price,   # BUG-008
+            "price_dropped": (              # BUG-008
+                w.saved_price is not None and listing.price < w.saved_price
+            ),
             "location": listing.location,
             "listing_status": listing.listing_status,
             "photos": photos,

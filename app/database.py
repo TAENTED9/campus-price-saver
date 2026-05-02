@@ -234,6 +234,19 @@ def _run_postgres_migrations():
         _pg_try(conn, "ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ")
         _pg_try(conn, "ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS label TEXT")
 
+        # Block 5 — Reviews new fields
+        _pg_try(conn, "ALTER TABLE reviews ADD COLUMN IF NOT EXISTS is_verified_purchase BOOLEAN NOT NULL DEFAULT FALSE")
+
+        # Block 5 — Conversation listing context
+        _pg_try(conn, "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS listing_id INTEGER REFERENCES prices(id) ON DELETE SET NULL")
+
+        # Block 5 — Leads anonymous tracking
+        _pg_try(conn, "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ip_hash TEXT")
+
+        # Block 5 — Review performance indexes
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_reviews_listing_id ON reviews(listing_id)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_reviews_seller_id ON reviews(seller_id)")
+
         # updated_at trigger function
         conn.execute(text("""
             CREATE OR REPLACE FUNCTION update_updated_at()
@@ -427,6 +440,17 @@ def _apply_migrations(eng) -> None:
         ("inquiries", "seller_reply",            "TEXT"),
         ("inquiries", "replied_at",              "TEXT"),
         ("inquiries", "label",                   "TEXT"),
+        # Vacation mode — track which listings were paused by vacation vs manually
+        ("prices", "paused_by_vacation",         "INTEGER DEFAULT 0"),
+        # Messages — conversation UUID + automated message flag
+        ("conversations",   "uuid",              "TEXT"),
+        ("direct_messages", "is_automated",      "INTEGER DEFAULT 0"),
+        # Block 5 — Reviews new fields
+        ("reviews", "is_verified_purchase",      "INTEGER DEFAULT 0"),
+        # Block 5 — Conversation listing context
+        ("conversations", "listing_id",          "INTEGER"),
+        # Block 5 — Leads anonymous tracking
+        ("leads", "ip_hash",                     "TEXT"),
     ]
 
     with eng.connect() as conn:
@@ -499,6 +523,8 @@ def _apply_migrations(eng) -> None:
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_prices_uuid  ON prices(uuid)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_uuid  ON orders(uuid)"))
         conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_uuid ON reviews(uuid)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_reviews_listing_id ON reviews(listing_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_reviews_seller_id ON reviews(seller_id)"))
 
         # Mark all existing users as already email-verified so they aren't locked out.
         # New users registered after this migration must verify normally.

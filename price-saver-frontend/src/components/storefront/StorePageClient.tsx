@@ -63,6 +63,7 @@ function ListingCard({ listing }: { listing: ListingDetail }) {
             src={thumbnailImage(photo, 400)}
             alt={listing.name}
             fill
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
@@ -100,16 +101,25 @@ export default function StorePageClient({
   seller: sellerProp,
   listings,
   listingCount,
+  ownerUserId,
+  ownerUuid,
 }: {
   seller: SellerInfo;
   listings: ListingDetail[];
   listingCount: number;
+  ownerUserId?: number | null;
+  ownerUuid?: string | null;
 }) {
   const seller = sellerProp as RichSeller;
   const { token, user } = useAuth();
   const router = useRouter();
 
-  const isOwner = !!user && user.id === seller.id;
+  const _ownerId = ownerUserId ?? seller.id;
+  const _ownerUuid = ownerUuid ?? seller.uuid;
+  const isOwner = !!user && (
+    user.id === _ownerId ||
+    (!!_ownerUuid && user.username === seller.username)
+  );
 
   const [activeTab, setActiveTab] = useState<"listings" | "reviews" | "about">("listings");
   const [catFilter, setCatFilter] = useState<number | null>(null);
@@ -237,6 +247,7 @@ export default function StorePageClient({
             src={optimizeImage(bannerUrl, 1200)}
             alt={`${seller.display_name} cover`}
             fill
+            sizes="100vw"
             className="object-cover"
             priority
           />

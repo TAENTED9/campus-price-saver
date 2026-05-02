@@ -7,6 +7,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 import json
+from datetime import datetime
+from app.utils.timezone import now_wat, format_wat_iso
 from typing import Optional
 
 from app.database import get_db
@@ -60,6 +62,12 @@ def _seller_info(seller: User, db: Session) -> dict:
     meta = (prof.metadata_ or {}) if prof else {}
     policies = meta.get("policies", {}) if isinstance(meta, dict) else {}
 
+    # Policy fields: prefer dedicated columns, fall back to metadata_ for old records
+    def _policy(col_val, meta_key: str) -> str | None:
+        if col_val:
+            return col_val
+        return policies.get(meta_key) or None
+
     return {
         "id": seller.id,
         "uuid": seller.uuid,
@@ -75,12 +83,12 @@ def _seller_info(seller: User, db: Session) -> dict:
         "whatsapp": prof.whatsapp if prof else None,
         "show_whatsapp": (prof.show_whatsapp if prof else False) or False,
         "instagram": prof.instagram if prof else None,
-        # Store policies (stored in profile metadata)
-        "pickup_policy": policies.get("pickup_policy") or None,
-        "return_policy": policies.get("return_policy") or None,
-        "payment_policy": policies.get("payment_policy") or None,
+        # Store policies — dedicated columns (with metadata_ fallback for existing records)
+        "pickup_policy":  _policy(prof.pickup_policy  if prof else None, "pickup_policy"),
+        "return_policy":  _policy(prof.return_policy  if prof else None, "return_policy"),
+        "payment_policy": _policy(prof.payment_policy if prof else None, "payment_policy"),
         # Legacy field kept for backward compat — prefer verification_status
-        "verified": seller.role == "seller",
+        "verified": is_verified,
         # Feature 3
         "is_verified": is_verified,
         "verification_status": verification_status,
@@ -97,8 +105,28 @@ def _seller_info(seller: User, db: Session) -> dict:
 
 
 def _price_to_dict(p: Price) -> dict:
+    # Resolve active flash sale from the relationship (no extra query)
+    now = now_wat()
+    active_sale = next(
+        (
+            s for s in (p.flash_sales or [])
+            if s.is_active and s.end_time and s.end_time > now
+        ),
+        None,
+    )
+    flash_sale_data = None
+    if active_sale:
+        flash_sale_data = {
+            "id": active_sale.id,
+            "title": active_sale.title,
+            "sale_price": active_sale.sale_price,
+            "original_price": active_sale.original_price,
+            "discount_pct": active_sale.discount_pct,
+            "end_time": active_sale.end_time.isoformat(),
+        }
     return {
         "id": p.id,
+        "uuid": p.uuid,
         "name": p.name,
         "brand": p.brand,
         "price": p.price,
@@ -115,10 +143,11 @@ def _price_to_dict(p: Price) -> dict:
         "listing_status": p.listing_status or "active",
         "view_count": p.view_count,
         "is_featured": p.is_featured,
-        "submitted_at": p.submitted_at.isoformat(),
-        "expires_at": p.expires_at.isoformat() if p.expires_at else None,
+        "submitted_at": format_wat_iso(p.submitted_at),
+        "expires_at": format_wat_iso(p.expires_at) if p.expires_at else None,
         "pack_size": p.pack_size,
         "pack_unit": p.pack_unit,
+        "flash_sale": flash_sale_data,
     }
 
 
@@ -127,7 +156,6 @@ def _price_to_dict(p: Price) -> dict:
 @router.get("/stats")
 async def get_platform_stats(db: Session = Depends(get_db)):
     """Real platform stats for the homepage strip."""
-    from datetime import datetime
     total_users = db.query(User).count()
     active_listings = db.query(Price).filter(
         Price.status == "approved", Price.listing_status == "active"
@@ -139,7 +167,7 @@ async def get_platform_stats(db: Session = Depends(get_db)):
         "total_sellers": total_sellers,
         "active_listings": active_listings,
         "total_categories": total_categories,
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": format_wat_iso(now_wat()),
     }
 
 
@@ -266,10 +294,13 @@ async def get_seller_storefront(
         .all()
     )
 
+    seller_info = _seller_info(seller, db)
     return {
-        "seller": _seller_info(seller, db),
+        "seller": seller_info,
         "listings": [_price_to_dict(p) for p in listings],
         "listing_count": total,
+        "owner_user_id": seller.id,
+        "owner_uuid": seller.uuid,
     }
 
 

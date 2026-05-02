@@ -5,7 +5,7 @@ Set RESEND_API_KEY in .env to enable. Without it, emails are skipped silently.
 """
 
 import os
-import requests as _requests
+import httpx as _httpx
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 APP_URL = os.getenv("APP_URL", "http://localhost:3000")
@@ -22,12 +22,12 @@ BRAND_SUPPORT = os.getenv("SUPPORT_EMAIL", "support@campify.app")
 def _get_config():
     """Read email config fresh from env each call so dotenv order doesn't matter."""
     api_key = os.getenv("RESEND_API_KEY", "")
-    resend_from = os.getenv("RESEND_FROM", "Campify <noreply@campify.app>")
+    resend_from = os.getenv("RESEND_FROM", "Campify <noreply@campify.ng>")
     from_addr = os.getenv("EMAIL_FROM", resend_from)
     return api_key, from_addr
 
 
-def _send(to: str, subject: str, html: str) -> bool:
+async def _send(to: str, subject: str, html: str) -> bool:
     """Low-level Resend API call. Returns True on success."""
     api_key, from_addr = _get_config()
     if not api_key:
@@ -35,15 +35,15 @@ def _send(to: str, subject: str, html: str) -> bool:
         return False
     print(f"[email] Sending '{subject}' to {to} from {from_addr}")
     try:
-        resp = _requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={"from": from_addr, "to": [to], "subject": subject, "html": html},
-            timeout=10,
-        )
+        async with _httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"from": from_addr, "to": [to], "subject": subject, "html": html},
+            )
         if resp.status_code in (200, 201):
             print(f"[email] Sent OK: {resp.json()}")
             return True
@@ -181,7 +181,7 @@ def _info_box(inner_html: str, tone: str = "brand") -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def send_otp_email(to: str, name: str, otp: str) -> bool:
+async def send_otp_email(to: str, name: str, otp: str) -> bool:
     body = (
         _p(f"Hi <strong>{name}</strong>,")
         + _p(f"Use the code below to verify your email address for {BRAND_NAME}:")
@@ -195,10 +195,10 @@ def send_otp_email(to: str, name: str, otp: str) -> bool:
         heading="Verify your email",
         body_html=body,
     )
-    return _send(to, f"Your verification code — {BRAND_NAME}", html)
+    return await _send(to, f"Your verification code — {BRAND_NAME}", html)
 
 
-def send_seller_submission_email(to: str, seller_name: str) -> bool:
+async def send_seller_submission_email(to: str, seller_name: str) -> bool:
     body = (
         _p(f"Hi <strong>{seller_name}</strong>,")
         + _p(f"We've received your seller verification request on {BRAND_NAME}.")
@@ -212,10 +212,10 @@ def send_seller_submission_email(to: str, seller_name: str) -> bool:
         cta_label="Go to Seller Dashboard",
         cta_url=f"{APP_URL}/seller",
     )
-    return _send(to, f"We've received your seller verification — {BRAND_NAME}", html)
+    return await _send(to, f"We've received your seller verification — {BRAND_NAME}", html)
 
 
-def send_admin_new_verification_email(seller_name: str, matric_no: str, business_name: str) -> bool:
+async def send_admin_new_verification_email(seller_name: str, matric_no: str, business_name: str) -> bool:
     if not ADMIN_EMAIL:
         return False
     rows = [
@@ -241,10 +241,10 @@ def send_admin_new_verification_email(seller_name: str, matric_no: str, business
         cta_label="Review in Admin Panel",
         cta_url=f"{APP_URL}/admin/seller",
     )
-    return _send(ADMIN_EMAIL, f"New seller verification: {seller_name} — {BRAND_NAME}", html)
+    return await _send(ADMIN_EMAIL, f"New seller verification: {seller_name} — {BRAND_NAME}", html)
 
 
-def send_seller_approved_email(to: str, seller_name: str) -> bool:
+async def send_seller_approved_email(to: str, seller_name: str) -> bool:
     body = (
         _p(f"Hi <strong>{seller_name}</strong>,")
         + _p(f"Congratulations! Your seller account on {BRAND_NAME} has been <strong>approved</strong>.")
@@ -263,10 +263,10 @@ def send_seller_approved_email(to: str, seller_name: str) -> bool:
         cta_url=f"{APP_URL}/seller/listings/new",
         heading_color="#16a34a",
     )
-    return _send(to, f"Your seller account is approved! — {BRAND_NAME}", html)
+    return await _send(to, f"Your seller account is approved! — {BRAND_NAME}", html)
 
 
-def send_seller_rejected_email(to: str, seller_name: str, reason: str) -> bool:
+async def send_seller_rejected_email(to: str, seller_name: str, reason: str) -> bool:
     reason_block = _info_box(
         f'<p style="margin:0;font-weight:700;color:#991b1b;font-size:13px;text-transform:uppercase;letter-spacing:1px">Reason</p>'
         f'<p style="margin:6px 0 0;color:#7f1d1d">{reason}</p>',
@@ -286,11 +286,11 @@ def send_seller_rejected_email(to: str, seller_name: str, reason: str) -> bool:
         cta_url=f"{APP_URL}/seller/verification",
         heading_color="#dc2626",
     )
-    return _send(to, f"Your seller verification was not approved — {BRAND_NAME}", html)
+    return await _send(to, f"Your seller verification was not approved — {BRAND_NAME}", html)
 
 
-def send_price_drop_alert(to: str, buyer_name: str, listing_name: str,
-                          old_price: float, new_price: float, listing_id: int) -> bool:
+async def send_price_drop_alert(to: str, buyer_name: str, listing_name: str,
+                                old_price: float, new_price: float, listing_id: int) -> bool:
     pct = round((old_price - new_price) / old_price * 100)
     body = (
         _p(f"Hi <strong>{buyer_name}</strong>,")
@@ -312,11 +312,11 @@ def send_price_drop_alert(to: str, buyer_name: str, listing_name: str,
         cta_url=f"{APP_URL}/listing/{listing_id}",
         heading_color="#16a34a",
     )
-    return _send(to, f"Price dropped on '{listing_name}' — {BRAND_NAME}", html)
+    return await _send(to, f"Price dropped on '{listing_name}' — {BRAND_NAME}", html)
 
 
-def send_restock_alert(to: str, buyer_name: str, listing_name: str,
-                       price: float, listing_id: int) -> bool:
+async def send_restock_alert(to: str, buyer_name: str, listing_name: str,
+                             price: float, listing_id: int) -> bool:
     body = (
         _p(f"Hi <strong>{buyer_name}</strong>,")
         + _p("A listing you saved is available again:")
@@ -332,11 +332,11 @@ def send_restock_alert(to: str, buyer_name: str, listing_name: str,
         cta_label="View Listing",
         cta_url=f"{APP_URL}/listing/{listing_id}",
     )
-    return _send(to, f"'{listing_name}' is back in stock — {BRAND_NAME}", html)
+    return await _send(to, f"'{listing_name}' is back in stock — {BRAND_NAME}", html)
 
 
-def send_new_listing_alert(to: str, buyer_name: str, seller_name: str,
-                            listing_name: str, price: float, listing_id: int) -> bool:
+async def send_new_listing_alert(to: str, buyer_name: str, seller_name: str,
+                                 listing_name: str, price: float, listing_id: int) -> bool:
     body = (
         _p(f"Hi <strong>{buyer_name}</strong>,")
         + _p(f"<strong>{seller_name}</strong> just posted something new on {BRAND_NAME}:")
@@ -352,10 +352,10 @@ def send_new_listing_alert(to: str, buyer_name: str, seller_name: str,
         cta_label="View Listing",
         cta_url=f"{APP_URL}/listing/{listing_id}",
     )
-    return _send(to, f"New listing from {seller_name}: {listing_name} — {BRAND_NAME}", html)
+    return await _send(to, f"New listing from {seller_name}: {listing_name} — {BRAND_NAME}", html)
 
 
-def send_weekly_report(to: str, seller_name: str, stats: dict) -> bool:
+async def send_weekly_report(to: str, seller_name: str, stats: dict) -> bool:
     """
     Weekly digest email sent every Monday at 08:00 WAT.
     stats keys: views (int), inquiries (int)
@@ -383,4 +383,35 @@ def send_weekly_report(to: str, seller_name: str, stats: dict) -> bool:
         cta_label="View Full Analytics",
         cta_url=f"{APP_URL}/seller/analytics",
     )
-    return _send(to, f"Your {BRAND_NAME} weekly summary", html)
+    return await _send(to, f"Your {BRAND_NAME} weekly summary", html)
+
+
+async def send_interest_notification_email(
+    seller_email: str,
+    seller_name: str,
+    buyer_name: str,
+    listing_name: str,
+    listing_price: float,
+) -> bool:
+    """Notify a seller that a buyer has expressed interest in their listing."""
+    from app.services.email_templates import INTEREST_EMAIL_TEMPLATE
+    body_html = (
+        _p(f"<strong>{buyer_name}</strong> is interested in your listing and has sent you an opening message.")
+        + f'<table style="border-collapse:separate;border-spacing:8px;width:100%"><tr>'
+        + f'<td style="background:#eff6ff;border-radius:12px;padding:16px 18px">'
+        + f'<p style="margin:0;font-size:13px;color:#6b7280">Listing</p>'
+        + f'<p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#1e293b">{listing_name}</p></td>'
+        + f'<td style="background:#f0fdf4;border-radius:12px;padding:16px 18px">'
+        + f'<p style="margin:0;font-size:13px;color:#6b7280">Price</p>'
+        + f'<p style="margin:4px 0 0;font-size:16px;font-weight:700;color:#16a34a">\u20a6{listing_price:,.0f}</p></td>'
+        + '</tr></table>'
+        + _p("Sellers who reply within 1 hour are 3\u00d7 more likely to close a deal.")
+    )
+    html = _wrap(
+        preheader=f"{buyer_name} is interested in {listing_name}",
+        heading="Someone wants to buy from you!",
+        body_html=body_html,
+        cta_label="Reply Now",
+        cta_url=f"{APP_URL}/messages",
+    )
+    return await _send(seller_email, f"{BRAND_NAME}: {buyer_name} is interested in '{listing_name}'", html)

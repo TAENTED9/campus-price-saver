@@ -37,13 +37,39 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedToken = localStorage.getItem("admin_token");
-    const savedUser  = localStorage.getItem("admin_user");
-    if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
-    }
-    setIsLoading(false);
+    // SEC-002: restore session via HttpOnly refresh cookie — no localStorage
+    (async () => {
+      try {
+        const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!refreshRes.ok) throw new Error("No session");
+        const refreshData = await refreshRes.json();
+
+        const meRes = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${refreshData.access_token}` },
+          credentials: "include",
+        });
+        if (!meRes.ok) throw new Error("No session");
+        const me = await meRes.json();
+        if (me.role !== "admin") throw new Error("Not admin");
+
+        const adminUser: AdminUser = {
+          id: me.numeric_id || me.id,
+          username: me.username,
+          display_name: me.display_name ?? me.username,
+          role: "admin",
+        };
+        setToken(refreshData.access_token);
+        setUser(adminUser);
+        setCookie("admin_token", refreshData.access_token);
+      } catch {
+        // No valid admin session
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, []);
 
   const login = useCallback(async (username: string, adminKey: string) => {
@@ -51,6 +77,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, admin_key: adminKey }),
+      credentials: "include",  // receive the campify_refresh HttpOnly cookie
     });
 
     if (!res.ok) {
@@ -73,18 +100,22 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     setToken(data.access_token);
     setUser(adminUser);
-    localStorage.setItem("admin_token", data.access_token);
-    localStorage.setItem("admin_user", JSON.stringify(adminUser));
-    setCookie("admin_token", data.access_token);
+    setCookie("admin_token", data.access_token); // for middleware JWT check
   }, []);
 
   const logout = useCallback(() => {
+    // Revoke server-side refresh token (fire-and-forget — navigates away immediately after)
+    if (token) {
+      fetch(`${API_BASE}/api/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      }).catch(() => {});
+    }
     setToken(null);
     setUser(null);
-    localStorage.removeItem("admin_token");
-    localStorage.removeItem("admin_user");
     deleteCookie("admin_token");
-  }, []);
+  }, [token]);
 
   return (
     <AdminAuthContext.Provider value={{

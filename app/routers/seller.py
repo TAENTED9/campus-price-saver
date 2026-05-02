@@ -6,18 +6,26 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 from datetime import datetime, timedelta
+from app.utils.timezone import now_wat, to_wat, format_wat_iso
 from pydantic import BaseModel, Field
 
 import asyncio
 import hashlib
 import json
 from app.database import get_db
-from app.models import Price, User, Profile, PointsTransaction, SellerVerification, Inquiry, Notification, Review, Order, Lead, KarmaLedger
+from app.models import Price, User, Profile, PointsTransaction, SellerVerification, Inquiry, Notification, Review, Order, Lead, KarmaLedger, Follow
 from app.routers.auth import get_current_user, get_user_allow_paused
+from app.routers.seller_orders import _order_dict
 from app.limiter import limiter
 
 router = APIRouter(prefix="/seller", tags=["Seller Dashboard"])
-orders_router = APIRouter(prefix="/orders", tags=["Orders"])
+
+
+def get_current_seller(current_user: User = Depends(get_current_user)) -> User:
+    """Dependency: ensure authenticated user has seller (or admin) role."""
+    if current_user.role not in ("seller", "admin"):
+        raise HTTPException(status_code=403, detail="Seller account required")
+    return current_user
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -68,7 +76,7 @@ class ProfileUpdate(BaseModel):
 
 @router.get("/stats")
 async def get_seller_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_seller),
     db: Session = Depends(get_db),
 ):
     """Seller dashboard overview stats."""
@@ -96,7 +104,7 @@ async def get_seller_stats(
     )
     confirmed_sales = (
         db.query(PointsTransaction)
-        .filter(PointsTransaction.user_id == uid, PointsTransaction.reason == "purchase_confirmed")
+        .filter(PointsTransaction.user_id == uid, PointsTransaction.reason == "order_completed")
         .count()
     )
 
@@ -116,6 +124,18 @@ async def get_seller_stats(
         Review.seller_id == current_user.id, Review.is_flagged == False
     ).count()
 
+    followers_count = db.query(Follow).filter(Follow.seller_id == uid).count()
+    total_inquiries = db.query(Inquiry).filter(Inquiry.seller_id == uid).count()
+
+    # Compute avg response time string from stored hours
+    avg_resp_hours = current_user.avg_response_hours or 0.0
+    if avg_resp_hours < 1:
+        avg_response_time = f"{int(avg_resp_hours * 60)} min"
+    elif avg_resp_hours < 24:
+        avg_response_time = f"{avg_resp_hours:.1f} hrs"
+    else:
+        avg_response_time = f"{avg_resp_hours / 24:.1f} days"
+
     return {
         "success": True,
         "data": {
@@ -132,6 +152,12 @@ async def get_seller_stats(
             "verificationStatus": verification.status if verification else "Not submitted",
             "avgRating": avg_rating,
             "reviewCount": review_count,
+            "followersCount": followers_count,
+            "totalInquiries": total_inquiries,
+            "responseRate": current_user.response_rate or 100.0,
+            "completionRate": current_user.completion_rate or 100.0,
+            "noShowRate": round((current_user.no_show_count or 0) / max(confirmed_sales, 1) * 100, 1),
+            "avgResponseTime": avg_response_time,
         },
     }
 
@@ -161,7 +187,7 @@ async def get_karma_history(
                 "points": e.points,
                 "reason": e.reason,
                 "reference_id": e.reference_id,
-                "created_at": e.created_at.isoformat(),
+                "created_at": format_wat_iso(e.created_at),
             }
             for e in entries
         ],
@@ -260,7 +286,7 @@ async def create_listing(
 
     expires_at = None
     if data.duration_days:
-        expires_at = datetime.utcnow() + timedelta(days=data.duration_days)
+        expires_at = now_wat() + timedelta(days=data.duration_days)
 
     is_draft = (data.listing_status or "active") == "draft"
     listing = Price(
@@ -413,7 +439,7 @@ async def get_seller_analytics(
 ):
     """Seller analytics — monthly submission count + top listings."""
     uid = current_user.id
-    now = datetime.utcnow()
+    now = now_wat()
 
     # Monthly submissions (last 6 months)
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -505,7 +531,7 @@ async def get_seller_analytics(
 # ── Verification status ─────────────────────────────────────────────────
 
 @router.get("/verification")
-@limiter.limit("3/hour")
+@limiter.limit("60/hour")
 async def get_seller_verification(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -592,7 +618,7 @@ async def submit_seller_verification_docs(
         # Reset to Pending on resubmit from Rejected
         existing.status = "Pending"
         existing.admin_notes = None
-        existing.submitted_at = datetime.utcnow()
+        existing.submitted_at = now_wat()
         db.commit()
         db.refresh(existing)
         verification = existing
@@ -710,22 +736,25 @@ async def toggle_vacation_mode(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Toggle vacation mode. Active → pauses all listings; Off → restores them to active."""
+    """Toggle vacation mode. Active → pauses all listings; Off → restores only vacation-paused listings."""
+    from sqlalchemy import text as _text
     new_mode = not (current_user.vacation_mode or False)
     current_user.vacation_mode = new_mode
 
     if new_mode:
-        # Pause all active listings
-        db.query(Price).filter(
-            Price.submitted_by == current_user.id,
-            Price.listing_status == "active",
-        ).update({"listing_status": "paused"}, synchronize_session=False)
+        # Mark active listings as paused_by_vacation so we only restore these later
+        db.execute(
+            _text("UPDATE prices SET listing_status='paused', paused_by_vacation=1 "
+                  "WHERE submitted_by=:uid AND listing_status='active'"),
+            {"uid": current_user.id},
+        )
     else:
-        # Restore paused → active
-        db.query(Price).filter(
-            Price.submitted_by == current_user.id,
-            Price.listing_status == "paused",
-        ).update({"listing_status": "active"}, synchronize_session=False)
+        # Only restore listings that were paused by vacation, not manually-paused ones
+        db.execute(
+            _text("UPDATE prices SET listing_status='active', paused_by_vacation=0 "
+                  "WHERE submitted_by=:uid AND listing_status='paused' AND paused_by_vacation=1"),
+            {"uid": current_user.id},
+        )
 
     db.commit()
     return {"success": True, "vacation_mode": new_mode}
@@ -911,7 +940,11 @@ async def get_profile_settings(
     """Return all data needed to populate the seller settings form."""
     p = current_user.profile
     meta = (p.metadata_ or {}) if p else {}
-    policies = meta.get("policies", {})
+    legacy = meta.get("policies", {}) if isinstance(meta, dict) else {}
+
+    def _pol(col_val, key: str) -> str:
+        return (col_val or "") or legacy.get(key, "")
+
     return {
         "success": True,
         "display_name": current_user.display_name or "",
@@ -927,9 +960,9 @@ async def get_profile_settings(
         "availability_status": current_user.availability_status or "open",
         "vacation_mode": current_user.vacation_mode or False,
         "auto_reply": current_user.auto_reply_message or "",
-        "pickup_policy": policies.get("pickup_policy", ""),
-        "return_policy": policies.get("return_policy", ""),
-        "payment_policy": policies.get("payment_policy", ""),
+        "pickup_policy":  _pol(p.pickup_policy  if p else None, "pickup_policy"),
+        "return_policy":  _pol(p.return_policy  if p else None, "return_policy"),
+        "payment_policy": _pol(p.payment_policy if p else None, "payment_policy"),
     }
 
 
@@ -1016,17 +1049,57 @@ async def update_policies(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Store pick-up, return, and payment policy text in profile metadata."""
+    """Store pick-up, return, and payment policy text in dedicated Profile columns."""
     p = _get_or_create_profile(current_user, db)
-    meta = dict(p.metadata_ or {})
-    meta["policies"] = {
-        "pickup_policy": (data.pickup_policy or "").strip(),
-        "return_policy": (data.return_policy or "").strip(),
-        "payment_policy": (data.payment_policy or "").strip(),
-    }
-    p.metadata_ = meta
+    p.pickup_policy  = (data.pickup_policy  or "").strip() or None
+    p.return_policy  = (data.return_policy  or "").strip() or None
+    p.payment_policy = (data.payment_policy or "").strip() or None
     db.commit()
     return {"success": True, "message": "Policies updated"}
+
+
+class ListingDefaultsUpdate(BaseModel):
+    default_location: str | None = Field(None, max_length=200)
+    default_duration: int | None = Field(None, ge=1, le=365)
+    auto_renew: bool | None = None
+    default_negotiable: bool | None = None
+
+
+@router.patch("/listing-defaults")
+async def update_listing_defaults(
+    data: ListingDefaultsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Persist default listing preferences in seller profile metadata."""
+    p = _get_or_create_profile(current_user, db)
+    meta = dict(p.metadata_ or {})
+    defaults = dict(meta.get("listing_defaults") or {})
+    if data.default_location is not None:
+        defaults["default_location"] = data.default_location.strip()
+    if data.default_duration is not None:
+        defaults["default_duration"] = data.default_duration
+    if data.auto_renew is not None:
+        defaults["auto_renew"] = data.auto_renew
+    if data.default_negotiable is not None:
+        defaults["default_negotiable"] = data.default_negotiable
+    meta["listing_defaults"] = defaults
+    p.metadata_ = meta
+    db.commit()
+    return {"success": True, "message": "Listing defaults updated", "listing_defaults": defaults}
+
+
+@router.post("/downgrade")
+async def downgrade_to_buyer(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Voluntarily downgrade a seller account back to buyer role."""
+    if current_user.role != "seller":
+        raise HTTPException(status_code=400, detail="Account is not a seller account")
+    current_user.role = "user"
+    db.commit()
+    return {"success": True, "message": "Account downgraded to buyer"}
 
 
 class AvailabilityUpdate(BaseModel):
@@ -1143,11 +1216,11 @@ async def get_seller_scorecard(
     completion_rate = round((completed / total_inquiries * 100) if total_inquiries else 100.0, 1)
 
     avg_rating_row = db.query(func.avg(Review.rating)).filter(
-        Review.seller_id == uid, Review.is_flagged == False
+        Review.seller_id == current_user.id, Review.is_flagged == False
     ).scalar()
     avg_rating = round(float(avg_rating_row), 1) if avg_rating_row else None
     review_count = db.query(Review).filter(
-        Review.seller_id == uid, Review.is_flagged == False
+        Review.seller_id == current_user.id, Review.is_flagged == False
     ).count()
 
     # Recalculate trust tier based on current points
@@ -1182,8 +1255,29 @@ async def get_seller_scorecard(
 
 # ── Karma / Points ────────────────────────────────────────────────────────
 
-def _award_points(db: Session, user: User, amount: int, reason: str, listing_id: int | None = None):
-    """Award karma points and update trust tier."""
+KARMA_POINTS: dict[str, int] = {
+    "first_listing":      10,
+    "first_sale":         25,
+    "five_star_review":   15,
+    "four_star_review":    8,
+    "three_star_review":   3,
+    "review_left":         5,
+    "profile_completed":  50,
+    "order_completed":    10,
+    "purchase_confirmed": 10,
+    "seller_verified":   100,
+    "email_verified":     20,
+    "price_submission":    5,
+    "fast_reply_week":     5,
+    "referral_signup":    30,
+}
+
+
+def _award_points(db: Session, user: User, reason: str, listing_id: int | None = None):
+    """Award karma points using KARMA_POINTS map and update trust tier."""
+    amount = KARMA_POINTS.get(reason, 0)
+    if amount == 0:
+        return
     user.seller_points = max(0, (user.seller_points or 0) + amount)
     tx = PointsTransaction(user_id=user.id, amount=amount, reason=reason, related_price_id=listing_id)
     db.add(tx)
@@ -1207,13 +1301,13 @@ async def award_profile_complete_points(
     """Award 50 points for completing seller profile (one-time)."""
     already = db.query(PointsTransaction).filter(
         PointsTransaction.user_id == current_user.id,
-        PointsTransaction.reason == "profile_complete",
+        PointsTransaction.reason == "profile_completed",
     ).first()
     if already:
         return {"success": False, "message": "Points already awarded for profile completion"}
     if not (current_user.bio and current_user.avatar_url and current_user.display_name):
         return {"success": False, "message": "Please complete bio, display name, and avatar first"}
-    _award_points(db, current_user, 50, "profile_complete")
+    _award_points(db, current_user, "profile_completed")
     db.commit()
     return {"success": True, "points_awarded": 50, "new_total": current_user.seller_points}
 
@@ -1248,96 +1342,56 @@ async def get_karma_history(
     }
 
 
+# ── Listing defaults ────────────────────────────────────────────────────────
+
+class ListingDefaultsUpdate(BaseModel):
+    default_location:    str | None = Field(None, max_length=200)
+    default_duration:    int | None = Field(None, ge=1, le=365)
+    auto_renew:          bool | None = None
+    default_negotiable: bool | None = None
+
+
+@router.patch("/listing-defaults")
+async def update_listing_defaults(
+    data: ListingDefaultsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save seller's default values for new listing creation."""
+    if data.default_location is not None:
+        current_user.default_pickup_location = data.default_location
+    if data.default_duration is not None:
+        current_user.default_listing_duration = data.default_duration
+    if data.auto_renew is not None:
+        current_user.auto_renew_listings = data.auto_renew
+    if data.default_negotiable is not None:
+        current_user.default_negotiable = data.default_negotiable
+    db.commit()
+    return {"success": True, "message": "Listing defaults updated"}
+
+
+# ── Seller downgrade ─────────────────────────────────────────────────────────
+
+@router.post("/downgrade")
+async def downgrade_seller(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Allow a seller to voluntarily downgrade back to a regular user role."""
+    if current_user.role != "seller":
+        raise HTTPException(status_code=400, detail="Account is not a seller account")
+    current_user.role = "user"
+    db.query(Price).filter(
+        Price.submitted_by == current_user.id,
+        Price.listing_status == "active",
+    ).update({"listing_status": "paused"})
+    db.commit()
+    return {"success": True, "message": "Seller account downgraded. Your listings have been paused."}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Section 4 — Orders & Leads
 # ══════════════════════════════════════════════════════════════════════════════
-
-class OrderCreate(BaseModel):
-    listing_id: int = Field(..., gt=0)
-    meetup_location: str | None = None
-
-
-class OrderStatusUpdate(BaseModel):
-    status: str  # met_up / completed / cancelled
-
-
-def _order_dict(o: Order) -> dict:
-    photos_raw = (o.listing.photos if o.listing else None) or "[]"
-    try:
-        photos = json.loads(photos_raw) if isinstance(photos_raw, str) else photos_raw
-    except Exception:
-        photos = []
-    seller = o.seller
-    return {
-        "id": o.id,
-        "uuid": o.uuid,
-        "listing_id": o.listing_id,
-        "listing_uuid": o.listing.uuid if o.listing else None,
-        "listing_name": o.listing.name if o.listing else None,
-        "listing_price": o.listing.price if o.listing else 0,
-        "listing_condition": o.listing.condition if o.listing else None,
-        "listing_photos": photos,
-        "buyer_id": o.buyer_id,
-        "seller_id": o.seller_id,
-        "seller_name": (seller.display_name or seller.username) if seller else "Unknown",
-        "seller_avatar": seller.avatar_url if seller else None,
-        "status": o.status,
-        "meetup_location": o.meetup_location,
-        "created_at": o.created_at.isoformat(),
-        "updated_at": o.updated_at.isoformat() if o.updated_at else None,
-    }
-
-
-@orders_router.post("", status_code=201)
-async def create_order(
-    body: OrderCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Buyer creates an order on a listing."""
-    listing = db.query(Price).filter(Price.id == body.listing_id).first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.submitted_by == current_user.id:
-        raise HTTPException(status_code=400, detail="Cannot order your own listing")
-
-    order = Order(
-        listing_id=body.listing_id,
-        buyer_id=current_user.id,
-        seller_id=listing.submitted_by,
-        meetup_location=body.meetup_location,
-    )
-    db.add(order)
-    db.commit()
-    db.refresh(order)
-
-    # Notify seller
-    notif = Notification(
-        user_id=listing.submitted_by,
-        type="new_message",
-        title="New order",
-        body=f"{current_user.display_name or current_user.username} placed an order for '{listing.name}'.",
-        related_id=order.id,
-        related_type="Order",
-    )
-    db.add(notif)
-    db.commit()
-    return _order_dict(order)
-
-
-@orders_router.get("")
-async def get_buyer_orders(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-    status: str | None = Query(None),
-):
-    """Buyer sees their own orders."""
-    q = db.query(Order).filter(Order.buyer_id == current_user.id)
-    if status:
-        q = q.filter(Order.status == status)
-    orders = q.order_by(Order.created_at.desc()).all()
-    return {"success": True, "data": [_order_dict(o) for o in orders]}
-
 
 @router.get("/orders")
 async def get_seller_orders(
@@ -1352,44 +1406,6 @@ async def get_seller_orders(
         .all()
     )
     return [_order_dict(o) for o in orders]
-
-
-@orders_router.patch("/{order_ref}/status")
-async def update_order_status(
-    order_ref: str,
-    body: OrderStatusUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Buyer or seller updates order status. order_ref may be a UUID or numeric ID."""
-    order = db.query(Order).filter(Order.uuid == order_ref).first()
-    if not order:
-        try:
-            order = db.query(Order).filter(Order.id == int(order_ref)).first()
-        except (ValueError, TypeError):
-            pass
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    if current_user.id not in (order.buyer_id, order.seller_id):
-        raise HTTPException(status_code=403, detail="Not your order")
-
-    valid = {"met_up", "completed", "cancelled"}
-    if body.status not in valid:
-        raise HTTPException(status_code=400, detail=f"Status must be one of {valid}")
-
-    order.status = body.status
-    order.updated_at = datetime.utcnow()
-
-    # Decrement quantity and mark sold_out on completion
-    if body.status == "completed":
-        listing = db.query(Price).filter(Price.id == order.listing_id).first()
-        if listing:
-            listing.quantity = max(0, (listing.quantity or 1) - 1)
-            if listing.quantity == 0:
-                listing.listing_status = "sold_out"
-
-    db.commit()
-    return _order_dict(order)
 
 
 @router.post("/listings/{listing_id}/interested", status_code=201)

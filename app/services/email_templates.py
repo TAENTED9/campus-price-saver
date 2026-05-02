@@ -209,3 +209,27 @@ If this wasn't you, secure your account immediately:
 {url}/dashboard/settings?tab=security
 
 — The Campify Team"""
+
+
+def INTEREST_EMAIL_TEMPLATE(
+    seller_name: str,
+    buyer_name: str,
+    listing_name: str,
+    listing_price: float,
+    app_url: str,
+) -> str:
+    return f"""Hi {seller_name},
+
+Great news! A buyer is interested in your listing.
+
+Buyer: {buyer_name}
+Listing: {listing_name}
+Asking Price: \u20a6{listing_price:,.0f}
+
+They've sent you an opening message via Campify.
+Reply now to close the deal:
+{app_url}/messages
+
+Tip: Sellers who respond within 1 hour are 3x more likely to complete a sale.
+
+— The Campify Team"""

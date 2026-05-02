@@ -1,5 +1,6 @@
 """Notification center router — in-app bell, mark read, clear."""
 from fastapi import APIRouter, Body, Depends, HTTPException
+from app.utils.timezone import format_wat_iso
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -172,5 +173,5 @@ def _notif_dict(n: Notification) -> dict:
         "related_id": n.related_id,
         "related_type": n.related_type,
         "is_read": n.is_read,
-        "created_at": n.created_at.isoformat(),
+        "created_at": format_wat_iso(n.created_at),
     }

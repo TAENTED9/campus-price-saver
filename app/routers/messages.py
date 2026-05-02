@@ -16,11 +16,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from sqlalchemy import Column, ForeignKey, Integer, String, Text, Boolean, DateTime
 from sqlalchemy.orm import Session, relationship
 
 from app.database import Base, SessionLocal, get_db
+from app.limiter import limiter
 from app.models import User, Notification
 from app.routers.auth import get_current_user
 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/messages", tags=["Messages"])
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), nullable=True, unique=True, index=True)
     user_a_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     user_b_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     last_message_at = Column(DateTime, nullable=True)
@@ -53,6 +55,7 @@ class DirectMessage(Base):
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     content = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
+    is_automated = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
@@ -271,7 +274,9 @@ async def get_messages(
 
 
 @router.post("/send")
+@limiter.limit("30/minute")
 async def send_message(
+    request: Request,
     body: dict = Body(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -365,13 +370,19 @@ async def mark_message_read(
     msg = db.query(DirectMessage).filter(DirectMessage.id == message_uuid).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
+    # SEC-004: only a participant in the conversation may mark messages as read
+    conv = db.query(Conversation).filter(Conversation.id == msg.conversation_id).first()
+    if not conv or current_user.id not in (conv.user_a_id, conv.user_b_id):
+        raise HTTPException(status_code=403, detail="Not your message")
     msg.is_read = True
     db.commit()
     return {"success": True}
 
 
 @router.post("/report/{user_uuid}")
+@limiter.limit("10/hour")
 async def report_user(
+    request: Request,
     user_uuid: str,
     body: dict = Body(...),
     current_user: User = Depends(get_current_user),
