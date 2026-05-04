@@ -86,7 +86,7 @@ const Avatar: React.FC<AvatarProps> = ({
           className="object-cover w-full h-full rounded-full"
         />
       ) : (
-        <div className="w-full h-full rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white font-bold">
+        <div className="w-full h-full rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white font-bold">
           <span className={textSizeClasses[size]}>{initials}</span>
         </div>
       )}

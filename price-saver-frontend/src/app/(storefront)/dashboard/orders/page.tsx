@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { ordersApi, type Order } from "@/lib/api";
 import { thumbnailImage } from "@/lib/cloudinary";
 import { formatPrice } from "@/lib/formatPrice";
@@ -38,7 +39,7 @@ function SellerInitials({ name }: { name: string }) {
   const parts = name.trim().split(" ");
   const letters = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.slice(0, 2);
   return (
-    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
       {letters.toUpperCase()}
     </div>
   );
@@ -57,7 +58,11 @@ function timeAgo(iso: string) {
 
 export default function OrdersPage() {
   const { token } = useAuth();
+  const { markCategoryRead } = useNotifications();
   const [activeStatus, setActiveStatus] = useState("");
+
+  // Clear the orders notification badge as soon as the user views the page
+  useEffect(() => { markCategoryRead("orders"); }, []);
   const [orders, setOrders]     = useState<Order[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(false);
@@ -154,7 +159,7 @@ export default function OrdersPage() {
             Once you purchase from a seller, your orders will appear here.
           </p>
           <Link href="/search"
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity">
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity">
             Browse Listings
           </Link>
         </div>

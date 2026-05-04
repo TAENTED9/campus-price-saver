@@ -6,8 +6,10 @@ import { useAuth } from "@/context/AuthContext";
 export default function StickyBottomCTA() {
   const { isAuthenticated } = useAuth();
 
+  if (isAuthenticated) return null;
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 px-4 py-3 flex gap-3 md:hidden">
+    <div className="fixed bottom-0 left-0 right-0 z-[25] bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 px-4 py-3 flex gap-3 md:hidden">
       {isAuthenticated ? (
         <Link
           href="/search"

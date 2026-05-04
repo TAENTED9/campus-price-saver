@@ -222,7 +222,7 @@ export default function SellerListingsPage() {
           )}
           {verificationStatus === "Approved" ? (
             <Link href="/seller/listings/new"
-              className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity">
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity">
               <Plus size={15} /> New Listing
             </Link>
           ) : (
@@ -363,7 +363,7 @@ export default function SellerListingsPage() {
                     </span>
                   )}
                   {l.photos && l.photos.length > 0 && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-gray-400"><Camera size={10} /> {l.photos.length}</span>
+                    <span className="flex items-center gap-0.5 text-xs text-gray-400"><Camera size={10} /> {l.photos.length}</span>
                   )}
                 </div>
 
@@ -374,10 +374,10 @@ export default function SellerListingsPage() {
                   <span>Health: <strong className={score >= 80 ? "text-success-500" : score >= 50 ? "text-warning-500" : "text-error-500"}>{score}/100</strong></span>
                 </div>
 
-                <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full w-36">
-                  <div className={`h-full rounded-full transition-all duration-700 ${
+                <div className="relative h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full w-36 overflow-hidden">
+                  <div className={`h-full rounded-full origin-left ${
                     score >= 80 ? "bg-success-500" : score >= 50 ? "bg-warning-400" : "bg-error-500"
-                  }`} style={{ width: `${score}%` }} />
+                  }`} style={{ transform: `scaleX(${score / 100})` }} />
                 </div>
               </div>
 
@@ -386,57 +386,69 @@ export default function SellerListingsPage() {
                 <p className="font-extrabold text-[16px] text-gray-800 dark:text-white">
                   {formatPrice(l.price)}
                 </p>
-                {l.is_featured && <span className="text-[10px] text-warning-500 font-semibold">⭐ Featured</span>}
+                {l.is_featured && <span className="text-xs text-warning-500 font-semibold">⭐ Featured</span>}
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center flex-shrink-0">
                 {/* Edit */}
-                <Link href={`/seller/listings/${l.uuid ?? l.id}/edit`} title="Edit"
-                  className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors">
-                  <PencilLine size={14} />
-                </Link>
+                <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <Link href={`/seller/listings/${l.uuid ?? l.id}/edit`} title="Edit"
+                    className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
+                    <PencilLine size={14} />
+                  </Link>
+                </div>
 
                 {/* Duplicate */}
-                <button type="button" title="Duplicate as draft" disabled={isActioning}
-                  onClick={() => handleDuplicate(l.id)}
-                  className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors disabled:opacity-40">
-                  <Copy size={14} />
-                </button>
+                <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <button type="button" title="Duplicate as draft" disabled={isActioning}
+                    onClick={() => handleDuplicate(l.id)}
+                    className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
+                    <Copy size={14} />
+                  </button>
+                </div>
 
                 {/* Mark as Sold */}
                 {lstatus !== "sold" && (
-                  <button type="button" title="Mark as Sold" disabled={isActioning}
-                    onClick={() => handleSetStatus(l.id, "sold")}
-                    className="w-8 h-8 rounded-lg border border-brand-200 dark:border-brand-500/30 bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 hover:bg-brand-100 transition-colors disabled:opacity-40">
-                    <CheckCircle size={14} />
-                  </button>
+                  <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                    <button type="button" title="Mark as Sold" disabled={isActioning}
+                      onClick={() => handleSetStatus(l.id, "sold")}
+                      className="w-8 h-8 rounded-lg border border-brand-200 dark:border-brand-500/30 bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 hover:bg-brand-100 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
+                      <CheckCircle size={14} />
+                    </button>
+                  </div>
                 )}
 
                 {/* Pause / Activate */}
                 {lstatus === "active" && (
-                  <button type="button" title="Pause listing" disabled={isActioning}
-                    onClick={() => handleSetStatus(l.id, "paused")}
-                    className="w-8 h-8 rounded-lg border border-warning-200 dark:border-warning-500/30 bg-warning-50 dark:bg-warning-500/10 flex items-center justify-center text-warning-600 hover:bg-warning-100 transition-colors disabled:opacity-40">
-                    <Pause size={14} />
-                  </button>
+                  <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                    <button type="button" title="Pause listing" disabled={isActioning}
+                      onClick={() => handleSetStatus(l.id, "paused")}
+                      className="w-8 h-8 rounded-lg border border-warning-200 dark:border-warning-500/30 bg-warning-50 dark:bg-warning-500/10 flex items-center justify-center text-warning-600 hover:bg-warning-100 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-warning-500 focus-visible:ring-offset-1">
+                      <Pause size={14} />
+                    </button>
+                  </div>
                 )}
                 {lstatus === "paused" && (
-                  <button type="button" title="Activate listing" disabled={isActioning}
-                    onClick={() => handleSetStatus(l.id, "active")}
-                    className="w-8 h-8 rounded-lg border border-success-200 dark:border-success-500/30 bg-success-50 dark:bg-success-500/10 flex items-center justify-center text-success-600 hover:bg-success-100 transition-colors disabled:opacity-40">
-                    <Play size={14} />
-                  </button>
+                  <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                    <button type="button" title="Activate listing" disabled={isActioning}
+                      onClick={() => handleSetStatus(l.id, "active")}
+                      className="w-8 h-8 rounded-lg border border-success-200 dark:border-success-500/30 bg-success-50 dark:bg-success-500/10 flex items-center justify-center text-success-600 hover:bg-success-100 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-success-500 focus-visible:ring-offset-1">
+                      <Play size={14} />
+                    </button>
+                  </div>
                 )}
 
                 {/* Delete */}
-                <button type="button" title="Delete listing" disabled={deleting === l.id}
-                  onClick={() => setDeleteConfirm(l.id)}
-                  className="w-8 h-8 rounded-lg border border-error-200 dark:border-error-500/30 bg-error-50 dark:bg-error-500/10 flex items-center justify-center text-error-500 hover:bg-error-100 transition-colors disabled:opacity-40">
-                  {deleting === l.id
-                    ? <svg className="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                    : <Trash2 size={14} />}
-                </button>
+                <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                  <button type="button" title="Delete listing" disabled={deleting === l.id}
+                    onClick={() => setDeleteConfirm(l.id)}
+                    className="w-8 h-8 rounded-lg border border-error-200 dark:border-error-500/30 bg-error-50 dark:bg-error-500/10 flex items-center justify-center text-error-500 hover:bg-error-100 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-error-500 focus-visible:ring-offset-1">
+                    {deleting === l.id
+                      ? <svg className="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      : <Trash2 size={14} />}
+                  </button>
+                </div>
               </div>
             </div>
           );
@@ -450,7 +462,7 @@ export default function SellerListingsPage() {
             </p>
             {activeTab === "all" && (
               <Link href="/seller/listings/new"
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity">
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity">
                 <Plus size={14} /> Add Your First Listing
               </Link>
             )}

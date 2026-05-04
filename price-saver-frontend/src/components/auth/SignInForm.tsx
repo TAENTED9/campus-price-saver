@@ -148,8 +148,8 @@ export default function SignInForm() {
           <p className="text-gray-500 dark:text-gray-400">Enter the 6-digit code from your authenticator app</p>
         </div>
         {mfaError && (
-          <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
-            <p className="text-sm text-red-600 dark:text-red-400">{mfaError}</p>
+          <div className="mb-5 p-3 rounded-lg bg-error-50 border border-error-200 dark:bg-error-500/10 dark:border-error-500/20">
+            <p className="text-sm text-error-600 dark:text-error-400">{mfaError}</p>
           </div>
         )}
         <form onSubmit={handleMfaSubmit}>
@@ -163,13 +163,13 @@ export default function SignInForm() {
               value={mfaCode}
               onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
               autoFocus
-              className="rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 text-center text-xl tracking-[0.5em] outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500"
+              className="rounded-xl border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 text-center text-base text-xl tracking-[0.5em] outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500"
             />
           </div>
           <button
             type="submit"
             disabled={mfaLoading || mfaCode.length < 6}
-            className="w-full flex justify-center items-center font-medium text-white bg-gray-900 py-3 px-6 rounded-full ease-out duration-200 hover:bg-brand-500 mt-2 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-gray-700 dark:hover:bg-brand-500"
+            className="btn-primary w-full mt-6"
           >
             {mfaLoading ? "Verifying..." : "Verify Code"}
           </button>
@@ -189,7 +189,7 @@ export default function SignInForm() {
     <div className="max-w-[570px] w-full mx-auto rounded-xl bg-white shadow-md p-4 sm:p-7 xl:p-11 dark:bg-gray-800">
       {/* Heading */}
       <div className="text-center mb-8">
-        <h2 className="font-semibold text-xl sm:text-2xl text-gray-900 dark:text-white mb-1.5">
+        <h2 className="font-bold text-xl sm:text-2xl text-gray-900 dark:text-white mb-1.5">
           Sign In to Your Account
         </h2>
         <p className="text-gray-500 dark:text-gray-400">Enter your details below</p>
@@ -197,9 +197,9 @@ export default function SignInForm() {
 
       {/* Verified banner */}
       {verifiedBanner && (
-        <div className="mb-5 flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-500/10 dark:border-green-500/20">
-          <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
-          <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+        <div className="mb-5 flex items-center gap-2 p-3 rounded-lg bg-success-50 border border-success-200 dark:bg-success-500/10 dark:border-success-500/20">
+          <CheckCircle size={16} className="text-success-500 flex-shrink-0" />
+          <p className="text-sm text-success-700 dark:text-success-400 font-medium">
             Email verified — you can now log in.
           </p>
         </div>
@@ -207,16 +207,16 @@ export default function SignInForm() {
 
       {/* Error alert */}
       {error && (
-        <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20">
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        <div className="mb-5 p-3 rounded-lg bg-error-50 border border-error-200 dark:bg-error-500/10 dark:border-error-500/20">
+          <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
         </div>
       )}
 
       {/* EMAIL_NOT_VERIFIED action */}
       {unverifiedEmail && (
-        <div className="mb-5 p-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20">
+        <div className="mb-5 p-3 rounded-lg bg-warning-50 border border-warning-200 dark:bg-warning-500/10 dark:border-warning-500/20">
           {resent ? (
-            <p className="text-sm text-green-700 dark:text-green-400 font-medium">
+            <p className="text-sm text-success-700 dark:text-success-400 font-medium">
               A new verification link was sent — check your inbox.
             </p>
           ) : (
@@ -224,7 +224,7 @@ export default function SignInForm() {
               type="button"
               onClick={handleResendVerification}
               disabled={resending}
-              className="inline-flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400 hover:underline disabled:opacity-60"
+              className="inline-flex items-center gap-2 text-sm font-medium text-warning-700 dark:text-warning-400 hover:underline disabled:opacity-60"
             >
               <MailCheck size={15} />
               {resending ? "Sending…" : "Resend verification email"}
@@ -247,7 +247,7 @@ export default function SignInForm() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
-            className="rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500"
+            className="campify-input w-full text-base"
           />
         </div>
 
@@ -265,7 +265,7 @@ export default function SignInForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="rounded-full border border-gray-300 bg-gray-50 placeholder:text-gray-400 w-full py-3 px-5 pr-12 outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-brand-500/20 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder:text-gray-500"
+              className="campify-input w-full pr-12 text-base"
             />
             <button
               type="button"
@@ -295,7 +295,7 @@ export default function SignInForm() {
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full flex justify-center items-center font-medium text-white bg-gray-900 py-3 px-6 rounded-full ease-out duration-200 hover:bg-brand-500 mt-6 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-gray-700 dark:hover:bg-brand-500"
+          className="btn-primary w-full mt-6"
         >
           {isLoading ? "Signing in..." : "Sign In"}
         </button>

@@ -485,6 +485,18 @@ export default function BuyerSettingsPage() {
     <div className="space-y-0">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+      {/* Mobile nav */}
+      <div className="lg:hidden overflow-x-auto pb-2 mb-4">
+        <div className="flex gap-2 w-max">
+          {navItems.map(item => (
+            <button key={item.id} onClick={() => setActive(item.id)}
+              className={`flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${active === item.id ? item.danger ? "bg-red-600 text-white" : "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>
+              <item.Icon size={12} /> {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex gap-6">
         {/* Sidebar */}
         <aside className="w-48 flex-shrink-0 hidden lg:block">
@@ -514,18 +526,6 @@ export default function BuyerSettingsPage() {
             </nav>
           </div>
         </aside>
-
-        {/* Mobile nav */}
-        <div className="lg:hidden w-full overflow-x-auto pb-2 mb-2">
-          <div className="flex gap-2">
-            {navItems.map(item => (
-              <button key={item.id} onClick={() => setActive(item.id)}
-                className={`flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${active === item.id ? "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>
-                <item.Icon size={12} /> {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* Main content */}
         <main className="flex-1 min-w-0">

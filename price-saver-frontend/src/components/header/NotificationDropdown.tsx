@@ -143,6 +143,19 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
             // action_url comes from the API notification object
             const actionUrl = (n as AppNotification & { action_url?: string }).action_url;
 
+            // For new_message notifications, always direct to the inbox.
+            // Use action_url if it already includes conv param, otherwise
+            // build one from related_id (conversation ID).
+            const navUrl = (() => {
+              if (n.type === "new_message") {
+                if (n.related_id && n.related_type === "Conversation") {
+                  return `/dashboard/messages?conv=${n.related_id}`;
+                }
+                return "/dashboard/messages";
+              }
+              return actionUrl ?? null;
+            })();
+
             return (
               <li key={n.id}>
                 <button
@@ -150,7 +163,8 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
                   aria-label={n.title}
                   onClick={() => {
                     markOneRead(n);
-                    if (actionUrl) router.push(actionUrl);
+                    setIsOpen(false);
+                    if (navUrl) router.push(navUrl);
                   }}
                   className={`w-full flex gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors text-left ${accentBorder} ${!n.is_read ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}
                 >

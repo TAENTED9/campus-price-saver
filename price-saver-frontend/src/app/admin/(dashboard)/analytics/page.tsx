@@ -43,7 +43,7 @@ function BarChart({
               style={{ height: `${pct}%` }}
               title={`${d.label}: ${d.count}`}
             />
-            <span className="text-[9px] text-gray-400 truncate w-full text-center">{d.label.slice(-5)}</span>
+            <span className="text-[11px] text-gray-400 truncate w-full text-center">{d.label.slice(-5)}</span>
           </div>
         );
       })}

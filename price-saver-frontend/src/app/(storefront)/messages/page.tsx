@@ -35,7 +35,7 @@ export default function MessagesPage() {
 
   return (
     <ChatProvider>
-      <div className="h-screen overflow-hidden">
+      <div className="h-[calc(100dvh-56px-70px)] md:h-[calc(100dvh-56px)] overflow-hidden">
         <ChatLayout />
       </div>
     </ChatProvider>

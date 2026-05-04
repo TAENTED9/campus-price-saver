@@ -8,7 +8,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <header className="bg-white border-b border-gray-200 shadow-sm dark:bg-gray-dark dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5 shrink-0">
-            <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-[#06b6d4] rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">C</span>
             </div>
             <div>

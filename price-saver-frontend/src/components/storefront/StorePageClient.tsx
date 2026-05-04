@@ -37,8 +37,8 @@ type RichSeller = SellerInfo & {
 
 function ConditionChip({ condition }: { condition: string }) {
   const map: Record<string, string> = {
-    New: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    "Fairly Used": "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+    New: "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400",
+    "Fairly Used": "bg-warning-50 text-warning-700 dark:bg-warning-500/10 dark:text-warning-400",
     Used: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
   };
   return (
@@ -241,7 +241,7 @@ export default function StorePageClient({
     <div className="pb-16">
 
       {/* ── Cover photo (200 px fixed height) — Feature 1A ── */}
-      <div className="relative h-[200px] overflow-hidden bg-gradient-to-br from-brand-500 via-brand-600 to-[#06b6d4]">
+      <div className="relative h-[200px] overflow-hidden bg-gradient-to-br from-brand-500 via-brand-600 to-accent-500">
         {bannerUrl && (
           <Image
             src={optimizeImage(bannerUrl, 1200)}
@@ -280,7 +280,7 @@ export default function StorePageClient({
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
 
         {/* ── Profile section — sits below cover in normal document flow ── */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-4 pb-6 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-4 pb-6">
           <div className="flex items-end gap-4">
             {/* Avatar with optional edit overlay for owner */}
             <div className="relative flex-shrink-0 -mt-12">

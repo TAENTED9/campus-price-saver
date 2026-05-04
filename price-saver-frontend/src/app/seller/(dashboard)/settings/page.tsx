@@ -550,10 +550,21 @@ export default function SellerSettingsPage() {
         </div>
       )}
 
+      <div className="lg:hidden overflow-x-auto border-b border-gray-200 dark:border-gray-800">
+        <div className="flex gap-2 w-max px-4 py-3">
+          {navItems.map(item => (
+            <button key={item.id} onClick={() => setActive(item.id)}
+              className={`flex items-center gap-1.5 flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${active === item.id ? item.danger ? "bg-red-600 text-white" : "bg-blue-600 text-white" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"}`}>
+              <item.Icon size={12} /> {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="max-w-5xl mx-auto px-4 py-8 flex gap-6">
 
         {/* Sidebar */}
-        <aside className="w-52 flex-shrink-0">
+        <aside className="w-52 flex-shrink-0 hidden lg:block">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden sticky top-24">
             <div className="p-4 border-b border-gray-100 dark:border-gray-800 text-center">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-bold text-lg mx-auto mb-2 overflow-hidden">

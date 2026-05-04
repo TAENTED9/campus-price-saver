@@ -43,9 +43,9 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="border-b border-gray-200 dark:border-gray-800 px-4 pt-4 pb-3">
+      <div className="px-4 pt-4 pb-3">
         <h1 className="text-[15px] font-black text-gray-900 dark:text-white tracking-tight mb-3">Messages</h1>
 
         {/* Search Input */}
@@ -59,7 +59,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
       </div>
 
       {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-hide">
         {isLoadingConversations && conversations.length === 0 ? (
           <div className="flex items-center justify-center h-full py-12">
             <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
@@ -88,7 +88,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
       </div>
 
       {/* Refresh Button */}
-      <div className="border-t border-gray-200 dark:border-gray-800 p-3">
+      <div className="p-3">
         <button
           onClick={loadConversations}
           disabled={isLoadingConversations}
@@ -130,9 +130,17 @@ const ConversationItem: React.FC<ConversationItemProps> = ({
       }`}
     >
       {/* Avatar */}
-      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-        {initials}
-      </div>
+      {conversation.other_user_avatar ? (
+        <img
+          src={conversation.other_user_avatar}
+          alt={name}
+          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+        />
+      ) : (
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+          {initials}
+        </div>
+      )}
 
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-center mb-0.5">

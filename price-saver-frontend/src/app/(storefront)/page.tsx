@@ -28,7 +28,7 @@ export default function HomePage() {
   return (
     <>
       {/* Hero carousel — admin-controlled banner slides + side cards */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0 pt-6 pb-2">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 pt-6 pb-2">
         <HeroCarousel />
       </div>
 
@@ -57,7 +57,7 @@ export default function HomePage() {
       <HowItWorks />
       <GuestOnlyBlock>
         <section className="pb-12 xl:pb-15">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0 text-center">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 text-center">
             <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 mb-4">
               Join 1,200+ UNILAG students already buying &amp; selling
             </p>
@@ -86,7 +86,7 @@ export default function HomePage() {
       {/* CTA Banner */}
       <GuestOnlyBlock>
         <section className="pb-12 xl:pb-15">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8">
             <div className="relative rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 overflow-hidden p-10 sm:p-14 text-center">
               <div className="absolute inset-0 opacity-10 dot-pattern" />
               <div className="relative z-10">

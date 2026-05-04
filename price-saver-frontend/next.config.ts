@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
     },
   },
 
+  allowedDevOrigins: ["192.168.0.195"],
+
   images: {
     remotePatterns: [
       {
@@ -49,7 +51,7 @@ const nextConfig: NextConfig = {
               "img-src 'self' data: blob: https://res.cloudinary.com",
               process.env.NODE_ENV === "production"
                 ? "connect-src 'self' https://campify.ng https://api.campify.ng wss://campify.ng"
-                : "connect-src 'self' http://localhost:* ws://localhost:*",
+                : "connect-src 'self' http://localhost:* ws://localhost:* http://192.168.0.195:* ws://192.168.0.195:*",
             ].join("; "),
           },
         ],

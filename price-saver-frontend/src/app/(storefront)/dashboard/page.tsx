@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { userApi, itemsApi, flashSalesApi, type FlashSale } from "@/lib/api";
-import { Star, Bell, Heart, ClipboardList, Zap, TrendingUp, Store, MapPin } from "lucide-react";
+import { Bell, Heart, ClipboardList, Zap, TrendingUp, Store, MapPin } from "lucide-react";
+// import { Star } from "lucide-react"; // karma — re-enable when implemented
 import MarketplaceFeed from "@/components/marketplace/MarketplaceFeed";
 import HowItWorks from "@/components/marketplace/HowItWorks";
 
@@ -45,7 +46,7 @@ export default function BrowseMarketPage() {
   const searchParams = useSearchParams();
   const verifiedPending = searchParams.get("verified") === "pending";
 
-  const [balance, setBalance]              = useState<number | null>(null);
+  // const [balance, setBalance]           = useState<number | null>(null); // karma — re-enable when implemented
   const [submissionsCount, setSubmissions] = useState<number | null>(null);
   const [alertsCount, setAlertsCount]      = useState<number | null>(null);
   const [flashSales, setFlashSales]        = useState<FlashSale[]>([]);
@@ -60,7 +61,7 @@ export default function BrowseMarketPage() {
 
     if (token) {
       Promise.all([
-        userApi.getPoints(token).then((r) => setBalance(r.balance)).catch(() => {}),
+        // userApi.getPoints(token).then((r) => setBalance(r.balance)).catch(() => {}), // karma — re-enable when implemented
         userApi.getSubmissions(token).then((r) => setSubmissions(r.data.length)).catch(() => {}),
         userApi.getAlerts(token).then((r) => setAlertsCount(r.data.length)).catch(() => {}),
         publicFetches,
@@ -70,31 +71,33 @@ export default function BrowseMarketPage() {
     }
   }, [token]);
 
-  const karmaPoints = balance ?? 0;
-  const karmaTier = karmaPoints >= 2000 ? "Gold" : karmaPoints >= 500 ? "Silver" : "Bronze";
-  const tierColors: Record<string, string> = {
-    Bronze: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-    Silver: "bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300",
-    Gold:   "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  };
+  // karma — re-enable when investors are onboard:
+  // const karmaPoints = balance ?? 0;
+  // const karmaTier = karmaPoints >= 2000 ? "Gold" : karmaPoints >= 500 ? "Silver" : "Bronze";
+  // const tierColors: Record<string, string> = {
+  //   Bronze: "bg-warning-50 text-warning-700 dark:bg-warning-500/10 dark:text-warning-400",
+  //   Silver: "bg-gray-100 text-gray-600 dark:bg-gray-700/40 dark:text-gray-300",
+  //   Gold:   "bg-warning-50 text-warning-700 dark:bg-warning-500/10 dark:text-warning-400",
+  // };
 
   const stats = [
-    {
-      label: "Karma Points",
-      value: loading ? "---" : (balance ?? 0).toLocaleString(),
-      icon: <Star size={18} />,
-      iconBg: "bg-warning-50 dark:bg-warning-500/10",
-      iconColor: "text-warning-500",
-      href: "/dashboard/settings",
-      badge: loading ? null : karmaTier,
-      badgeClass: tierColors[karmaTier] || "",
-    },
+    // Karma Points card — re-enable when investors are onboard:
+    // {
+    //   label: "Karma Points",
+    //   value: loading ? "---" : (balance ?? 0).toLocaleString(),
+    //   icon: <Star size={18} />,
+    //   iconBg: "bg-warning-50 dark:bg-warning-500/10",
+    //   iconColor: "text-warning-500",
+    //   href: "/dashboard/settings",
+    //   badge: loading ? null : karmaTier,
+    //   badgeClass: tierColors[karmaTier] || "",
+    // },
     {
       label: "Submissions",
       value: loading ? "---" : (submissionsCount ?? 0).toString(),
       icon: <ClipboardList size={18} />,
-      iconBg: "bg-[#06b6d4]/10",
-      iconColor: "text-[#06b6d4]",
+      iconBg: "bg-accent-500/10",
+      iconColor: "text-accent-500",
       href: "/dashboard/submissions",
       badge: null as string | null,
       badgeClass: "",
@@ -124,7 +127,7 @@ export default function BrowseMarketPage() {
   const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]";
 
   return (
-    <div className="bg-slate-50 dark:bg-gray-950 -mx-4 px-0 pb-0 rounded-2xl overflow-hidden">
+    <div className="bg-slate-50 dark:bg-gray-950 pb-0 rounded-2xl overflow-hidden">
 
       {/* 2A -- Dashboard Header Row */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 md:px-6 py-4">
@@ -137,7 +140,7 @@ export default function BrowseMarketPage() {
           </div>
           <Link
             href="/"
-            className="bg-blue-600 text-white font-bold px-4 py-2 rounded-xl text-sm hover:bg-blue-700 transition-all flex items-center gap-2 min-h-[44px]"
+            className="btn-primary"
           >
             <Store size={16} />
             <span className="hidden sm:inline">Go to Homepage</span>
@@ -163,7 +166,7 @@ export default function BrowseMarketPage() {
       <div className="px-4 pt-4">
 
         {/* 2. Stats grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
           {stats.map((s) => (
             <Link
               key={s.label}
@@ -175,13 +178,13 @@ export default function BrowseMarketPage() {
                   {s.icon}
                 </div>
                 {s.badge && (
-                  <span className={`text-[10px] md:text-xs font-bold px-2 py-0.5 rounded-full ${s.badgeClass}`}>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${s.badgeClass}`}>
                     {s.badge}
                   </span>
                 )}
               </div>
               <p className="text-xl md:text-2xl font-black text-gray-800 dark:text-white tracking-tight">{s.value}</p>
-              <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">{s.label}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">{s.label}</p>
             </Link>
           ))}
         </div>
@@ -195,7 +198,7 @@ export default function BrowseMarketPage() {
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <Zap size={16} className="text-warning-500" />
-                <h2 className="text-lg font-black text-gray-900 dark:text-white tracking-tight">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
                   Flash Sales
                 </h2>
               </div>
@@ -247,11 +250,11 @@ export default function BrowseMarketPage() {
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <TrendingUp size={16} className="text-brand-500" />
-                <h2 className="text-lg font-black text-gray-900 dark:text-white tracking-tight">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
                   Trending Now
                 </h2>
               </div>
-              <Link href="/search" className="text-sm text-blue-600 dark:text-blue-400 font-semibold hover:underline">
+              <Link href="/search" className="text-sm text-brand-500 dark:text-brand-400 font-medium hover:underline transition-colors">
                 See all →
               </Link>
             </div>

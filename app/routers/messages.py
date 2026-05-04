@@ -320,7 +320,7 @@ async def send_message(
         body=content[:100],
         related_id=conv.id,
         related_type="Conversation",
-        action_url=f"/messages",
+        action_url=f"/dashboard/messages?conv={conv.id}",
     )
     db.add(notif)
     db.commit()

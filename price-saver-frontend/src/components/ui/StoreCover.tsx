@@ -38,7 +38,7 @@ const StoreCover: React.FC<StoreCoverProps> = ({
           sizes="(max-width: 768px) 100vw, 800px"
         />
       ) : (
-        <div className="w-full h-full bg-gradient-to-br from-brand-500/20 to-[#06b6d4]/20 dark:from-brand-500/10 dark:to-[#06b6d4]/10" />
+        <div className="w-full h-full bg-gradient-to-br from-brand-500/20 to-accent-500/20 dark:from-brand-500/10 dark:to-accent-500/10" />
       )}
 
       {editable && (

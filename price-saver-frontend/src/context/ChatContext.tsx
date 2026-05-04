@@ -63,7 +63,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       setIsLoadingConversations(true);
       const response = await messageApi.fetchConversations(20, 0, token);
-      setConversations(response.conversations);
+      // Deduplicate by ID to prevent React duplicate-key warnings
+      const seen = new Set<number>();
+      const unique = response.conversations.filter((c) => {
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+      setConversations(unique);
     } catch (error) {
       console.error("Failed to load conversations:", error);
     } finally {
@@ -74,6 +81,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   // Set active conversation (when user clicks on conversation list)
   const setActiveConversation = useCallback(
     (conversation: Conversation) => {
+      if (conversation.id === activeConversation?.id) return;
       setActiveConversationState(conversation);
       // Reset messages and pagination state when switching conversations
       setMessages([]);
@@ -81,7 +89,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       setHasEarlierMessages(false);
       setTotalMessageCount(0);
     },
-    []
+    [activeConversation]
   );
 
   // Load initial messages (most recent messages, no cursor)
@@ -98,7 +106,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
           token
         );
 
-        setMessages(response.messages);
+        // Deduplicate messages by ID
+        const msgSeen = new Set<number>();
+        const uniqueMessages = response.messages.filter((m) => {
+          if (msgSeen.has(m.id)) return false;
+          msgSeen.add(m.id);
+          return true;
+        });
+        setMessages(uniqueMessages);
         setCursor(response.cursor);
         setHasEarlierMessages(response.has_earlier);
         setTotalMessageCount(response.total_count);

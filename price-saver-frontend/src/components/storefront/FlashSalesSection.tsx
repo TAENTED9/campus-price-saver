@@ -66,7 +66,7 @@ function FlashSaleCard({
 
   return (
     <Link href={`/listing/${sale.price_id}`} className="block group">
-      <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-xl p-4 hover:shadow-md transition-shadow duration-200 relative h-full flex flex-col min-h-[200px]">
+      <div className="bg-gradient-to-br from-error-500 to-error-600 rounded-xl p-4 hover:shadow-md transition-shadow duration-200 relative h-full flex flex-col min-h-[200px]">
         {/* Discount badge */}
         <span className="absolute top-3 right-3 text-[10px] bg-white text-red-600 px-2 py-0.5 rounded-full font-bold leading-tight whitespace-nowrap">
           -{Math.round(sale.discount_pct)}% OFF
@@ -84,7 +84,7 @@ function FlashSaleCard({
 
         {/* Prices */}
         <div className="mt-2">
-          <p className="text-white/60 line-through text-sm leading-tight">
+          <p className="text-white/80 line-through text-sm leading-tight">
             {formatPrice(sale.original_price)}
           </p>
           <p className="text-white font-bold text-xl leading-tight">
@@ -128,7 +128,7 @@ function FlashSaleCard({
 
 function SkeletonCard() {
   return (
-    <div className="bg-gradient-to-br from-red-200 to-rose-300 rounded-xl p-4 animate-pulse min-h-[200px] flex flex-col">
+    <div className="bg-gradient-to-br from-error-200 to-error-300 rounded-xl p-4 animate-pulse min-h-[200px] flex flex-col">
       <div className="flex items-start justify-between mb-3">
         <div className="h-4 bg-white/40 rounded w-2/3" />
         <div className="w-14 h-5 bg-white/40 rounded-full" />
@@ -169,17 +169,17 @@ export default function FlashSalesSection() {
   }
 
   return (
-    <section className="py-6 xl:py-8">
+    <section className="py-10 xl:py-14">
       <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
         {/* Section header */}
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl flex items-center gap-2">
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Zap size={20} className="text-red-500" />
             <span>Flash Sales</span>
           </h2>
           <Link
             href="/deals"
-            className="text-sm font-medium text-brand-500 hover:text-brand-600 transition-colors"
+            className="text-sm text-brand-500 dark:text-brand-400 font-medium hover:underline transition-colors"
           >
             View all →
           </Link>

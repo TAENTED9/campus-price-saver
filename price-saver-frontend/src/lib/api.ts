@@ -62,6 +62,7 @@ export type RegisterResponse = {
 
 let _accessToken: string | null = null;
 let _refreshPromise: Promise<string | null> | null = null;
+let _onTokenRefreshed: ((token: string) => void) | null = null;
 
 export function setAccessToken(token: string | null): void {
   _accessToken = token;
@@ -69,6 +70,10 @@ export function setAccessToken(token: string | null): void {
 
 export function getAccessToken(): string | null {
   return _accessToken;
+}
+
+export function setTokenRefreshCallback(cb: ((token: string) => void) | null): void {
+  _onTokenRefreshed = cb;
 }
 
 async function _silentRefresh(): Promise<string | null> {
@@ -82,6 +87,7 @@ async function _silentRefresh(): Promise<string | null> {
       if (!res.ok) { _accessToken = null; return null; }
       const data = await res.json();
       _accessToken = data.access_token ?? null;
+      if (_accessToken && _onTokenRefreshed) _onTokenRefreshed(_accessToken);
       return _accessToken;
     } catch {
       _accessToken = null;

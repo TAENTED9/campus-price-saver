@@ -110,7 +110,7 @@ export default function ReportsPage() {
             }`}>
             {t.label}
             {t.value === "open" && openCount > 0 && (
-              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+              <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">
                 {openCount}
               </span>
             )}

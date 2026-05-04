@@ -6,7 +6,7 @@ import { Package, Clock } from "lucide-react";
 export default function OrdersPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
-      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500/10 to-[#06b6d4]/10 border border-brand-200/60 dark:border-brand-800/60 flex items-center justify-center mb-6">
+      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500/10 to-accent-500/10 border border-brand-200/60 dark:border-brand-800/60 flex items-center justify-center mb-6">
         <Package size={36} className="text-brand-500" />
       </div>
 

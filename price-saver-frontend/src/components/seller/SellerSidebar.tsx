@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/context/SidebarContext";
@@ -28,16 +28,18 @@ type NavItem = {
   path: string;
 };
 
+const SIDEBAR_ICON_SIZE = 17;
+
 function buildNavItems(username: string | null | undefined): NavItem[] {
   const storePath = username ? `/store/${username}` : "/seller/profile";
   return [
-    { id: "overview",   icon: <LayoutDashboard size={17} />, label: "Overview",      path: "/seller" },
-    { id: "listings",   icon: <Package size={17} />,         label: "My Listings",   path: "/seller/listings" },
-    { id: "analytics",  icon: <BarChart2 size={17} />,       label: "Analytics",     path: "/seller/analytics" },
-    { id: "inbox",      icon: <MessageCircle size={17} />,   label: "Inbox",           path: "/seller/messages" },
-    { id: "promotions", icon: <Zap size={17} />,             label: "Promotions",    path: "/seller/promotions" },
-    { id: "store",      icon: <Store size={17} />,           label: "My Storefront", path: storePath },
-    { id: "settings",   icon: <Settings size={17} />,        label: "Settings",      path: "/seller/settings" },
+    { id: "overview",   icon: <LayoutDashboard size={SIDEBAR_ICON_SIZE} />, label: "Overview",      path: "/seller" },
+    { id: "listings",   icon: <Package size={SIDEBAR_ICON_SIZE} />,         label: "My Listings",   path: "/seller/listings" },
+    { id: "analytics",  icon: <BarChart2 size={SIDEBAR_ICON_SIZE} />,       label: "Analytics",     path: "/seller/analytics" },
+    { id: "inbox",      icon: <MessageCircle size={SIDEBAR_ICON_SIZE} />,   label: "Inbox",           path: "/seller/messages" },
+    { id: "promotions", icon: <Zap size={SIDEBAR_ICON_SIZE} />,             label: "Promotions",    path: "/seller/promotions" },
+    { id: "store",      icon: <Store size={SIDEBAR_ICON_SIZE} />,           label: "My Storefront", path: storePath },
+    { id: "settings",   icon: <Settings size={SIDEBAR_ICON_SIZE} />,        label: "Settings",      path: "/seller/settings" },
   ];
 }
 
@@ -45,7 +47,7 @@ const STATUS_CYCLE = ["open", "limited", "closed"] as const;
 type StoreStatus = (typeof STATUS_CYCLE)[number];
 
 const statusDotColor = (s: StoreStatus) =>
-  s === "open" ? "bg-green-500" : s === "limited" ? "bg-yellow-400" : "bg-red-500";
+  s === "open" ? "bg-success-500" : s === "limited" ? "bg-warning-400" : "bg-error-500";
 const statusLabel = (s: StoreStatus) =>
   s === "open" ? "Open" : s === "limited" ? "Limited" : "Closed";
 
@@ -127,6 +129,7 @@ const SellerSidebar: React.FC = () => {
     router.replace("/signin");
   };
 
+  const navItems = useMemo(() => buildNavItems(user?.username), [user?.username]);
   const storeName = user?.display_name || user?.username || "My Store";
   const isVerified = verificationStatus === "Approved";
   const karmaPoints = livePoints ?? user?.seller_points ?? 0;
@@ -155,7 +158,7 @@ const SellerSidebar: React.FC = () => {
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-16 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white text-base font-bold flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white text-base font-bold flex-shrink-0">
             C
           </div>
           <span className="font-extrabold text-[15px] tracking-tight">
@@ -168,7 +171,7 @@ const SellerSidebar: React.FC = () => {
         <div className="flex flex-col flex-1 overflow-y-auto no-scrollbar px-3 py-4 gap-3">
 
           {/* Seller profile mini card */}
-          <div className="rounded-xl p-3 bg-gradient-to-br from-brand-500/10 to-[#06b6d4]/10 border border-brand-200/60 dark:border-brand-800/60 flex-shrink-0">
+          <div className="rounded-xl p-3 border border-gray-200 dark:border-gray-800 flex-shrink-0">
             <div className="flex items-center gap-2.5 mb-2.5">
               <Avatar
                 src={user?.avatar_url ?? null}
@@ -179,34 +182,36 @@ const SellerSidebar: React.FC = () => {
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{storeName}</p>
                 {isVerified && (
-                  <span className="inline-flex items-center gap-1 bg-brand-500 text-white rounded px-1.5 py-0.5 text-[10px] font-bold">
+                  <span className="inline-flex items-center gap-1 bg-brand-500 text-white rounded px-1.5 py-0.5 text-xs font-bold">
                     <ShieldCheck size={9} />
                     VERIFIED
                   </span>
                 )}
               </div>
               {/* Store status dot */}
-              <button
-                type="button"
-                onClick={cycleStatus}
-                disabled={togglingStatus}
-                title={`Store: ${statusLabel(storeStatus)} — click to change`}
-                className="flex flex-col items-center gap-0.5 flex-shrink-0 hover:opacity-75 transition-opacity disabled:opacity-40"
-              >
-                <Circle size={10} className={`fill-current ${statusDotColor(storeStatus)} text-transparent`} />
-                <span className="text-[9px] text-gray-400 leading-none">{statusLabel(storeStatus)}</span>
-              </button>
+              <div className="min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={cycleStatus}
+                  disabled={togglingStatus}
+                  title={`Store: ${statusLabel(storeStatus)} — click to change`}
+                  className="flex flex-col items-center gap-0.5 hover:opacity-75 transition-opacity disabled:opacity-40 w-full h-full"
+                >
+                  <Circle size={10} className={`fill-current ${statusDotColor(storeStatus)} text-transparent`} />
+                  <span className="text-xs text-gray-400 leading-none">{statusLabel(storeStatus)}</span>
+                </button>
+              </div>
             </div>
             <div className="flex gap-1.5">
               <div className="flex-1 text-center py-1.5 px-1 bg-white/70 dark:bg-gray-800/70 rounded-lg">
                 <Star size={12} className="text-yellow-400 mx-auto" />
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   {liveRating !== null ? `${liveRating} Stars` : liveReviewCount === 0 ? "No reviews" : "— Stars"}
                 </p>
               </div>
               <div className="flex-1 text-center py-1.5 px-1 bg-white/70 dark:bg-gray-800/70 rounded-lg">
                 <p className="font-bold text-[12px] text-brand-500">{karmaPoints.toLocaleString()}</p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400">pts</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">pts</p>
               </div>
             </div>
           </div>
@@ -222,7 +227,7 @@ const SellerSidebar: React.FC = () => {
 
           {/* Nav items */}
           <nav className="flex flex-col gap-0.5">
-            {buildNavItems(user?.username).map((item) => {
+            {navItems.map((item) => {
               const active = isActive(item.path);
               return (
                 <Link
@@ -236,7 +241,7 @@ const SellerSidebar: React.FC = () => {
                     flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150
                     border-l-[3px]
                     ${active
-                      ? "bg-gradient-to-r from-brand-500/12 to-[#06b6d4]/8 border-brand-500 text-brand-500 dark:text-brand-400 font-semibold"
+                      ? "bg-gradient-to-r from-brand-500/12 to-accent-500/8 border-brand-500 text-brand-500 dark:text-brand-400 font-semibold"
                       : "border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200"
                     }
                   `}
@@ -244,7 +249,7 @@ const SellerSidebar: React.FC = () => {
                   {item.icon}
                   <span className="flex-1">{item.label}</span>
                   {item.id === "inbox" && notifCounts.messages > 0 && (
-                    <span className="bg-brand-500 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none">
+                    <span className="bg-brand-500 text-white rounded-full px-1.5 py-0.5 text-xs font-bold leading-none">
                       {notifCounts.messages > 99 ? "99+" : notifCounts.messages}
                     </span>
                   )}
@@ -257,19 +262,19 @@ const SellerSidebar: React.FC = () => {
           <div className="flex-1" />
 
           {/* Karma tier widget */}
-          <div className="rounded-xl p-3 bg-gradient-to-br from-brand-500/10 to-[#06b6d4]/8 border border-brand-200/50 dark:border-brand-800/50 flex-shrink-0">
+          <div className="rounded-xl p-3 border border-gray-200 dark:border-gray-800 flex-shrink-0">
             <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Karma Points</p>
             <p className="text-xl font-extrabold text-brand-500">
               {karmaPoints.toLocaleString()}{" "}
               <span className="text-xs text-gray-400 font-normal">pts</span>
             </p>
-            <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-2">
+            <div className="relative h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-2 overflow-hidden">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-brand-500 to-[#06b6d4] transition-all duration-700"
-                style={{ width: `${karmaPct}%` }}
+                className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 origin-left"
+                style={{ transform: `scaleX(${karmaPct / 100})` }}
               />
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">Rising Seller tier: {karmaPct}%</p>
+            <p className="text-xs text-gray-400 mt-1">Rising Seller tier: {karmaPct}%</p>
           </div>
 
           {/* Logout */}

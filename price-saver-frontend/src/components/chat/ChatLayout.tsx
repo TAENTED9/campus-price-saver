@@ -1,19 +1,34 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Conversation } from "@/lib/messageApi";
 import { useChat } from "@/context/ChatContext";
 import { ConversationList } from "./ConversationList";
 import { ChatWindow } from "./ChatWindow";
+
+interface ChatLayoutProps {
+  /** When set (from ?conv= URL param), auto-open this conversation on load */
+  initialConversationId?: number;
+}
 
 /**
  * Main chat layout component
  * Combines conversation list (left) and chat window (right)
  * Responsive: stacks on mobile, 2-column on desktop
  */
-export const ChatLayout: React.FC = () => {
-  const { setActiveConversation, activeConversation } = useChat();
+export const ChatLayout: React.FC<ChatLayoutProps> = ({ initialConversationId }) => {
+  const { setActiveConversation, activeConversation, conversations, isLoadingConversations } = useChat();
   const [showChat, setShowChat] = useState(false); // For mobile: toggle between list and chat
+
+  // Auto-select the conversation that matches initialConversationId once loaded
+  useEffect(() => {
+    if (!initialConversationId || isLoadingConversations || activeConversation) return;
+    const target = conversations.find((c) => c.id === initialConversationId);
+    if (target) {
+      setActiveConversation(target);
+      setShowChat(true);
+    }
+  }, [initialConversationId, conversations, isLoadingConversations, activeConversation, setActiveConversation]);
 
   const handleSelectConversation = (conversation: Conversation) => {
     setActiveConversation(conversation);
@@ -28,7 +43,7 @@ export const ChatLayout: React.FC = () => {
     <div className="flex h-full bg-white dark:bg-gray-900">
       {/* Conversation List - Hidden on mobile when chat is open */}
       <div
-        className={`w-full md:w-80 lg:w-96 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col
+        className={`w-full md:w-80 lg:w-96 border-r border-gray-200 dark:border-gray-800 flex flex-col
           ${showChat ? "hidden md:flex" : "flex"}
         `}
       >
@@ -40,14 +55,14 @@ export const ChatLayout: React.FC = () => {
 
       {/* Chat Window - Hidden on mobile when list is open */}
       <div
-        className={`flex-1 bg-white dark:bg-gray-900 flex flex-col min-w-0
+        className={`flex-1 flex flex-col min-w-0
           ${showChat ? "flex" : "hidden md:flex"}
         `}
       >
         {activeConversation ? (
           <>
             {/* Mobile header with back button */}
-            <div className="md:hidden border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center gap-3">
+            <div className="md:hidden px-4 py-3 flex items-center gap-3">
               <button
                 onClick={handleBackToList}
                 className="text-brand-500 hover:text-brand-600 font-medium text-sm"
@@ -63,6 +78,7 @@ export const ChatLayout: React.FC = () => {
               conversation_id={activeConversation.id}
               receiver_id={activeConversation.other_user_id || 0}
               receiver_name={activeConversation.other_user_name}
+              receiver_avatar={activeConversation.other_user_avatar}
             />
           </>
         ) : (

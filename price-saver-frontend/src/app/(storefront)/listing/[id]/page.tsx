@@ -17,7 +17,7 @@ function Initials({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const letters = name.trim().slice(0, 2).toUpperCase();
   const sz = size === "sm" ? "w-8 h-8 text-xs" : "w-11 h-11 text-sm";
   return (
-    <div className={`${sz} rounded-full bg-gradient-to-br from-brand-500 to-[#06b6d4] flex items-center justify-center text-white font-bold flex-shrink-0`}>
+    <div className={`${sz} rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white font-bold flex-shrink-0`}>
       {letters}
     </div>
   );
@@ -226,7 +226,7 @@ export default function ListingDetailPage() {
           {/* Left — Photos + Description */}
           <div className="lg:col-span-3 space-y-4">
             {/* Main photo */}
-            <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 dark:to-[#06b6d4]/5 relative flex items-center justify-center">
+            <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-accent-500/10 dark:from-brand-500/10 dark:to-accent-500/5 relative flex items-center justify-center">
               {photos.length > 0
                 ? <Image src={optimizeImage(photos[mainPhoto], 800)} alt={listing.name} fill sizes="(max-width: 768px) 100vw, 800px" className="object-cover" />
                 : <span className="text-7xl font-black text-brand-200 dark:text-brand-800">
@@ -424,7 +424,7 @@ export default function ListingDetailPage() {
               {similar.map((s) => (
                 <Link key={s.id} href={`/listing/${s.uuid ?? s.id}`}
                   className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] overflow-hidden hover:shadow-md transition-shadow group">
-                  <div className="aspect-square bg-gradient-to-br from-brand-50 to-[#06b6d4]/10 dark:from-brand-500/10 relative flex items-center justify-center overflow-hidden">
+                  <div className="aspect-square bg-gradient-to-br from-brand-50 to-accent-500/10 dark:from-brand-500/10 relative flex items-center justify-center overflow-hidden">
                     {s.photos?.[0]
                       ? <Image src={thumbnailImage(s.photos[0], 200)} alt={s.name} fill sizes="(max-width: 640px) 50vw, 25vw" className="object-cover group-hover:scale-105 transition-transform duration-300" />
                       : <span className="text-2xl font-black text-brand-200 dark:text-brand-700">{s.name.charAt(0)}</span>}

@@ -34,9 +34,9 @@ const CONDITION_BADGE: Record<
   "new" | "fairly_used" | "used",
   { label: string; className: string }
 > = {
-  new:         { label: "New",         className: "bg-green-500 text-white" },
-  fairly_used: { label: "Fairly Used", className: "bg-yellow-500 text-white" },
-  used:        { label: "Used",        className: "bg-gray-500 text-white"  },
+  new:         { label: "New",         className: "bg-success-500 text-white" },
+  fairly_used: { label: "Fairly Used", className: "bg-warning-500 text-white" },
+  used:        { label: "Used",        className: "bg-gray-400 text-white"  },
 };
 
 function timeAgo(dateStr: string): string {
@@ -97,7 +97,7 @@ export default function ListingCard({
 
   return (
     <Link href={`/listing/${uuid ?? id}`} className="block">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 hover:shadow-lg hover:shadow-blue-100/50 dark:hover:shadow-blue-950/30 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg hover:shadow-blue-100/50 dark:hover:shadow-blue-950/30 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group">
 
         {/* Image area */}
         <div className="relative h-44 w-full overflow-hidden bg-gray-100 dark:bg-gray-800">
@@ -117,14 +117,14 @@ export default function ListingCard({
 
           {/* Condition badge */}
           <span
-            className={`absolute top-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${badge.className}`}
+            className={`absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full ${badge.className}`}
           >
             {badge.label}
           </span>
 
           {/* Flash sale badge */}
           {flashSale && (
-            <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold text-white">
+            <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white">
               <Zap size={9} className="fill-white" />
               {flashSaleLabel || "Flash Sale"}
             </span>
@@ -132,7 +132,7 @@ export default function ListingCard({
 
           {/* Featured star */}
           {isFeatured && (
-            <span className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-full bg-yellow-400">
+            <span className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-full bg-warning-400">
               <Star size={11} className="fill-white text-white" />
             </span>
           )}
@@ -142,7 +142,7 @@ export default function ListingCard({
             type="button"
             aria-label={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
             onClick={handleWishlist}
-            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 dark:bg-gray-900/90 flex items-center justify-center hover:scale-110 transition-all"
+            className="absolute top-2 right-2 w-11 h-11 rounded-full bg-white/90 dark:bg-gray-900/90 flex items-center justify-center hover:scale-110 transition-all"
           >
             <Heart
               size={14}
@@ -152,13 +152,13 @@ export default function ListingCard({
         </div>
 
         {/* Card body */}
-        <div className="p-3.5">
+        <div className="p-4">
           <h3 className="font-semibold text-sm text-gray-900 dark:text-white line-clamp-2 mb-1.5 leading-snug">
             {title}
           </h3>
 
           {isNegotiable && (
-            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 mb-1.5">
+            <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 mb-1.5">
               NEGOTIABLE
             </span>
           )}
@@ -178,7 +178,7 @@ export default function ListingCard({
                 className="rounded-full object-cover flex-shrink-0"
               />
             ) : (
-              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[9px] font-black flex-shrink-0">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-[11px] font-black flex-shrink-0">
                 {initial}
               </div>
             )}

@@ -21,7 +21,7 @@ const STATIC_SLIDES = [
     title: "Fashion & Beauty",
     subtitle: "Discover the best fashion deals from campus vendors and verified student sellers.",
     cta: { label: "Shop Fashion", href: "/categories/fashion" },
-    bg: "from-violet-600 to-purple-800",
+    bg: "from-brand-600 to-brand-800",
     icon: <Shirt size={120} className="opacity-90 text-white/40" />,
     image: null as string | null,
   },
@@ -30,7 +30,7 @@ const STATIC_SLIDES = [
     title: "Electronics",
     subtitle: "Get the best prices on phones, laptops, accessories from trusted campus stores.",
     cta: { label: "Browse Tech", href: "/categories/tech" },
-    bg: "from-emerald-600 to-teal-800",
+    bg: "from-success-600 to-success-800",
     icon: <Monitor size={120} className="opacity-90 text-white/40" />,
     image: null as string | null,
   },
@@ -41,15 +41,15 @@ const sideCards = [
     label: "Flash Sales",
     sublabel: "Up to 40% off today",
     href: "/deals",
-    bg: "bg-[#D7EBF2]",
+    bg: "bg-surface-teal",
     accent: "text-brand-700",
   },
   {
     label: "New Arrivals",
     sublabel: "Just listed on campus",
     href: "/search?sort=newest",
-    bg: "bg-[#EAE7DE]",
-    accent: "text-amber-700",
+    bg: "bg-surface-sand",
+    accent: "text-warning-700",
   },
 ];
 
@@ -76,10 +76,10 @@ type Slide = {
 
 const GRADIENTS = [
   "from-brand-600 to-brand-800",
-  "from-violet-600 to-purple-800",
-  "from-emerald-600 to-teal-800",
-  "from-orange-600 to-rose-700",
-  "from-cyan-600 to-blue-700",
+  "from-brand-600 to-brand-800",
+  "from-success-600 to-success-800",
+  "from-warning-600 to-error-700",
+  "from-accent-500 to-brand-700",
 ];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -122,9 +122,9 @@ export default function HeroCarousel() {
   const slide = slides[active];
 
   return (
-    <div className="flex flex-col xl:flex-row gap-5">
+    <div className="flex flex-col lg:flex-row gap-5">
       {/* ── Main slide ── */}
-      <div className="xl:w-2/3 w-full">
+      <div className="lg:w-2/3 w-full">
         <div className="relative rounded-[10px] overflow-hidden min-h-[340px] sm:min-h-[420px]">
 
           {/* Background — image or gradient */}
@@ -147,14 +147,14 @@ export default function HeroCarousel() {
 
           {/* Content */}
           <div className="relative z-10 flex items-center justify-between h-full p-8 sm:p-12 min-h-[340px] sm:min-h-[420px]">
-            <div className="max-w-[340px]">
+            <div className="max-w-[280px] sm:max-w-[340px]">
               <span className="block font-medium text-sm uppercase text-white/70 mb-4 tracking-wider">
                 {slide.tag}
               </span>
-              <h1 className="font-bold text-white text-3xl sm:text-[44px] leading-tight mb-3">
+              <h1 className="font-bold text-white text-3xl sm:text-5xl leading-tight mb-3">
                 {slide.title}
               </h1>
-              <p className="text-sm text-white/80 leading-relaxed mb-8 max-w-[300px] line-clamp-3">
+              <p className="text-sm text-white/90 drop-shadow-sm leading-relaxed mb-8 line-clamp-3">
                 {slide.subtitle}
               </p>
               <Link
@@ -175,15 +175,17 @@ export default function HeroCarousel() {
 
           {/* Pagination dots */}
           {slides.length > 1 && (
-            <div className="absolute bottom-5 left-8 sm:left-12 flex gap-2">
+            <div className="absolute bottom-5 left-8 sm:left-12 flex gap-0">
               {slides.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => setActive(i)}
-                  className={`transition-all duration-300 rounded-full ${i === active ? "w-6 h-2 bg-white" : "w-2 h-2 bg-white/40 hover:bg-white/60"}`}
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
                   aria-label={`Slide ${i + 1}`}
-                />
+                >
+                  <span className={`transition-all duration-300 rounded-full block ${i === active ? "w-6 h-2 bg-white" : "w-2 h-2 bg-white/40 hover:bg-white/60"}`} />
+                </button>
               ))}
             </div>
           )}
@@ -191,15 +193,15 @@ export default function HeroCarousel() {
       </div>
 
       {/* ── Side cards ── */}
-      <div className="xl:w-1/3 w-full flex flex-col justify-between sm:flex-row xl:flex-col gap-5">
+      <div className="lg:w-1/3 w-full flex flex-col justify-between sm:flex-row lg:flex-col gap-5">
         {sideCards.map((card) => (
           <Link
             key={card.href}
             href={card.href}
-            className={`group w-full relative rounded-[10px] px-6 py-6 sm:py-7 ${card.bg} flex items-center justify-between gap-4 hover:shadow-md transition-shadow duration-200`}
+            className={`group w-full relative rounded-[10px] p-6 ${card.bg} flex items-center justify-between gap-4 hover:shadow-md transition-shadow duration-200`}
           >
             <div>
-              <h2 className="font-semibold text-gray-800 text-[20px] mb-1 group-hover:text-brand-600 transition-colors">
+              <h2 className="font-semibold text-gray-800 text-[20px] xl:text-2xl mb-1 group-hover:text-brand-600 transition-colors">
                 {card.label}
               </h2>
               <span className={`text-sm font-medium ${card.accent}`}>

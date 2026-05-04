@@ -91,11 +91,11 @@ export default function NearbySellersSection() {
   }, [selected]);
 
   return (
-    <section className="py-12 xl:py-15">
+    <section className="py-10 xl:py-14">
       <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl flex items-center gap-2">
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <MapPin size={20} className="text-brand-500 inline-block align-text-bottom" />
             Nearby Sellers
           </h2>
@@ -105,7 +105,7 @@ export default function NearbySellersSection() {
         </div>
 
         {/* Location chips — horizontal scroll */}
-        <div className="flex gap-2 overflow-x-auto pb-3 mb-6 scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto pb-3 mb-6 no-scrollbar">
           {LOCATIONS.map((loc) => (
             <button
               key={loc}

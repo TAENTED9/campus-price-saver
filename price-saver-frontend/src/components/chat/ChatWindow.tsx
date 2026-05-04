@@ -10,12 +10,14 @@ interface ChatWindowProps {
   conversation_id: number;
   receiver_id: number;
   receiver_name?: string;
+  receiver_avatar?: string | null;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
   conversation_id,
   receiver_id,
   receiver_name = "User",
+  receiver_avatar,
 }) => {
   const { user } = useAuth();
   const {
@@ -114,21 +116,34 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <div className="border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex-shrink-0">
-        <h2 className="text-[15px] font-bold text-gray-900 dark:text-white">{receiver_name}</h2>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {someoneIsTyping ? (
-            <span className="text-brand-500 font-medium">Typing…</span>
-          ) : (
-            "Direct message"
-          )}
-        </p>
+      <div className="px-4 py-3 flex-shrink-0 flex items-center gap-3">
+        {receiver_avatar ? (
+          <img
+            src={receiver_avatar}
+            alt={receiver_name}
+            className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+          />
+        ) : (
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            {receiver_name.trim().slice(0, 2).toUpperCase()}
+          </div>
+        )}
+        <div>
+          <h2 className="text-[15px] font-bold text-gray-900 dark:text-white">{receiver_name}</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {someoneIsTyping ? (
+              <span className="text-brand-500 font-medium">Typing…</span>
+            ) : (
+              "Direct message"
+            )}
+          </p>
+        </div>
       </div>
 
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 space-y-3 scrollbar-hide">
         {isLoadingOlder && (
           <div className="flex justify-center py-3">
             <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />

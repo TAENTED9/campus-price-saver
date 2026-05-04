@@ -36,7 +36,7 @@ export default function NewArrivalsSection() {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
               New Arrivals
             </h2>
-            <Link href="/search?sort=newest" className="text-sm font-medium text-[#465fff] hover:text-blue-600 transition-colors">
+            <Link href="/search?sort=newest" className="text-sm text-brand-500 dark:text-brand-400 font-medium hover:underline transition-colors">
               View all →
             </Link>
           </div>
@@ -56,7 +56,7 @@ export default function NewArrivalsSection() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
             New Arrivals
           </h2>
-          <Link href="/search?sort=newest" className="text-sm font-medium text-[#465fff] hover:text-blue-600 transition-colors">
+          <Link href="/search?sort=newest" className="text-sm text-brand-500 dark:text-brand-400 font-medium hover:underline transition-colors">
             View all →
           </Link>
         </div>

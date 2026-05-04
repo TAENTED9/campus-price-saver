@@ -104,13 +104,14 @@ export default function Navbar() {
             </div>
 
             {/* ── Desktop centre search ── */}
-            <form onSubmit={handleSearch} className="hidden lg:flex flex-1 max-w-lg mx-4">
+            <form onSubmit={handleSearch} className="hidden lg:flex flex-1 max-w-lg mx-4" suppressHydrationWarning>
               <div className="relative w-full">
                 <input
                   name="q"
                   type="search"
                   placeholder="I am shopping for..."
                   autoComplete="off"
+                  suppressHydrationWarning
                   className="w-full h-10 pl-4 pr-11 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 transition-all"
                 />
                 <button type="submit" title="Search" className="absolute right-0 top-0 h-10 w-10 flex items-center justify-center bg-blue-600 rounded-r-lg text-white hover:bg-blue-700 transition-colors">

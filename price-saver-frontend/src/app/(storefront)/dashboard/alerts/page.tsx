@@ -147,7 +147,7 @@ export default function AlertsPage() {
           <button
             type="submit"
             disabled={creating}
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
           >
             <Bell size={14} />
             {creating ? "Creating…" : "Set Alert"}

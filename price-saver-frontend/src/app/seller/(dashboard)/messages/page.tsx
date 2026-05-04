@@ -31,7 +31,7 @@ export default function SellerMessagesPage() {
 
   return (
     <ChatProvider>
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden h-[calc(100vh-8rem)]">
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden h-[calc(100dvh-8rem-70px)] md:h-[calc(100dvh-8rem)]">
         <ChatLayout />
       </div>
     </ChatProvider>

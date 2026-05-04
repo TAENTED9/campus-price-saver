@@ -438,7 +438,7 @@ export default function NewListingPage() {
                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 group">
                   <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
                   {i === 0 && (
-                    <div className="absolute top-1 left-1 bg-warning-400 text-white rounded px-1 py-0.5 text-[9px] font-bold flex items-center gap-0.5">
+                    <div className="absolute top-1 left-1 bg-warning-400 text-white rounded px-1 py-0.5 text-[11px] font-bold flex items-center gap-0.5">
                       <Star size={8} className="fill-white" /> Cover
                     </div>
                   )}
@@ -549,7 +549,7 @@ export default function NewListingPage() {
               Save Draft
             </button>
             <button type="button" disabled={submitting} onClick={() => handleSubmit("active")}
-              className="px-8 py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white text-sm font-bold disabled:opacity-50 transition-opacity hover:opacity-90">
+              className="px-8 py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-accent-500 text-white text-sm font-bold disabled:opacity-50 transition-opacity hover:opacity-90">
               {submitting ? "Publishing…" : "Publish Listing"}
             </button>
           </>

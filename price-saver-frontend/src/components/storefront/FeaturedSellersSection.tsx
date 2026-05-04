@@ -44,12 +44,12 @@ export default function FeaturedSellersSection() {
     <section className="py-10 xl:py-14">
       <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-base md:text-lg font-bold text-gray-900 dark:text-white">
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
             Top Sellers This Month
           </h2>
           <Link
             href="/search?sort=top_sellers"
-            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
+            className="text-sm text-brand-500 dark:text-brand-400 font-medium hover:underline transition-colors"
           >
             See all &rarr;
           </Link>
@@ -58,7 +58,7 @@ export default function FeaturedSellersSection() {
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="animate-pulse bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
+              <div key={i} className="animate-pulse bg-white dark:bg-gray-900 rounded-2xl p-4 shadow-sm">
                 <div className="h-16 rounded-xl bg-gray-100 dark:bg-gray-800 mb-3" />
                 <div className="w-12 h-12 rounded-full bg-gray-200 dark:bg-gray-700 -mt-9 ml-3 mb-2" />
                 <div className="h-4 w-3/4 bg-gray-200 dark:bg-gray-700 rounded mb-1" />
@@ -74,13 +74,13 @@ export default function FeaturedSellersSection() {
                 <Link
                   key={seller.id}
                   href={seller.slug ? `/store/${seller.slug}` : `/store/${seller.id}`}
-                  className="bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-100 dark:border-gray-800 hover:shadow-md transition-all cursor-pointer group"
+                  className="bg-white dark:bg-gray-900 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all cursor-pointer group"
                 >
                   {/* Cover strip */}
-                  <div className="h-16 rounded-xl overflow-hidden relative bg-gradient-to-r from-blue-500 to-cyan-400" />
+                  <div className="h-16 rounded-xl overflow-hidden relative bg-gradient-to-r from-brand-500 to-accent-500" />
 
                   {/* Avatar */}
-                  <div className="-mt-6 ml-3 w-12 h-12 rounded-full border-2 border-white dark:border-gray-900 ring-2 ring-blue-500 overflow-hidden flex items-center justify-center bg-gradient-to-br from-blue-600 to-cyan-500 relative z-10">
+                  <div className="-mt-6 ml-3 w-12 h-12 rounded-full border-2 border-white dark:border-gray-900 ring-2 ring-brand-500 overflow-hidden flex items-center justify-center bg-gradient-to-br from-brand-600 to-accent-500 relative z-10">
                     {seller.avatar_url ? (
                       <Image
                         src={seller.avatar_url}

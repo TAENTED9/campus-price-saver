@@ -29,6 +29,15 @@ function formatPrice(n: number) {
 }
 
 const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]";
+const WL_KEY = "ps_wishlist";
+
+/** Sync the server-side wishlist into localStorage so the sidebar badge stays accurate. */
+function syncWishlistToStorage(items: WishlistItem[]) {
+  try {
+    localStorage.setItem(WL_KEY, JSON.stringify(items));
+    window.dispatchEvent(new Event("wl-changed"));
+  } catch { /* silent */ }
+}
 
 export default function WishlistPage() {
   const { token } = useAuth();
@@ -40,8 +49,15 @@ export default function WishlistPage() {
     if (!token) { setLoading(false); return; }
     setLoading(true);
     wishlistApi.list(token)
-      .then((data) => setItems(data as unknown as WishlistItem[]))
-      .catch(() => setItems([]))
+      .then((data) => {
+        const fetched = data as unknown as WishlistItem[];
+        setItems(fetched);
+        syncWishlistToStorage(fetched);
+      })
+      .catch(() => {
+        setItems([]);
+        syncWishlistToStorage([]);
+      })
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -52,7 +68,11 @@ export default function WishlistPage() {
     setRemoving(listingId);
     try {
       await wishlistApi.toggle(token, listingId);
-      setItems((prev) => prev.filter((i) => i.listing_id !== listingId));
+      setItems((prev) => {
+        const updated = prev.filter((i) => i.listing_id !== listingId);
+        syncWishlistToStorage(updated);
+        return updated;
+      });
     } catch { /* silent */ }
     finally { setRemoving(null); }
   }
@@ -77,7 +97,7 @@ export default function WishlistPage() {
         </div>
         <Link
           href="/search"
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-4 py-2 text-sm font-bold hover:opacity-90 transition-opacity min-h-[40px]"
+          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-4 py-2 text-sm font-bold hover:opacity-90 transition-opacity min-h-[40px]"
         >
           <Search size={14} /> Browse
         </Link>
@@ -110,7 +130,7 @@ export default function WishlistPage() {
           </p>
           <Link
             href="/search"
-            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold hover:opacity-90 transition-opacity"
           >
             Start Browsing
           </Link>

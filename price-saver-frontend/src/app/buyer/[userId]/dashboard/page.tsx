@@ -16,7 +16,7 @@ export default function BuyerDashboard({ params }: { params: { userId: string } 
       description: "Discover products across campus",
       icon: <Search size={20} className="text-brand-500" />,
       href: "/search",
-      accent: "from-brand-500/10 to-[#06b6d4]/10 border-brand-200/60 dark:border-brand-800/60",
+      accent: "from-brand-500/10 to-accent-500/10 border-brand-200/60 dark:border-brand-800/60",
     },
     {
       label: "Messages",
@@ -26,7 +26,7 @@ export default function BuyerDashboard({ params }: { params: { userId: string } 
       icon: <MessageCircle size={20} className="text-brand-500" />,
       href: "/messages",
       badge: counts.messages || undefined,
-      accent: "from-brand-500/10 to-[#06b6d4]/10 border-brand-200/60 dark:border-brand-800/60",
+      accent: "from-brand-500/10 to-accent-500/10 border-brand-200/60 dark:border-brand-800/60",
     },
     {
       label: "Wishlist",
@@ -89,7 +89,7 @@ export default function BuyerDashboard({ params }: { params: { userId: string } 
 
       {/* Messages CTA if unread */}
       {counts.messages > 0 && (
-        <section className="rounded-2xl border border-brand-200/60 dark:border-brand-800/60 bg-gradient-to-br from-brand-500/8 to-[#06b6d4]/6 p-5 flex items-center gap-4">
+        <section className="rounded-2xl border border-brand-200/60 dark:border-brand-800/60 bg-gradient-to-br from-brand-500/8 to-accent-500/6 p-5 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-brand-500 flex items-center justify-center flex-shrink-0">
             <MessageCircle size={22} className="text-white" />
           </div>

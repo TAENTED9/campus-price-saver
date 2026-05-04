@@ -13,7 +13,7 @@ const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white d
 
 const TRAFFIC_SOURCES = [
   { label: "Search",          pct: 48, color: "bg-brand-500" },
-  { label: "Homepage Browse", pct: 27, color: "bg-[#06b6d4]" },
+  { label: "Homepage Browse", pct: 27, color: "bg-accent-500" },
   { label: "Direct Link",     pct: 17, color: "bg-purple-500" },
   { label: "Category Page",   pct:  8, color: "bg-warning-400" },
 ];

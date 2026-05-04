@@ -59,7 +59,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   return (
-    <form onSubmit={handleSendMessage} className="border-t border-gray-200 dark:border-gray-800 p-3 flex-shrink-0">
+    <form onSubmit={handleSendMessage} className="p-3 flex-shrink-0">
       <div className="flex gap-2 items-end">
         <textarea
           ref={textareaRef}
@@ -67,7 +67,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           onChange={(e) => { setContent(e.target.value); onTyping?.(); }}
           onKeyDown={handleKeyDown}
           placeholder="Type a message…"
-          className="flex-1 resize-none rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10"
+          className="flex-1 resize-none rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 scrollbar-hide"
           rows={1}
           maxLength={4000}
           disabled={isSending}
@@ -82,7 +82,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             : <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>}
         </button>
       </div>
-      <p className="text-[11px] text-gray-400 mt-1">Enter to send · Shift+Enter for new line</p>
     </form>
   );
 };

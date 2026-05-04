@@ -157,7 +157,7 @@ export default function StorefrontHeader() {
   return (
     <>
       {/* ════════════════════ HEADER ════════════════════ */}
-      <header className="fixed left-0 top-0 w-full z-50 bg-white shadow-sm transition-all ease-in-out duration-300 dark:bg-gray-dark dark:border-b dark:border-gray-700">
+      <header className="fixed left-0 top-0 w-full z-50 bg-white border-b border-gray-200 dark:border-gray-800 transition-[background-color,box-shadow] duration-300 dark:bg-gray-dark">
         <div className="w-full px-4 mx-auto max-w-7xl sm:px-6 xl:px-0">
           <div className="flex flex-col lg:flex-row gap-4 items-end lg:items-center xl:justify-between py-4">
 
@@ -165,7 +165,7 @@ export default function StorefrontHeader() {
             <div className="flex flex-col w-full gap-4 xl:w-auto sm:flex-row sm:items-center sm:gap-8">
               {/* Logo */}
               <Link href="/" className="shrink-0 flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-[#06b6d4] rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-500 rounded-lg flex items-center justify-center">
                   <span className="text-white font-bold text-sm">C</span>
                 </div>
                 <div>
@@ -179,11 +179,21 @@ export default function StorefrontHeader() {
                 <form onSubmit={handleHeaderSearch}>
                   <div className="flex gap-2 items-center">
                     {/* Categories pill (dropdown trigger) */}
-                    <div ref={catRef} className="relative hidden sm:block shrink-0">
+                    <div ref={catRef} className="relative shrink-0">
+                      {/* Mobile-only category button */}
                       <button
                         type="button"
                         onClick={catOpen ? () => setCatOpen(false) : openCatDropdown}
-                        className="flex items-center gap-1.5 px-4 h-[42px] rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 whitespace-nowrap transition-colors"
+                        aria-label="Browse categories"
+                        className="sm:hidden flex items-center justify-center w-11 h-11 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <Menu size={20} />
+                      </button>
+                      {/* Desktop categories pill */}
+                      <button
+                        type="button"
+                        onClick={catOpen ? () => setCatOpen(false) : openCatDropdown}
+                        className="hidden sm:flex items-center gap-1.5 px-4 h-[42px] rounded-full border border-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-700 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 whitespace-nowrap transition-colors"
                       >
                         <Menu size={20} />
                         <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">All</span>
@@ -229,7 +239,7 @@ export default function StorefrontHeader() {
                         placeholder="Search for products, stores..."
                         autoComplete="off"
                         onFocus={() => setSearchOpen(true)}
-                        className="w-full rounded-full bg-gray-50 border border-gray-200 h-[42px] py-2.5 pl-5 pr-12 outline-none text-sm ease-in duration-200 cursor-pointer hover:border-brand-300 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:placeholder:text-gray-500"
+                        className="w-full rounded-full bg-gray-50 border border-gray-200 h-[42px] py-2.5 pl-5 pr-12 outline-none text-base ease-in duration-200 cursor-pointer hover:border-brand-300 focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:placeholder:text-gray-500"
                       />
                       <button
                         type="submit"
@@ -246,7 +256,7 @@ export default function StorefrontHeader() {
 
             {/* ── Nav + Account row ── */}
             <div className="flex w-full lg:w-auto items-center justify-between gap-6">
-              <nav className="hidden xl:flex items-center gap-6">
+              <nav className="hidden lg:flex items-center gap-6">
                 <Link href="/" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Home</Link>
                 <Link href="/search" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Browse</Link>
                 <Link href="/search" className="text-sm font-medium text-gray-700 hover:text-brand-500 dark:text-gray-300 dark:hover:text-brand-400 transition-colors">Categories</Link>
@@ -255,39 +265,39 @@ export default function StorefrontHeader() {
               <div className="flex items-center gap-5">
                 {isAuthenticated ? (
                   <>
-                    <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} className="hidden xl:flex items-center gap-2.5">
+                    <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} className="hidden lg:flex items-center gap-2.5">
                       <div className="flex items-center justify-center w-9 h-9 border border-brand-300 rounded-full bg-brand-50 dark:border-brand-700 dark:bg-brand-500/10 text-brand-500 font-bold text-sm">
                         {user?.username?.charAt(0).toUpperCase() ?? "U"}
                       </div>
                       <div>
-                        <span className="block uppercase font-medium text-[10px] text-gray-400 leading-tight">{user?.role === "seller" ? "seller" : "my account"}</span>
-                        <p className="font-medium text-xs text-gray-900 hover:text-brand-500 dark:text-white dark:hover:text-brand-400 transition-colors truncate max-w-[120px]">{user?.username}</p>
+                        <span className="block uppercase font-semibold text-xs tracking-wide text-gray-500 dark:text-gray-400 leading-tight">{user?.role === "seller" ? "seller" : "my account"}</span>
+                        <p className="text-sm font-medium text-gray-900 hover:text-brand-500 dark:text-white dark:hover:text-brand-400 transition-colors truncate max-w-[120px]">{user?.username}</p>
                       </div>
                     </Link>
                     <button
                       type="button"
                       onClick={logout}
                       title="Sign out"
-                      className="hidden xl:flex items-center justify-center w-9 h-9 border border-gray-200 rounded-full dark:border-gray-700 text-gray-400 hover:text-red-500 hover:border-red-300 dark:hover:text-red-400 transition-colors"
+                      className="hidden lg:flex items-center justify-center w-9 h-9 border border-gray-200 rounded-full dark:border-gray-700 text-gray-400 hover:text-red-500 hover:border-red-300 dark:hover:text-red-400 transition-colors"
                     >
                       <LogOut size={16} />
                     </button>
-                    <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} className="xl:hidden inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-full hover:bg-brand-600 transition-colors">
+                    <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} className="lg:hidden inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-full hover:bg-brand-600 transition-colors">
                       Dashboard
                     </Link>
                   </>
                 ) : (
                   <>
-                    <Link href="/signin" className="hidden xl:flex items-center gap-2.5">
+                    <Link href="/signin" className="hidden lg:flex items-center gap-2.5">
                       <div className="flex items-center justify-center w-9 h-9 border border-gray-200 rounded-full dark:border-gray-700">
                         <User size={18} />
                       </div>
                       <div>
-                        <span className="block uppercase font-medium text-[10px] text-gray-400 leading-tight">account</span>
-                        <p className="font-medium text-xs text-gray-900 hover:text-brand-500 dark:text-white dark:hover:text-brand-400 transition-colors">Sign In / Register</p>
+                        <span className="block uppercase font-semibold text-xs tracking-wide text-gray-500 dark:text-gray-400 leading-tight">account</span>
+                        <p className="text-sm font-medium text-gray-900 hover:text-brand-500 dark:text-white dark:hover:text-brand-400 transition-colors">Sign In / Register</p>
                       </div>
                     </Link>
-                    <Link href="/signin" className="xl:hidden inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-full hover:bg-brand-600 transition-colors">
+                    <Link href="/signin" className="lg:hidden inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-500 rounded-full hover:bg-brand-600 transition-colors">
                       Sign In
                     </Link>
                   </>

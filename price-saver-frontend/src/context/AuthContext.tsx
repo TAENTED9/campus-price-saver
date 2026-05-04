@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { authApi, setAccessToken, type LoginResponse, type RegisterResponse, type UserInfo } from "@/lib/api";
+import { authApi, setAccessToken, setTokenRefreshCallback, type LoginResponse, type RegisterResponse, type UserInfo } from "@/lib/api";
 import { useSettingsStore, type UserSettingsState } from "@/stores/settingsStore";
 
 const AVATAR_CACHE_KEY = "campify_avatar_url";
@@ -46,27 +46,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  // Keep _silentRefresh in sync with React token state
+  useEffect(() => {
+    setTokenRefreshCallback((newToken) => {
+      setToken(newToken);
+      setAccessToken(newToken);
+    });
+    return () => setTokenRefreshCallback(null);
+  }, []);
+
   // Block 13B — restore session via HttpOnly refresh cookie (no localStorage)
   // Block 6B  — hydrate settings from server on every page load
   useEffect(() => {
     (async () => {
+      let accessToken: string | null = null;
       try {
         const data = await authApi.refresh();
-        setToken(data.access_token);
-        setAccessToken(data.access_token);
+        accessToken = data.access_token;
+        setToken(accessToken);
+        setAccessToken(accessToken);
         // Hydrate settings immediately from refresh response if available
         if (data.settings) {
           useSettingsStore.getState().hydrate(data.settings as UserSettingsState);
         }
-        const fresh = await authApi.me(data.access_token);
+      } catch {
+        // No valid refresh cookie — start unauthenticated
+        useSettingsStore.getState().clearSettings();
+        setIsLoading(false);
+        return;
+      }
+
+      // Refresh succeeded — fetch full profile; failure here keeps the session alive
+      try {
+        const fresh = await authApi.me(accessToken);
         setUser(fresh);
         // Authoritative hydration from /me (overwrites refresh snapshot)
         if (fresh.settings) {
           useSettingsStore.getState().hydrate(fresh.settings as UserSettingsState);
         }
       } catch {
-        // No valid cookie — start unauthenticated
-        useSettingsStore.getState().clearSettings();
+        // /me failed transiently — decode minimal user from JWT so session survives
+        try {
+          const payload = JSON.parse(atob(accessToken.split(".")[1]));
+          setUser({ id: payload.uid, username: payload.sub ?? "", role: payload.role ?? "user" } as UserInfo);
+        } catch { /* JWT decode failed — user stays null but token is valid */ }
       } finally {
         setIsLoading(false);
       }

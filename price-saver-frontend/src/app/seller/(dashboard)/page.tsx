@@ -123,7 +123,7 @@ export default function SellerOverviewPage() {
   const SCORECARD_ROWS_DYNAMIC = [
     { label: "Response Rate",   value: `${respRate}%`,   bar: respRate,   color: "bg-success-500" },
     { label: "Response Time",   value: avgResp,          bar: Math.max(0, Math.round(100 - Math.min(safeResponseMinutes, 60) * (100 / 60))), color: "bg-brand-500" },
-    { label: "Completion Rate", value: `${compRate}%`,   bar: compRate,   color: "bg-[#06b6d4]" },
+    { label: "Completion Rate", value: `${compRate}%`,   bar: compRate,   color: "bg-accent-500" },
     { label: "No-show Rate",    value: `${noShowRate}%`, bar: Math.max(0, 100 - noShowRate), color: "bg-success-500" },
   ];
 
@@ -148,17 +148,17 @@ export default function SellerOverviewPage() {
         </div>
         <Link
           href="/seller/listings/new"
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-[#06b6d4] text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
         >
           <Plus size={15} /> Add Listing
         </Link>
       </div>
 
       {/* ── Stats grid ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           { label: "Store Views",     value: fmt(stats.totalViews),               icon: <Eye size={16} />,           iconBg: "bg-brand-50 dark:bg-brand-500/10",     iconColor: "text-brand-500" },
-          { label: "Inquiries",       value: fmt(stats.totalInquiries ?? 0),       icon: <MessageCircle size={16} />, iconBg: "bg-[#06b6d4]/10",                      iconColor: "text-[#06b6d4]" },
+          { label: "Inquiries",       value: fmt(stats.totalInquiries ?? 0),       icon: <MessageCircle size={16} />, iconBg: "bg-accent-500/10",                      iconColor: "text-accent-500" },
           { label: "Confirmed Sales", value: fmt(stats.confirmedSales),            icon: <CheckCircle size={16} />,   iconBg: "bg-success-50 dark:bg-success-500/10", iconColor: "text-success-500" },
           { label: "Seller Points",   value: fmt(stats.sellerPoints),              icon: <Star size={16} />,          iconBg: "bg-warning-50 dark:bg-warning-500/10", iconColor: "text-warning-500" },
           { label: "Active Listings", value: fmt(stats.activeListings),            icon: <PackageIcon size={16} />,   iconBg: "bg-purple-50 dark:bg-purple-500/10",   iconColor: "text-purple-500" },
@@ -169,7 +169,7 @@ export default function SellerOverviewPage() {
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${s.iconBg} ${s.iconColor}`}>
                 {s.icon}
               </div>
-              <div className="flex items-center gap-0.5 text-success-500 text-[10px] font-bold">
+              <div className="flex items-center gap-0.5 text-success-500 text-xs font-bold">
                 <ChevronUp size={11} /> +{6 + i * 2}%
               </div>
             </div>
@@ -180,12 +180,12 @@ export default function SellerOverviewPage() {
       </div>
 
       {/* ── Scorecard + Trust Tier ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
         {/* Scorecard */}
-        <div className="xl:col-span-3 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
+        <div className="lg:col-span-3 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-[15px] font-extrabold text-gray-800 dark:text-white">Seller Scorecard</h3>
+            <h3 className="text-sm font-bold text-gray-800 dark:text-white">Seller Scorecard</h3>
             <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${scorecardBadge}`}>
               {scorecardOverall}
             </span>
@@ -197,8 +197,8 @@ export default function SellerOverviewPage() {
                   <span className="text-gray-500 dark:text-gray-400">{row.label}</span>
                   <span className="font-bold text-gray-800 dark:text-white">{row.value}</span>
                 </div>
-                <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full">
-                  <div className={`h-full rounded-full transition-all duration-700 ${row.color}`} style={{ width: `${Math.round(row.bar)}%` }} />
+                <div className="relative h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full origin-left ${row.color}`} style={{ transform: `scaleX(${Math.round(row.bar) / 100})` }} />
                 </div>
               </div>
             ))}
@@ -206,8 +206,8 @@ export default function SellerOverviewPage() {
         </div>
 
         {/* Trust Tier */}
-        <div className="xl:col-span-2 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
-          <h3 className="text-[15px] font-extrabold text-gray-800 dark:text-white mb-4">Trust Tier</h3>
+        <div className="lg:col-span-2 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
+          <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4">Trust Tier</h3>
           <div className="text-center mb-4">
             <div className="flex justify-center mb-2">{tierInfo.icon}</div>
             <p className="font-black text-base text-gray-800 dark:text-white">{tierInfo.label}</p>
@@ -282,7 +282,7 @@ export default function SellerOverviewPage() {
                     <p className="font-extrabold text-[14px] text-gray-800 dark:text-white">
                       {formatPrice(l.price)}
                     </p>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColors(l.status)}`}>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${statusColors(l.status)}`}>
                       {l.status}
                     </span>
                   </div>

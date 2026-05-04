@@ -24,7 +24,7 @@ export default function StatsStrip() {
     : null;
 
   return (
-    <div className="w-full bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 py-5">
+    <div className="w-full bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 py-5">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0">
         <div className="flex flex-wrap items-center justify-center gap-8 sm:gap-14">
           {items
