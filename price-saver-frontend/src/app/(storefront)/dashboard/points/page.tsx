@@ -49,7 +49,7 @@ export default function PointsPage() {
 
       {/* How to earn / spend */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
           <h3 className="font-semibold text-green-600 dark:text-green-400 mb-3">Earn Points</h3>
           <ul className="space-y-2.5 text-sm text-gray-700 dark:text-gray-300">
             <li className="flex items-center gap-2"><span className="text-green-500">+5</span> pts — Price submission approved</li>
@@ -57,7 +57,7 @@ export default function PointsPage() {
             <li className="flex items-center gap-2"><span className="text-green-500">+2</span> pts — First review left</li>
           </ul>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
           <h3 className="font-semibold text-red-500 dark:text-red-400 mb-3">Spend Points</h3>
           <ul className="space-y-2.5 text-sm text-gray-700 dark:text-gray-300">
             <li className="flex items-center gap-2"><span className="text-red-400">−50</span> pts — Boost a listing 7 days</li>
@@ -73,8 +73,8 @@ export default function PointsPage() {
       </div>
 
       {/* Transaction history */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-800">
           <h2 className="font-semibold text-gray-900 dark:text-white">Transaction History</h2>
         </div>
 
@@ -95,7 +95,7 @@ export default function PointsPage() {
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-700">
+          <div className="">
             {transactions.map((t) => (
               <div key={t.id} className="flex items-center gap-4 px-5 py-3.5">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm flex-shrink-0 ${t.amount > 0 ? "bg-green-100 dark:bg-green-500/10" : "bg-red-100 dark:bg-red-500/10"}`}>

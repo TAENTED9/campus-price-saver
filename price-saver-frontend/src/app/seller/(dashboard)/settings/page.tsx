@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Store, Shield, FileText, MapPin, List, Lock, Bell, AlertTriangle, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -67,19 +67,19 @@ function SaveButton({ loading, onClick }: { loading: boolean; onClick: () => voi
 
 function Card({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: React.ReactNode; footer?: React.ReactNode }) {
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden mb-5">
-      <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden mb-5">
+      <div className="px-6 py-4">
         <h3 className="font-bold text-gray-900 dark:text-white text-[15px]">{title}</h3>
         {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>}
       </div>
-      <div className="px-6 py-5">{children}</div>
-      {footer && <div className="px-6 py-3 border-t border-gray-100 dark:border-gray-800 flex justify-end">{footer}</div>}
+      <div className="px-6 pb-5">{children}</div>
+      {footer && <div className="px-6 pb-4 flex justify-end">{footer}</div>}
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="block text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">{children}</label>;
+  return <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{children}</label>;
 }
 
 function Input({ label, value, onChange, type = "text", placeholder, hint, readOnly, suffix }: {
@@ -91,7 +91,7 @@ function Input({ label, value, onChange, type = "text", placeholder, hint, readO
       <FieldLabel>{label}</FieldLabel>
       <div className="relative flex items-center">
         <input type={type} value={value} onChange={e => onChange?.(e.target.value)} placeholder={placeholder} readOnly={readOnly}
-          className={`w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors read-only:bg-gray-50 dark:read-only:bg-gray-800 read-only:text-gray-400${suffix ? " pr-20" : ""}`} />
+          className={`w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors read-only:bg-gray-50 dark:read-only:bg-gray-800 read-only:text-gray-400${suffix ? " pr-20" : ""}`} />
         {suffix && <span className="absolute right-3 text-xs text-gray-400 font-semibold">{suffix}</span>}
       </div>
       {hint && <p className="text-[11px] text-gray-400 mt-1">{hint}</p>}
@@ -104,7 +104,7 @@ function NotifRow({ label, sub, emailVal, pushVal, onEmail, onPush, last }: {
   onEmail: (v: boolean) => void; onPush: (v: boolean) => void; last?: boolean;
 }) {
   return (
-    <div className={`grid grid-cols-[1fr_72px_72px] items-center gap-3 py-3 ${!last ? "border-b border-gray-100 dark:border-gray-800" : ""}`}>
+    <div className="grid grid-cols-[1fr_72px_72px] items-center gap-3 py-3">
       <div>
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{label}</p>
         {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
@@ -120,10 +120,13 @@ function NotifRow({ label, sub, emailVal, pushVal, onEmail, onPush, last }: {
 export default function SellerSettingsPage() {
   const { user, token, logout, refreshUser } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const bannerRef = useRef<HTMLInputElement>(null);
   const logoRef = useRef<HTMLInputElement>(null);
 
-  const [active, setActive] = useState<Section>("business");
+  const [active, setActive] = useState<Section>(
+    (searchParams.get("tab") as Section) || "business"
+  );
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
 
@@ -532,8 +535,8 @@ export default function SellerSettingsPage() {
             </p>
             <div className="mb-4">
               <FieldLabel>Auto-resume date (optional)</FieldLabel>
-              <input type="date" value={vacationDate} onChange={e => setVacationDate(e.target.value)}
-                className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition-colors text-gray-900 dark:text-white" />
+              <input type="date" title="Auto-resume date" value={vacationDate} onChange={e => setVacationDate(e.target.value)}
+                className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition-colors text-gray-900 dark:text-white" />
             </div>
             <div className="flex gap-2">
               <button onClick={confirmVacation} disabled={loading.vacation}
@@ -542,7 +545,7 @@ export default function SellerSettingsPage() {
                 Yes, Enable
               </button>
               <button onClick={() => { setShowVacationConfirm(false); setPendingVacation(false); }}
-                className="flex-1 py-2.5 text-sm font-semibold text-gray-500 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 transition-all">
+                className="flex-1 py-2.5 text-sm font-semibold text-gray-500 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 transition-all">
                 Cancel
               </button>
             </div>
@@ -550,7 +553,7 @@ export default function SellerSettingsPage() {
         </div>
       )}
 
-      <div className="lg:hidden overflow-x-auto border-b border-gray-200 dark:border-gray-800">
+      <div className="lg:hidden overflow-x-auto">
         <div className="flex gap-2 w-max px-4 py-3">
           {navItems.map(item => (
             <button key={item.id} onClick={() => setActive(item.id)}
@@ -565,8 +568,8 @@ export default function SellerSettingsPage() {
 
         {/* Sidebar */}
         <aside className="w-52 flex-shrink-0 hidden lg:block">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden sticky top-24">
-            <div className="p-4 border-b border-gray-100 dark:border-gray-800 text-center">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden sticky top-24">
+            <div className="p-4 pb-2 text-center">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-bold text-lg mx-auto mb-2 overflow-hidden">
                 {logoPreview
                   ? <Image src={logoPreview} alt="logo" width={48} height={48} className="w-full h-full object-cover" />
@@ -622,12 +625,12 @@ export default function SellerSettingsPage() {
               <div className="mb-5">
                 <FieldLabel>Store Banner</FieldLabel>
                 <div onClick={() => bannerRef.current?.click()}
-                  className="h-24 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors overflow-hidden relative">
+                  className="h-24 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-800 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors overflow-hidden relative">
                   {bannerPreview
                     ? <Image src={bannerPreview} alt="banner" fill sizes="100vw" className="object-cover" />
                     : <span className="text-sm text-gray-400">↑ Upload Banner (1200×300 recommended)</span>}
                 </div>
-                <input ref={bannerRef} type="file" accept="image/*" className="hidden"
+                <input ref={bannerRef} type="file" title="Upload store banner" accept="image/*" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) setBannerPreview(URL.createObjectURL(f)); }} />
               </div>
               {/* Logo */}
@@ -636,7 +639,7 @@ export default function SellerSettingsPage() {
                   {logoPreview ? <Image src={logoPreview} alt="logo" width={64} height={64} className="w-full h-full object-cover" /> : (bizName?.[0] || "S").toUpperCase()}
                 </div>
                 <div>
-                  <input ref={logoRef} type="file" accept="image/*" className="hidden"
+                  <input ref={logoRef} type="file" title="Upload store logo" accept="image/*" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) setLogoPreview(URL.createObjectURL(f)); }} />
                   <button onClick={() => logoRef.current?.click()}
                     className="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-bold rounded-xl hover:opacity-90 transition-all">
@@ -652,7 +655,7 @@ export default function SellerSettingsPage() {
                   <div className="relative">
                     <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                       placeholder="your-store-name"
-                      className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors pr-8" />
+                      className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors pr-8" />
                     {slugStatus === "checking" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">...</span>}
                     {slugStatus === "ok" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500 font-bold">✓</span>}
                     {slugStatus === "taken" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 font-bold">✕</span>}
@@ -665,15 +668,15 @@ export default function SellerSettingsPage() {
               <div className="mb-4">
                 <FieldLabel>Business Bio</FieldLabel>
                 <textarea value={bio} onChange={e => setBio(e.target.value)} rows={3}
-                  className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+                  className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors resize-none"
                   placeholder="Describe your store in a few lines..." />
                 <p className="text-[11px] text-gray-400 mt-1">{bio.length}/300</p>
               </div>
               <div className="grid grid-cols-2 gap-x-4">
                 <div className="mb-4">
                   <FieldLabel>Primary Category</FieldLabel>
-                  <select value={category} onChange={e => setCategory(e.target.value)}
-                    className="w-full bg-white dark:bg-gray-900 dark:[color-scheme:dark] border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors">
+                  <select title="Primary category" value={category} onChange={e => setCategory(e.target.value)}
+                    className="w-full bg-white dark:bg-gray-900 dark:[color-scheme:dark] border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors">
                     <option value="">Select category</option>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -681,7 +684,7 @@ export default function SellerSettingsPage() {
                 <div />
               </div>
               <Input label="WhatsApp Number" value={whatsapp} onChange={setWhatsapp} placeholder="e.g. 08012345678" />
-              <div className="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-800">
+              <div className="flex items-center justify-between pt-4">
                 <div>
                   <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Show WhatsApp on storefront</p>
                   <p className="text-xs text-gray-400">Shown as a tap-to-chat link</p>
@@ -752,7 +755,7 @@ export default function SellerSettingsPage() {
                 <Card key={key} title={label} subtitle={hint}
                   footer={i === arr.length - 1 ? <SaveButton loading={loading.policies} onClick={savePolicies} /> : undefined}>
                   <textarea value={val} onChange={e => set(e.target.value)} rows={4}
-                    className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+                    className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors resize-none"
                     placeholder={`Enter your ${label.toLowerCase()}...`} />
                   <p className="text-[11px] text-gray-400 mt-1">{val.length}/500</p>
                 </Card>
@@ -768,7 +771,7 @@ export default function SellerSettingsPage() {
                 <div className="grid grid-cols-3 gap-3 mb-5">
                   {(["open", "limited", "closed"] as const).map(val => (
                     <div key={val} onClick={() => setStoreStatus(val)}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 cursor-pointer transition-all ${storeStatus === val ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-700 hover:border-gray-300"}`}>
+                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 cursor-pointer transition-all ${storeStatus === val ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-800 hover:border-gray-300"}`}>
                       <span className="text-2xl">{val === "open" ? "🟢" : val === "limited" ? "🟡" : "🔴"}</span>
                       <span className="text-sm font-bold text-gray-700 dark:text-gray-300 capitalize">{val}</span>
                     </div>
@@ -793,8 +796,8 @@ export default function SellerSettingsPage() {
 
               <Card title="Auto-Reply Message" subtitle="Sent when buyers message you while unavailable"
                 footer={<SaveButton loading={loading.availability} onClick={saveAvailability} />}>
-                <textarea value={autoReply} onChange={e => setAutoReply(e.target.value)} rows={3}
-                  className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors resize-none" />
+                <textarea title="Auto-reply message" value={autoReply} onChange={e => setAutoReply(e.target.value)} rows={3}
+                  className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors resize-none" />
                 <p className="text-[11px] text-gray-400 mt-1">{autoReply.length}/300</p>
               </Card>
             </>
@@ -810,7 +813,7 @@ export default function SellerSettingsPage() {
                 <div className="flex gap-3">
                   {(["7", "14", "30"] as const).map(d => (
                     <div key={d} onClick={() => setDefaultDuration(d)}
-                      className={`flex-1 flex items-center justify-center py-2.5 rounded-xl border-2 cursor-pointer font-bold text-sm transition-all ${defaultDuration === d ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600" : "border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300"}`}>
+                      className={`flex-1 flex items-center justify-center py-2.5 rounded-xl border-2 cursor-pointer font-bold text-sm transition-all ${defaultDuration === d ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600" : "border-gray-200 dark:border-gray-800 text-gray-500 hover:border-gray-300"}`}>
                       {d} days
                     </div>
                   ))}
@@ -820,7 +823,7 @@ export default function SellerSettingsPage() {
                 { key: "autoRenew" as const, val: autoRenew, set: setAutoRenew, label: "Auto-renew listings", sub: "Renew before expiry automatically" },
                 { key: "defaultNeg" as const, val: defaultNegotiable, set: setDefaultNegotiable, label: "Mark prices as negotiable by default", sub: "Buyers will see the 'Make Offer' option" },
               ].map(({ key, val, set, label, sub }, i, arr) => (
-                <div key={key} className={`flex items-center justify-between py-3.5 ${i < arr.length - 1 ? "border-b border-gray-100 dark:border-gray-800" : ""}`}>
+                <div key={key} className="flex items-center justify-between py-3.5">
                   <div>
                     <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{label}</p>
                     <p className="text-xs text-gray-400">{sub}</p>
@@ -845,7 +848,7 @@ export default function SellerSettingsPage() {
                 {sessions.length === 0 ? (
                   <p className="text-sm text-gray-400 py-2">No session data available</p>
                 ) : sessions.map((s, i) => (
-                  <div key={s.id} className={`flex items-center gap-3 py-3.5 ${i < sessions.length - 1 ? "border-b border-gray-100 dark:border-gray-800" : ""}`}>
+                  <div key={s.id} className="flex items-center gap-3 py-3.5">
                     <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 flex-shrink-0">💻</div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -870,7 +873,7 @@ export default function SellerSettingsPage() {
           {active === "notifications" && (
             <Card title="Seller Notification Preferences"
               footer={<SaveButton loading={loading.notifs} onClick={saveNotifications} />}>
-              <div className="grid grid-cols-[1fr_72px_72px] gap-3 pb-2 mb-1 border-b border-gray-100 dark:border-gray-800">
+              <div className="grid grid-cols-[1fr_72px_72px] gap-3 pb-2 mb-1">
                 <span />
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Email</span>
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Push</span>
@@ -943,14 +946,14 @@ export default function SellerSettingsPage() {
                 </p>
                 {!showDeleteConfirm ? (
                   <button onClick={() => setShowDeleteConfirm(true)}
-                    className="px-4 py-2 bg-red-50 dark:bg-red-950 text-red-600 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold hover:bg-red-100 transition-all">
+                    className="px-4 py-2 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-950/70 transition-all">
                     I want to delete my account
                   </button>
                 ) : (
                   <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl">
                     <p className="text-sm text-red-600 font-semibold mb-3">Type <strong>DELETE</strong> to confirm</p>
                     <input value={deleteInput} onChange={e => setDeleteInput(e.target.value)} placeholder="Type DELETE here..."
-                      className="w-full bg-white dark:bg-gray-900 border border-red-200 dark:border-red-700 rounded-xl px-3.5 py-2.5 text-sm mb-3 focus:outline-none transition-colors" />
+                      className="w-full bg-white dark:bg-gray-900 border border-red-200 dark:border-red-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white mb-3 focus:outline-none focus:border-red-500 transition-colors" />
                     <div className="flex gap-2">
                       <button onClick={deleteAccount} disabled={deleteInput !== "DELETE" || loading.delete}
                         className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 disabled:opacity-40 transition-all">
@@ -958,7 +961,7 @@ export default function SellerSettingsPage() {
                         Delete Forever
                       </button>
                       <button onClick={() => { setShowDeleteConfirm(false); setDeleteInput(""); }}
-                        className="px-4 py-2 text-sm text-gray-500 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 transition-all">
+                        className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
                         Cancel
                       </button>
                     </div>

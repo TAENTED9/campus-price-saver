@@ -28,7 +28,7 @@ type NavItem = {
   path: string;
 };
 
-const SIDEBAR_ICON_SIZE = 17;
+const SIDEBAR_ICON_SIZE = 18;
 
 function buildNavItems(username: string | null | undefined): NavItem[] {
   const storePath = username ? `/store/${username}` : "/seller/profile";
@@ -141,7 +141,7 @@ const SellerSidebar: React.FC = () => {
       {/* Mobile overlay */}
       {isMobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          className="fixed inset-0 z-[29] bg-black/50 lg:hidden"
           onClick={toggleMobileSidebar}
         />
       )}
@@ -152,12 +152,13 @@ const SellerSidebar: React.FC = () => {
           bg-white dark:bg-gray-900
           border-r border-gray-200 dark:border-gray-800
           transition-transform duration-300 ease-in-out
+          overflow-visible
           ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
           lg:translate-x-0
         `}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2 px-4 h-16 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+        <div className="flex items-center gap-2 px-4 h-14 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white text-base font-bold flex-shrink-0">
             C
           </div>
@@ -203,13 +204,13 @@ const SellerSidebar: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-1.5">
-              <div className="flex-1 text-center py-1.5 px-1 bg-white/70 dark:bg-gray-800/70 rounded-lg">
+              <div className="flex-1 text-center py-1.5 px-1 bg-gray-50 dark:bg-gray-800/70 rounded-lg">
                 <Star size={12} className="text-yellow-400 mx-auto" />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   {liveRating !== null ? `${liveRating} Stars` : liveReviewCount === 0 ? "No reviews" : "— Stars"}
                 </p>
               </div>
-              <div className="flex-1 text-center py-1.5 px-1 bg-white/70 dark:bg-gray-800/70 rounded-lg">
+              <div className="flex-1 text-center py-1.5 px-1 bg-gray-50 dark:bg-gray-800/70 rounded-lg">
                 <p className="font-bold text-[12px] text-brand-500">{karmaPoints.toLocaleString()}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">pts</p>
               </div>
@@ -238,11 +239,10 @@ const SellerSidebar: React.FC = () => {
                     if (isMobileOpen) toggleMobileSidebar();
                   }}
                   className={`
-                    flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150
-                    border-l-[3px]
+                    flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
                     ${active
-                      ? "bg-gradient-to-r from-brand-500/12 to-accent-500/8 border-brand-500 text-brand-500 dark:text-brand-400 font-semibold"
-                      : "border-transparent text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200"
+                      ? "bg-brand-500/10 text-brand-400"
+                      : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-white"
                     }
                   `}
                 >
@@ -268,7 +268,7 @@ const SellerSidebar: React.FC = () => {
               {karmaPoints.toLocaleString()}{" "}
               <span className="text-xs text-gray-400 font-normal">pts</span>
             </p>
-            <div className="relative h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-2 overflow-hidden">
+            <div className="relative h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full mt-2 overflow-hidden">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 origin-left"
                 style={{ transform: `scaleX(${karmaPct / 100})` }}
@@ -281,9 +281,9 @@ const SellerSidebar: React.FC = () => {
           <button
             type="button"
             onClick={handleLogout}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 transition-colors flex-shrink-0 border-l-[3px] border-transparent"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-error-400 hover:text-error-300 hover:bg-error-500/10 transition-colors flex-shrink-0"
           >
-            <LogOut size={17} />
+            <LogOut size={18} />
             Log Out
           </button>
         </div>

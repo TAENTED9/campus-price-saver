@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, type AdminVerification } from "@/lib/api";
@@ -41,6 +41,12 @@ export default function SellersPage() {
   const { data, loading, error, refetch } = usePolling<{ success: boolean; data: AdminVerification[] }>(
     fetch, 30_000, !!token
   );
+
+  // Re-fetch immediately whenever the active tab changes (usePolling only
+  // updates fetchRef; it does not trigger a new initial fetch on its own).
+  useEffect(() => {
+    if (token) refetch();
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const verifications: AdminVerification[] = data?.data ?? [];
 
@@ -171,7 +177,7 @@ export default function SellersPage() {
                           <p className="text-[11px] text-gray-400">{elapsed(v.submitted_at)}</p>
                         </td>
                         <td className="px-5 py-4">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TAB_COLORS[v.status as Tab] ?? TAB_COLORS.Pending}`}>
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TAB_COLORS[(v.status ? v.status.charAt(0).toUpperCase() + v.status.slice(1).toLowerCase() : "Pending") as Tab] ?? TAB_COLORS.Pending}`}>
                             {v.status}
                           </span>
                           {v.admin_notes && (

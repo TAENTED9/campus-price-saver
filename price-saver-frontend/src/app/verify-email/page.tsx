@@ -19,6 +19,7 @@ export default function VerifyEmailPage() {
   const [state,    setState]    = useState<State>("loading");
   const [message,  setMessage]  = useState("");
   const [email,    setEmail]    = useState(emailFromUrl);
+  const [verifiedUsername, setVerifiedUsername] = useState("");
   const [resent,   setResent]   = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -36,6 +37,7 @@ export default function VerifyEmailPage() {
           throw new Error(data.detail || "Verification failed.");
         }
         setEmail(data.email || "");
+        setVerifiedUsername(data.username || "");
         setState("success");
         // Redirect after 2.5 s
         setTimeout(() => {
@@ -96,7 +98,7 @@ export default function VerifyEmailPage() {
               Redirecting you to sign in…
             </p>
             <Link
-              href={`/signin?verified=true`}
+              href={`/signin?verified=true${verifiedUsername ? `&username=${encodeURIComponent(verifiedUsername)}` : ""}`}
               className="inline-block px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-full transition-colors"
             >
               Go to Sign In

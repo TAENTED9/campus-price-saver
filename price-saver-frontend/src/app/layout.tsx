@@ -21,7 +21,7 @@ export default function RootLayout({
         {/* Block 6C — apply theme BEFORE first paint to prevent light→dark flicker */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem('campify_settings');if(s){var t=JSON.parse(s)?.state?.settings?.theme;var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}}catch(e){}})()`,
+            __html: `(function(){try{var s=localStorage.getItem('campify_settings');var t=s?JSON.parse(s)?.state?.settings?.theme:null;var isDark=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(isDark){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})()`,
           }}
         />
       </head>

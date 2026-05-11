@@ -11,6 +11,7 @@ import {
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { formatPrice } from "@/lib/formatPrice";
+import { AdminAvatar, AdminErrorState } from "@/components/admin";
 
 type RoleFilter = "all" | "user" | "seller" | "admin";
 type StatusFilter = "all" | "paused" | "banned" | "deleted";
@@ -172,11 +173,7 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
-          {error}
-        </div>
-      )}
+      {error && <AdminErrorState message={error} onRetry={refetch} />}
 
       {/* Table */}
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
@@ -218,9 +215,7 @@ export default function UsersPage() {
                             onClick={() => openDrawer(u.id)}
                             className="flex items-center gap-3 text-left group"
                           >
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500/15 text-[11px] font-bold text-brand-700 dark:text-brand-400">
-                              {((u.display_name || u.username || "?")[0]).toUpperCase()}
-                            </div>
+                            <AdminAvatar src={u.avatar_url} name={u.display_name || u.username} size="sm" />
                             <span className="font-medium text-gray-800 dark:text-white/90 group-hover:text-brand-500 transition-colors">
                               {u.display_name || u.username || `User #${u.id}`}
                             </span>
@@ -354,9 +349,7 @@ export default function UsersPage() {
               <div className="p-5 space-y-5">
                 {/* Avatar + name */}
                 <div className="flex items-center gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-500/15 text-xl font-bold text-brand-700 dark:text-brand-400">
-                    {((drawer.display_name || drawer.username || "?")[0]).toUpperCase()}
-                  </div>
+                  <AdminAvatar src={drawer.avatar_url} name={drawer.display_name || drawer.username} size="lg" />
                   <div>
                     <p className="font-semibold text-gray-900 dark:text-white">{drawer.display_name || drawer.username}</p>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{drawer.email}</p>

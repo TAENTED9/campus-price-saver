@@ -72,7 +72,7 @@ export default function BottomNav() {
               onClick={() => { if (item.label === "Messages" || item.label === "Inbox") markCategoryRead("messages"); }}
               className={`relative flex flex-col items-center gap-0.5 py-2 px-3 min-w-[44px] min-h-[44px] justify-center ${
                 active
-                  ? "text-blue-600 dark:text-blue-400"
+                  ? "text-brand-500 dark:text-brand-400"
                   : "text-gray-400 dark:text-gray-500"
               }`}
             >

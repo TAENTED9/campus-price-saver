@@ -98,7 +98,7 @@ export default function SubmissionsPage() {
 
       {/* Submission form */}
       {showForm && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
           <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Report a Price You&apos;ve Seen</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -126,9 +126,10 @@ export default function SubmissionsPage() {
                 <label className="block mb-1.5 text-xs font-medium text-gray-700 dark:text-gray-300">Category *</label>
                 <select
                   required
+                  title="Category"
                   value={formCat}
                   onChange={(e) => setFormCat(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-gray-50 dark:bg-gray-900 dark:[color-scheme:dark] dark:border-gray-600 text-gray-800 dark:text-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20"
+                  className="w-full rounded-lg border border-gray-300 bg-gray-50 dark:bg-gray-900 dark:[color-scheme:dark] dark:border-gray-800 text-gray-800 dark:text-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-500/20"
                 >
                   <option value="">Select category</option>
                   {categories.map((c) => (
@@ -176,17 +177,17 @@ export default function SubmissionsPage() {
       ) : error ? (
         <div className="p-4 rounded-xl bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20 text-sm text-red-600 dark:text-red-400">{error}</div>
       ) : submissions.length === 0 ? (
-        <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+        <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-800">
           <p className="text-4xl mb-3">📋</p>
           <p className="font-semibold text-gray-900 dark:text-white mb-1">No submissions yet</p>
           <p className="text-sm text-gray-500 dark:text-gray-400">Help your fellow students — report prices you see on campus!</p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+                <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-700/50">
                   <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Item</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Price</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600 dark:text-gray-400">Location</th>
@@ -197,7 +198,7 @@ export default function SubmissionsPage() {
               </thead>
               <tbody>
                 {submissions.map((s) => (
-                  <tr key={s.id} className="border-b border-gray-100 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                  <tr key={s.id} className="border-b border-gray-100 dark:border-gray-800/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 dark:text-white">{s.name}</p>
                       {s.brand && <p className="text-xs text-gray-400">{s.brand}</p>}

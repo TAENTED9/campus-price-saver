@@ -349,6 +349,7 @@ async def admin_remove_listing(
 @router.patch("/listings/{price_id}/flag")
 async def admin_flag_listing(
     price_id: int,
+    reason: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
@@ -356,7 +357,26 @@ async def admin_flag_listing(
     if not price:
         raise HTTPException(status_code=404, detail="Listing not found")
     price.status = "flagged"
-    log_action(db, current_admin, "Flagged listing", "Listing", price.id, price.name)
+    if reason:
+        price.flag_reason = reason
+    log_action(db, current_admin, "Flagged listing", "Listing", price.id, price.name,
+               {"reason": reason or ""})
+    if price.submitted_by:
+        from app.models import Notification as _Notif
+        db.add(_Notif(
+            user_id=price.submitted_by,
+            type="listing_flagged",
+            title="Your listing has been flagged",
+            body=(
+                f'Your listing "{price.name}" has been flagged for review. '
+                f"Please check it for policy compliance. "
+                f"If you believe this is an error, contact support."
+            ),
+            related_id=price.id,
+            related_type="Listing",
+            is_read=False,
+            action_url="/seller/listings",
+        ))
     db.commit()
     return {"success": True, "message": "Listing flagged"}
 

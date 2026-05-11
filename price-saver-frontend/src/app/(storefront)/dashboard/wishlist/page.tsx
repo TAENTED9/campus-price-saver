@@ -68,11 +68,9 @@ export default function WishlistPage() {
     setRemoving(listingId);
     try {
       await wishlistApi.toggle(token, listingId);
-      setItems((prev) => {
-        const updated = prev.filter((i) => i.listing_id !== listingId);
-        syncWishlistToStorage(updated);
-        return updated;
-      });
+      const updated = items.filter((i) => i.listing_id !== listingId);
+      setItems(updated);
+      syncWishlistToStorage(updated);
     } catch { /* silent */ }
     finally { setRemoving(null); }
   }

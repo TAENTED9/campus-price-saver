@@ -133,7 +133,7 @@ function DetailsCard({ data }: { data: VerificationObj }) {
   return (
     <div className={CARD}>
       <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90 mb-4">Application Details</h3>
-      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+      <div className="">
         <DetailRow label="Seller Name" value={data.sellerName} />
         <DetailRow label="Matric Number" value={data.matricNo} mono />
         <DetailRow label="Faculty" value={data.faculty} />

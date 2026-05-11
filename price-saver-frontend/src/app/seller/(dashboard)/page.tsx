@@ -148,30 +148,30 @@ export default function SellerOverviewPage() {
         </div>
         <Link
           href="/seller/listings/new"
-          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-5 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-2 bg-gradient-to-r from-brand-500 to-accent-500 text-white rounded-full px-4 py-2.5 text-sm font-bold shadow-sm hover:opacity-90 transition-opacity min-h-[44px]"
         >
-          <Plus size={15} /> Add Listing
+          <Plus size={15} /><span className="hidden sm:inline">Add Listing</span>
         </Link>
       </div>
 
       {/* ── Stats grid ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
-          { label: "Store Views",     value: fmt(stats.totalViews),               icon: <Eye size={16} />,           iconBg: "bg-brand-50 dark:bg-brand-500/10",     iconColor: "text-brand-500" },
-          { label: "Inquiries",       value: fmt(stats.totalInquiries ?? 0),       icon: <MessageCircle size={16} />, iconBg: "bg-accent-500/10",                      iconColor: "text-accent-500" },
-          { label: "Confirmed Sales", value: fmt(stats.confirmedSales),            icon: <CheckCircle size={16} />,   iconBg: "bg-success-50 dark:bg-success-500/10", iconColor: "text-success-500" },
-          { label: "Seller Points",   value: fmt(stats.sellerPoints),              icon: <Star size={16} />,          iconBg: "bg-warning-50 dark:bg-warning-500/10", iconColor: "text-warning-500" },
-          { label: "Active Listings", value: fmt(stats.activeListings),            icon: <PackageIcon size={16} />,   iconBg: "bg-purple-50 dark:bg-purple-500/10",   iconColor: "text-purple-500" },
-          { label: "Followers",       value: fmt(stats.followersCount ?? 0),       icon: <Users size={16} />,         iconBg: "bg-pink-50 dark:bg-pink-500/10",       iconColor: "text-pink-500" },
-        ].map((s, i) => (
-          <div key={i} className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-4">
+          { label: "Store Views",     value: fmt(stats.totalViews),               icon: <Eye size={16} />,           iconBg: "bg-brand-500/10",   iconColor: "text-brand-500" },
+          { label: "Inquiries",       value: fmt(stats.totalInquiries ?? 0),       icon: <MessageCircle size={16} />, iconBg: "bg-accent-500/10",  iconColor: "text-accent-500" },
+          { label: "Confirmed Sales", value: fmt(stats.confirmedSales),            icon: <CheckCircle size={16} />,   iconBg: "bg-success-500/10", iconColor: "text-success-500" },
+          { label: "Seller Points",   value: fmt(stats.sellerPoints),              icon: <Star size={16} />,          iconBg: "bg-warning-500/10", iconColor: "text-warning-500" },
+          { label: "Active Listings", value: fmt(stats.activeListings),            icon: <PackageIcon size={16} />,   iconBg: "bg-brand-500/10",   iconColor: "text-brand-400" },
+          { label: "Followers",       value: fmt(stats.followersCount ?? 0),       icon: <Users size={16} />,         iconBg: "bg-accent-500/10",  iconColor: "text-accent-400" },
+        ].map((s, idx) => (
+          <div key={s.label} className="relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 min-w-0">
             <div className="flex items-center justify-between mb-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${s.iconBg} ${s.iconColor}`}>
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${s.iconBg} ${s.iconColor}`}>
                 {s.icon}
               </div>
-              <div className="flex items-center gap-0.5 text-success-500 text-xs font-bold">
-                <ChevronUp size={11} /> +{6 + i * 2}%
-              </div>
+              <span className="absolute top-3 right-3 text-xs font-semibold text-success-400">
+                +{6 + idx * 2}%
+              </span>
             </div>
             <p className="text-xl font-black text-gray-800 dark:text-white tracking-tight">{s.value}</p>
             <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-medium">{s.label}</p>
@@ -183,7 +183,7 @@ export default function SellerOverviewPage() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
         {/* Scorecard */}
-        <div className="lg:col-span-3 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
+        <div className="lg:col-span-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-sm font-bold text-gray-800 dark:text-white">Seller Scorecard</h3>
             <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${scorecardBadge}`}>
@@ -197,7 +197,7 @@ export default function SellerOverviewPage() {
                   <span className="text-gray-500 dark:text-gray-400">{row.label}</span>
                   <span className="font-bold text-gray-800 dark:text-white">{row.value}</span>
                 </div>
-                <div className="relative h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="relative h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
                   <div className={`h-full rounded-full origin-left ${row.color}`} style={{ transform: `scaleX(${Math.round(row.bar) / 100})` }} />
                 </div>
               </div>
@@ -206,7 +206,7 @@ export default function SellerOverviewPage() {
         </div>
 
         {/* Trust Tier */}
-        <div className="lg:col-span-2 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
+        <div className="lg:col-span-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
           <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4">Trust Tier</h3>
           <div className="text-center mb-4">
             <div className="flex justify-center mb-2">{tierInfo.icon}</div>
@@ -214,10 +214,10 @@ export default function SellerOverviewPage() {
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{tierInfo.sub}</p>
           </div>
           {stats.verificationStatus === "Approved" && (
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-2">
               {TIER_PERKS.map((p) => (
-                <div key={p.label} className="bg-success-50 dark:bg-success-500/10 border border-success-200 dark:border-success-500/20 rounded-lg p-2 text-center">
-                  <p className="text-[11px] font-semibold text-success-700 dark:text-success-400 flex items-center justify-center gap-1">{p.icon} {p.label}</p>
+                <div key={p.label} className="border border-gray-200 dark:border-gray-800 hover:border-brand-500 rounded-lg p-2.5 text-xs font-medium text-gray-500 dark:text-gray-300 hover:text-brand-400 transition-colors text-center">
+                  <p className="flex items-center justify-center gap-1">{p.icon} {p.label}</p>
                 </div>
               ))}
             </div>
@@ -234,7 +234,7 @@ export default function SellerOverviewPage() {
       </div>
 
       {/* ── Top Listings ── */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] p-5">
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[15px] font-extrabold text-gray-800 dark:text-white">Top Listings This Week</h3>
           <Link href="/seller/listings" className="text-[13px] text-brand-500 font-semibold hover:underline">
@@ -260,7 +260,7 @@ export default function SellerOverviewPage() {
               return (
                 <div
                   key={l.id}
-                  className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/60 rounded-xl border border-gray-100 dark:border-gray-700"
+                  className="flex items-center gap-3 p-3 bg-gray-100 dark:bg-gray-800/40 rounded-xl border border-gray-200 dark:border-gray-800"
                 >
                   <div className="w-10 h-10 rounded-lg bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 flex-shrink-0 font-bold text-lg">
                     {l.name.charAt(0).toUpperCase()}
@@ -271,10 +271,10 @@ export default function SellerOverviewPage() {
                       <span className="flex items-center gap-1"><Eye size={10} /> {l.view_count.toLocaleString()} views</span>
                       <span>Health: <strong className={score > 70 ? "text-success-500" : "text-warning-500"}>{score}/100</strong></span>
                     </div>
-                    <div className="h-1 bg-gray-200 dark:bg-gray-700 rounded-full mt-1.5 w-28">
+                    <div className="h-1 bg-gray-200 dark:bg-gray-800 rounded-full mt-1.5 w-28 overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${score > 70 ? "bg-success-500" : "bg-warning-400"}`}
-                        style={{ width: `${score}%` }}
+                        className={`h-full rounded-full origin-left ${score > 70 ? "bg-success-500" : "bg-warning-400"}`}
+                        style={{ transform: `scaleX(${score / 100})` }}
                       />
                     </div>
                   </div>

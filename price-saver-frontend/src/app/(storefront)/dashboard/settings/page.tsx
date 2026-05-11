@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { User, Lock, Bell, Eye, Palette, AlertTriangle, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { authApi, uploadApi, userApi } from "@/lib/api";
 import { settingsApi } from "@/lib/settingsApi";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type Section = "profile" | "security" | "notifications" | "privacy" | "appearance" | "danger";
 type NavItem = { id: Section; label: string; Icon: LucideIcon; danger?: boolean };
@@ -62,19 +63,19 @@ function SaveButton({ loading, onClick }: { loading: boolean; onClick: () => voi
 
 function Card({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: React.ReactNode; footer?: React.ReactNode }) {
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden mb-5">
-      <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden mb-5">
+      <div className="px-6 py-4">
         <h3 className="font-bold text-gray-900 dark:text-white text-[15px]">{title}</h3>
         {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>}
       </div>
-      <div className="px-6 py-5">{children}</div>
-      {footer && <div className="px-6 py-3 border-t border-gray-100 dark:border-gray-800 flex justify-end">{footer}</div>}
+      <div className="px-6 pb-5">{children}</div>
+      {footer && <div className="px-6 pb-4 flex justify-end">{footer}</div>}
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="block text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">{children}</label>;
+  return <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{children}</label>;
 }
 
 function Input({ label, value, onChange, type = "text", placeholder, hint, readOnly }: {
@@ -88,7 +89,7 @@ function Input({ label, value, onChange, type = "text", placeholder, hint, readO
       <div className="relative">
         <input type={type === "password" && show ? "text" : type} value={value}
           onChange={e => onChange?.(e.target.value)} placeholder={placeholder} readOnly={readOnly}
-          className="w-full bg-transparent border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors read-only:bg-gray-50 dark:read-only:bg-gray-800 read-only:text-gray-400" />
+          className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors read-only:bg-gray-50 dark:read-only:bg-gray-800 read-only:text-gray-400" />
         {type === "password" && (
           <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
             {show ? "Hide" : "Show"}
@@ -105,7 +106,7 @@ function NotifRow({ label, sub, emailVal, pushVal, onEmail, onPush, last }: {
   onEmail: (v: boolean) => void; onPush: (v: boolean) => void; last?: boolean;
 }) {
   return (
-    <div className={`grid grid-cols-[1fr_72px_72px] items-center gap-3 py-3 ${!last ? "border-b border-gray-100 dark:border-gray-800" : ""}`}>
+    <div className="grid grid-cols-[1fr_72px_72px] items-center gap-3 py-3">
       <div>
         <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{label}</p>
         {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
@@ -116,17 +117,17 @@ function NotifRow({ label, sub, emailVal, pushVal, onEmail, onPush, last }: {
   );
 }
 
-function pwStrength(pw: string): { label: string; color: string; pct: number } {
-  if (!pw) return { label: "", color: "", pct: 0 };
+function pwStrength(pw: string): { label: string; color: string; pct: number; labelColor: string } {
+  if (!pw) return { label: "", color: "", pct: 0, labelColor: "" };
   let score = 0;
   if (pw.length >= 8) score++;
   if (/[A-Z]/.test(pw)) score++;
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
-  if (score <= 1) return { label: "Weak", color: "bg-red-500", pct: 25 };
-  if (score === 2) return { label: "Fair", color: "bg-yellow-500", pct: 50 };
-  if (score === 3) return { label: "Strong", color: "bg-green-500", pct: 75 };
-  return { label: "Very Strong", color: "bg-green-600", pct: 100 };
+  if (score <= 1) return { label: "Weak",       color: "bg-red-500",    pct: 25,  labelColor: "text-red-500" };
+  if (score === 2) return { label: "Fair",       color: "bg-yellow-500", pct: 50,  labelColor: "text-yellow-500" };
+  if (score === 3) return { label: "Strong",     color: "bg-green-500",  pct: 75,  labelColor: "text-green-500" };
+  return             { label: "Very Strong", color: "bg-green-600",  pct: 100, labelColor: "text-green-600" };
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -134,9 +135,12 @@ function pwStrength(pw: string): { label: string; color: string; pct: number } {
 export default function BuyerSettingsPage() {
   const { user, token, logout, refreshUser } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [active, setActive] = useState<Section>("profile");
+  const [active, setActive] = useState<Section>(
+    (searchParams.get("tab") as Section) || "profile"
+  );
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
 
@@ -441,6 +445,7 @@ export default function BuyerSettingsPage() {
     setDarkMode(val);
     localStorage.setItem("campify_dark", String(val));
     document.documentElement.classList.toggle("dark", val);
+    useSettingsStore.getState().updateLocal({ theme: val ? "dark" : "light" });
     if (token) {
       settingsApi.patchSettings(token, { theme: val ? "dark" : "light" }).then(res => {
         settingsVersionRef.current = res.settings.version;
@@ -500,15 +505,15 @@ export default function BuyerSettingsPage() {
       <div className="flex gap-6">
         {/* Sidebar */}
         <aside className="w-48 flex-shrink-0 hidden lg:block">
-          <div className="bg-white dark:bg-white/[0.03] border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden sticky top-4">
-            <div className="p-4 border-b border-gray-100 dark:border-gray-800 text-center">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden sticky top-4">
+            <div className="p-4 pb-2 text-center">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-bold text-lg mx-auto mb-2 overflow-hidden">
                 {avatarPreview
                   ? <Image src={avatarPreview} alt="avatar" width={48} height={48} className="w-full h-full object-cover" />
                   : (user?.display_name?.[0] || user?.username?.[0] || "U").toUpperCase()}
               </div>
               <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{user?.display_name || user?.username}</p>
-              <p className="text-xs text-gray-400">{user?.department || "Student"}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{user?.department || "Student"}</p>
             </div>
             <nav className="p-2">
               {navItems.map(item => (
@@ -554,7 +559,7 @@ export default function BuyerSettingsPage() {
                       : (user?.display_name?.[0] || "U").toUpperCase()}
                   </div>
                   <div>
-                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onAvatarChange} />
+                    <input ref={fileRef} type="file" accept="image/*" aria-label="Upload avatar photo" className="hidden" onChange={onAvatarChange} />
                     <button onClick={() => fileRef.current?.click()}
                       className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-bold rounded-xl hover:opacity-90 transition-all">
                       ↑ Upload New Photo
@@ -572,8 +577,8 @@ export default function BuyerSettingsPage() {
                   <Input label="Department" value={department} onChange={setDepartment} placeholder="e.g. Computer Science" />
                   <div className="mb-4">
                     <FieldLabel>Level</FieldLabel>
-                    <select value={level} onChange={e => setLevel(e.target.value)}
-                      className="w-full bg-white dark:bg-gray-900 dark:[color-scheme:dark] border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors">
+                    <select value={level} onChange={e => setLevel(e.target.value)} title="Academic level"
+                      className="w-full bg-white dark:bg-gray-900 dark:[color-scheme:dark] border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors">
                       <option value="">Select level</option>
                       {["100", "200", "300", "400", "500", "600", "700"].map(l =>
                         <option key={l} value={l}>{l} Level</option>)}
@@ -603,7 +608,7 @@ export default function BuyerSettingsPage() {
                         Verify & Update
                       </button>
                       <button onClick={sendOtp} disabled={loading.otp || otpCooldown > 0}
-                        className="px-4 py-2 text-sm text-gray-500 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-all">
+                        className="px-4 py-2 text-sm text-gray-500 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-all">
                         {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : "Resend OTP"}
                       </button>
                     </>
@@ -626,7 +631,7 @@ export default function BuyerSettingsPage() {
                         <div key={i} className={`flex-1 h-1 rounded-full transition-all ${(strength.pct / 25) >= i ? strength.color : "bg-gray-200 dark:bg-gray-700"}`} />
                       ))}
                     </div>
-                    {strength.label && <p className={`text-xs font-semibold text-${strength.color.replace("bg-", "")}`}>{strength.label}</p>}
+                    {strength.label && <p className={`text-xs font-semibold ${strength.labelColor}`}>{strength.label}</p>}
                   </div>
                 )}
                 <Input label="Confirm New Password" value={confirmPw} onChange={setConfirmPw} type="password" placeholder="Repeat new password" />
@@ -639,7 +644,7 @@ export default function BuyerSettingsPage() {
                 {sessions.length === 0 ? (
                   <p className="text-sm text-gray-400 py-2">No additional sessions found</p>
                 ) : sessions.map((s, i) => (
-                  <div key={s.id} className={`flex items-center gap-3 py-3.5 ${i < sessions.length - 1 ? "border-b border-gray-100 dark:border-gray-800" : ""}`}>
+                  <div key={s.id} className="flex items-center gap-3 py-3.5">
                     <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 text-lg flex-shrink-0">💻</div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -664,7 +669,7 @@ export default function BuyerSettingsPage() {
           {active === "notifications" && (
             <Card title="Notification Preferences" subtitle="Choose how you're notified for each event"
               footer={<SaveButton loading={loading.notifs} onClick={saveNotifications} />}>
-              <div className="grid grid-cols-[1fr_72px_72px] gap-3 pb-2 mb-1 border-b border-gray-100 dark:border-gray-800">
+              <div className="grid grid-cols-[1fr_72px_72px] gap-3 pb-2 mb-1">
                 <span />
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Email</span>
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider text-center">Push</span>
@@ -705,7 +710,7 @@ export default function BuyerSettingsPage() {
                     ["unilag", "🎓 UNILAG Students Only", "Only verified accounts"],
                     ["private", "🔒 Private", "Only people you message"],
                   ] as const).map(([val, label, sub]) => (
-                    <label key={val} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${privacy.profile_visibility === val ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-700 hover:border-gray-300"}`}>
+                    <label key={val} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${privacy.profile_visibility === val ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-800 hover:border-gray-300"}`}>
                       <input type="radio" value={val} checked={privacy.profile_visibility === val}
                         onChange={() => setPrivacy(p => ({ ...p, profile_visibility: val }))}
                         className="accent-blue-600" />
@@ -717,12 +722,12 @@ export default function BuyerSettingsPage() {
                   ))}
                 </div>
               </div>
-              <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+              <div className="pt-4">
                 {[
                   { key: "show_dept" as const, label: "Show department & level on profile", sub: "Visible to other users" },
                   { key: "read_receipts" as const, label: "Read receipts", sub: "Let sellers know when you've read their message" },
                 ].map(({ key, label, sub }, i, arr) => (
-                  <div key={key} className={`flex justify-between items-center py-3.5 ${i < arr.length - 1 ? "border-b border-gray-100 dark:border-gray-800" : ""}`}>
+                  <div key={key} className="flex justify-between items-center py-3.5">
                     <div>
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{label}</p>
                       <p className="text-xs text-gray-400">{sub}</p>
@@ -743,7 +748,7 @@ export default function BuyerSettingsPage() {
                   ["dark", "🌙", "Dark Mode", "Easy on the eyes at night"],
                 ] as const).map(([val, icon, label, sub]) => (
                   <div key={val} onClick={() => toggleDarkMode(val === "dark")}
-                    className={`flex flex-col items-center gap-2 p-5 rounded-2xl border-2 cursor-pointer transition-all ${(val === "dark") === darkMode ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-700 hover:border-gray-300"}`}>
+                    className={`flex flex-col items-center gap-2 p-5 rounded-2xl border-2 cursor-pointer transition-all ${(val === "dark") === darkMode ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-800 hover:border-gray-300"}`}>
                     <span className="text-3xl">{icon}</span>
                     <p className="font-bold text-sm text-gray-800 dark:text-gray-200">{label}</p>
                     <p className="text-xs text-gray-400 text-center">{sub}</p>
@@ -755,26 +760,26 @@ export default function BuyerSettingsPage() {
 
           {/* DANGER ZONE */}
           {active === "danger" && (
-            <div className="bg-white dark:bg-gray-900 border-2 border-red-200 dark:border-red-900 rounded-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-red-100 dark:border-red-900 flex items-center gap-2">
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden mb-5">
+              <div className="px-6 py-4 flex items-center gap-2">
                 <span className="text-red-500">⚠️</span>
-                <h3 className="font-bold text-red-600 dark:text-red-400 text-[15px]">Delete Account Permanently</h3>
+                <h3 className="font-bold text-gray-900 dark:text-white text-[15px]">Delete Account Permanently</h3>
               </div>
-              <div className="px-6 py-5">
+              <div className="px-6 pb-5">
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   This will permanently delete your account, all saved wishlists, messages, and data.
                   This action <strong>cannot be undone</strong>.
                 </p>
                 {!showDeleteConfirm ? (
                   <button onClick={() => setShowDeleteConfirm(true)}
-                    className="px-4 py-2 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold hover:bg-red-100 transition-all">
+                    className="px-4 py-2 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-950/70 transition-all">
                     I want to delete my account
                   </button>
                 ) : (
                   <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl">
-                    <p className="text-sm text-red-600 font-semibold mb-3">Type <strong>DELETE</strong> to confirm</p>
+                    <p className="text-sm text-red-600 dark:text-red-400 font-semibold mb-3">Type <strong>DELETE</strong> to confirm</p>
                     <input value={deleteInput} onChange={e => setDeleteInput(e.target.value)} placeholder="Type DELETE here..."
-                      className="w-full bg-white dark:bg-gray-900 border border-red-200 dark:border-red-700 rounded-xl px-3.5 py-2.5 text-sm mb-3 focus:outline-none focus:border-red-500 transition-colors" />
+                      className="w-full bg-white dark:bg-gray-900 border border-red-200 dark:border-red-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white mb-3 focus:outline-none focus:border-red-500 transition-colors" />
                     <div className="flex gap-2">
                       <button onClick={deleteAccount} disabled={deleteInput !== "DELETE" || loading.delete}
                         className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 disabled:opacity-40 transition-all">
@@ -782,7 +787,7 @@ export default function BuyerSettingsPage() {
                         Delete Forever
                       </button>
                       <button onClick={() => { setShowDeleteConfirm(false); setDeleteInput(""); }}
-                        className="px-4 py-2 text-sm text-gray-500 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 transition-all">
+                        className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-800 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
                         Cancel
                       </button>
                     </div>

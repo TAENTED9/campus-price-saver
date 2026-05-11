@@ -91,7 +91,7 @@ async def get_admin_stats(
     )
 
     open_reports = (
-        db.query(PendingPrice).filter(PendingPrice.status == "pending").count()
+        db.query(Report).filter(Report.status == "pending").count()
     )
 
     # New users registered today
@@ -126,9 +126,7 @@ async def get_monthly_analytics(
     month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-    months_labels: list[str] = []
-    submissions_data: list[int] = []
-    revenue_data: list[float] = []
+    months_list: list[dict] = []
 
     for offset in range(11, -1, -1):
         # Walk back month by month
@@ -155,16 +153,16 @@ async def get_monthly_analytics(
             or 0
         )
 
-        months_labels.append(month_names[m - 1])
-        submissions_data.append(count)
-        revenue_data.append(round(float(total_revenue), 2))
+        months_list.append({
+            "month": month_names[m - 1],
+            "submissions": count,
+            "revenue": round(float(total_revenue), 2),
+        })
 
     return {
         "success": True,
         "data": {
-            "months": months_labels,
-            "sales": submissions_data,
-            "revenue": revenue_data,
+            "months": months_list,
         },
     }
 
@@ -607,6 +605,7 @@ async def list_users(
                 "email":        u.email,
                 "display_name": u.display_name,
                 "role":         u.role,
+                "avatar_url":   getattr(u, "avatar_url", None),
                 "is_paused":    bool(getattr(u, "is_paused", False)),
                 "is_deleted":   bool(getattr(u, "is_deleted", False)),
                 "is_banned":    bool(getattr(u, "is_banned", False)),
@@ -1038,6 +1037,9 @@ class AnnouncementCreate(BaseModel):
     type: str = "System"
     audience: str = "All"
     is_active: bool = True
+    banner_url: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_href: Optional[str] = None
 
 
 class AnnouncementUpdate(BaseModel):
@@ -1046,6 +1048,9 @@ class AnnouncementUpdate(BaseModel):
     type: Optional[str] = None
     audience: Optional[str] = None
     is_active: Optional[bool] = None
+    banner_url: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_href: Optional[str] = None
 
 
 @router.get("/announcements")
@@ -1085,6 +1090,9 @@ async def create_announcement(
         type=body.type,
         audience=body.audience,
         is_active=body.is_active,
+        banner_url=body.banner_url,
+        cta_label=body.cta_label,
+        cta_href=body.cta_href,
         created_by=current_admin.id,
     )
     db.add(ann)
@@ -1158,6 +1166,9 @@ def _ann_dict(a: Announcement) -> dict:
         "type": a.type,
         "audience": a.audience,
         "is_active": a.is_active,
+        "banner_url": getattr(a, "banner_url", None),
+        "cta_label": getattr(a, "cta_label", None),
+        "cta_href": getattr(a, "cta_href", None),
         "created_by": a.created_by,
         "created_at": a.created_at.isoformat() if a.created_at else None,
         "updated_at": a.updated_at.isoformat() if a.updated_at else None,

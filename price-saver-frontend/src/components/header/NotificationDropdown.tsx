@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Dropdown } from "../ui/dropdown/Dropdown";
-import { Bell, X, Check, Megaphone, ShoppingBag, MessageCircle, Star, AlertCircle, BadgeCheck, BadgeX } from "lucide-react";
+import { Bell, X, Check, Megaphone, ShoppingBag, MessageCircle, Star, AlertCircle, BadgeCheck, BadgeX, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { notificationsApi, type AppNotification } from "@/lib/api";
@@ -30,6 +30,7 @@ function NotifIcon({ type }: { type: string }) {
   if (type === "sale")                  return <div className={`${base} bg-brand-100 text-brand-600`}><AlertCircle size={16} /></div>;
   if (type === "verification_approved") return <div className={`${base} bg-green-100 text-green-600`}><BadgeCheck size={16} /></div>;
   if (type === "verification_rejected") return <div className={`${base} bg-red-100 text-red-500`}><BadgeX size={16} /></div>;
+  if (type === "listing_flagged")       return <div className={`${base} bg-amber-100 text-amber-600`}><AlertTriangle size={16} /></div>;
   return <div className={`${base} bg-gray-100 text-gray-500`}><Bell size={16} /></div>;
 }
 
@@ -103,7 +104,7 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
         onClose={() => setIsOpen(false)}
         className="absolute -right-[240px] mt-[17px] flex flex-col rounded-2xl border border-gray-200 bg-white shadow-theme-lg dark:border-gray-800 dark:bg-gray-dark w-[350px] sm:w-[380px] lg:right-0 z-50"
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
           <h5 className="text-base font-semibold text-gray-800 dark:text-gray-200">
             Notifications
             {unreadCount > 0 && (
@@ -135,10 +136,13 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
           {!loading && notifications.map((n) => {
             const isApproved = n.type === "verification_approved";
             const isRejected = n.type === "verification_rejected";
+            const isFlagged  = n.type === "listing_flagged";
             const accentBorder = isApproved
               ? "border-l-4 border-l-green-400"
               : isRejected
               ? "border-l-4 border-l-red-400"
+              : isFlagged
+              ? "border-l-4 border-l-amber-400"
               : "";
             // action_url comes from the API notification object
             const actionUrl = (n as AppNotification & { action_url?: string }).action_url;
@@ -166,14 +170,14 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
                     setIsOpen(false);
                     if (navUrl) router.push(navUrl);
                   }}
-                  className={`w-full flex gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors text-left ${accentBorder} ${!n.is_read ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}
+                  className={`w-full flex gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors text-left ${accentBorder} ${isFlagged ? "bg-amber-50/40 dark:bg-amber-900/10" : !n.is_read ? "bg-blue-50/50 dark:bg-blue-900/10" : ""}`}
                 >
                   <NotifIcon type={n.type} />
                   <span className="flex-1 min-w-0">
                     <span className={`block text-sm font-medium truncate ${!n.is_read ? "text-gray-900 dark:text-white" : "text-gray-700 dark:text-gray-300"}`}>
                       {n.title}
                     </span>
-                    <span className="block text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</span>
+                    <span className={`block text-xs mt-0.5 line-clamp-2 ${isFlagged ? "text-amber-700 dark:text-amber-400" : "text-gray-500"}`}>{n.body}</span>
                     <span className="block text-xs text-gray-400 mt-1">{timeAgo(n.created_at)}</span>
                   </span>
                   {!n.is_read && <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0 mt-1.5" />}
@@ -183,7 +187,7 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
           })}
         </ul>
 
-        <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+        <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-800">
           <Link
             href="/notifications"
             className="block text-center text-sm font-medium text-brand-500 hover:text-brand-700"

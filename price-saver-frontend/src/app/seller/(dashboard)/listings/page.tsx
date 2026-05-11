@@ -205,11 +205,11 @@ export default function SellerListingsPage() {
           {selectedIds.size > 0 && (
             <div className="relative">
               <button type="button" onClick={() => setBulkOpen(!bulkOpen)}
-                className="inline-flex items-center gap-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full px-4 py-2 text-sm font-semibold hover:bg-gray-50">
+                className="inline-flex items-center gap-2 border border-gray-300 dark:border-gray-800 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full px-4 py-2 text-sm font-semibold hover:bg-gray-50">
                 {selectedIds.size} selected <ChevronDown size={14} />
               </button>
               {bulkOpen && (
-                <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 overflow-hidden">
+                <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl z-20 overflow-hidden">
                   {[{label: "Pause selected", action: "pause" as const}, {label: "Activate selected", action: "active" as const}, {label: "Delete selected", action: "delete" as const}].map((opt) => (
                     <button key={opt.action} type="button" onClick={() => handleBulkAction(opt.action)}
                       className={`w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${opt.action === "delete" ? "text-error-600 dark:text-error-400" : "text-gray-700 dark:text-gray-300"}` }>
@@ -243,7 +243,7 @@ export default function SellerListingsPage() {
           placeholder="Search listings by title…"
           value={searchQ}
           onChange={(e) => setSearchQ(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10"
+          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-brand-300 focus:ring-2 focus:ring-brand-500/10"
         />
         {searchQ && (
           <button type="button" aria-label="Clear search" onClick={() => setSearchQ("")}
@@ -274,7 +274,7 @@ export default function SellerListingsPage() {
           className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors disabled:opacity-50 ${
             vacationMode
               ? "bg-warning-500 text-white hover:bg-warning-600"
-              : "border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"
+              : "border border-gray-300 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"
           }`}>
           {togglingVacation ? "..." : vacationMode ? "Turn Off" : "Enable"}
         </button>
@@ -291,7 +291,7 @@ export default function SellerListingsPage() {
               className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
                 active
                   ? "border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-500"
-                  : "border-gray-200 dark:border-gray-700 bg-white dark:bg-white/[0.03] text-gray-500 hover:bg-gray-50 dark:hover:bg-white/[0.06]"
+                  : "border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] text-gray-500 hover:bg-gray-50 dark:hover:bg-white/[0.06]"
               }`}>
               {tab.label} ({count})
             </button>
@@ -394,7 +394,7 @@ export default function SellerListingsPage() {
                 {/* Edit */}
                 <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
                   <Link href={`/seller/listings/${l.uuid ?? l.id}/edit`} title="Edit"
-                    className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
+                    className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
                     <PencilLine size={14} />
                   </Link>
                 </div>
@@ -403,7 +403,7 @@ export default function SellerListingsPage() {
                 <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
                   <button type="button" title="Duplicate as draft" disabled={isActioning}
                     onClick={() => handleDuplicate(l.id)}
-                    className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
+                    className="w-8 h-8 rounded-lg border border-gray-200 dark:border-gray-800 flex items-center justify-center text-gray-500 hover:text-brand-500 hover:border-brand-300 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
                     <Copy size={14} />
                   </button>
                 </div>
@@ -482,7 +482,7 @@ export default function SellerListingsPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">This action cannot be undone.</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-600 dark:text-gray-400">
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-sm font-semibold text-gray-600 dark:text-gray-400">
                 Keep It
               </button>
               <button type="button" onClick={() => handleDelete(deleteConfirm)}

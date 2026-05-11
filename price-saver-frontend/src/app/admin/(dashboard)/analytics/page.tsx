@@ -194,7 +194,7 @@ export default function AnalyticsPage() {
                   ))
                 ) : data?.top_sellers?.length ? (
                   data.top_sellers.map((s, i) => (
-                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-white/[0.02]">
+                    <tr key={s.email || `seller-${i}`} className="hover:bg-gray-50 dark:hover:bg-white/[0.02]">
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-2.5">
                           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-500/15 text-[10px] font-bold text-brand-700 dark:text-brand-400">

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, type SellerAnalytics } from "@/lib/api";
-import { TrendingUp, TrendingDown, Target } from "lucide-react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import type { ApexOptions } from "apexcharts";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
@@ -80,21 +80,9 @@ export default function SellerAnalyticsPage() {
   const months       = analytics.months.slice(-7);
   const viewsData    = analytics.views.slice(-7);
   const listingsData = analytics.listings.slice(-7);
-  const maxViews     = Math.max(...viewsData, 1);
-
   const totalViews     = viewsData.reduce((s, v) => s + v, 0);
   const totalListings  = listingsData.reduce((s, v) => s + v, 0);
   const confirmedSales = analytics.topListings?.length ?? 0;
-
-  /* Revenue goal gauge */
-  const goalTarget  = 250_000;
-  const goalCurrent = Math.min(totalViews * 15, goalTarget); // illustrative
-  const goalPct     = Math.min(Math.round((goalCurrent / goalTarget) * 100), 100);
-  /* SVG half-circle: arc length = π * r ≈ 157 for r=50 */
-  const arcLen  = 157;
-  const arcDash = arcLen - (arcLen * goalPct) / 100;
-
-  const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 
   const chartOptions: ApexOptions = {
     chart: { fontFamily: "Outfit, sans-serif", type: "area", toolbar: { show: false }, zoom: { enabled: false } },
@@ -211,61 +199,13 @@ export default function SellerAnalyticsPage() {
           )}
         </div>
 
-        {/* ── D. Revenue Goal gauge ── */}
-        <div className={CARD}>
-          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-4">Revenue Goal</h3>
-          <div className="flex flex-col items-center">
-
-            {/* SVG half-circle gauge */}
-            <div className="relative w-36 h-[72px] mb-3">
-              <svg viewBox="0 0 120 60" className="w-full overflow-visible">
-                <defs>
-                  <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#2563eb" />
-                    <stop offset="100%" stopColor="#06b6d4" />
-                  </linearGradient>
-                </defs>
-                {/* Track */}
-                <path
-                  d="M 10 60 A 50 50 0 0 1 110 60"
-                  fill="none" stroke="currentColor"
-                  className="text-gray-100 dark:text-gray-700"
-                  strokeWidth="10" strokeLinecap="round"
-                />
-                {/* Fill */}
-                <path
-                  d="M 10 60 A 50 50 0 0 1 110 60"
-                  fill="none" stroke="url(#gaugeGrad)"
-                  strokeWidth="10" strokeLinecap="round"
-                  strokeDasharray={arcLen}
-                  strokeDashoffset={arcDash}
-                />
-              </svg>
-              <div className="absolute bottom-0 left-0 right-0 text-center font-black text-xl text-gray-800 dark:text-white">
-                {goalPct}%
-              </div>
-            </div>
-
-            <p className="font-bold text-[15px] text-gray-800 dark:text-white">
-              {formatCurrency(goalCurrent)} / {formatCurrency(goalTarget)}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Monthly Goal · Based on current views</p>
-
-            <div className="mt-4 w-full px-2 py-3 bg-success-50 dark:bg-success-500/10 border border-success-200 dark:border-success-500/20 rounded-xl text-center">
-              <p className="text-[12px] font-bold text-success-700 dark:text-success-400 flex items-center justify-center gap-1.5">
-                <Target size={13} />{goalPct >= 70 ? "On track to hit goal!" : "Keep pushing — you're getting there!"}
-              </p>
-            </div>
-          </div>
-        </div>
-
       </div>
 
       {/* ── Price Benchmark Card ── */}
-      {analytics.benchmarks && analytics.benchmarks.length > 0 && (
-        <div className={CARD}>
-          <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-4">Price Benchmark</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">How your prices compare to the market average.</p>
+      <div className={CARD}>
+        <h3 className="font-extrabold text-[15px] text-gray-800 dark:text-white mb-1">Price Benchmark</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">How your prices compare to the market average.</p>
+        {analytics.benchmarks && analytics.benchmarks.length > 0 ? (
           <div className="space-y-3">
             {analytics.benchmarks.slice(0, 5).map((b) => {
               const diff = b.your_price - b.avg_market_price;
@@ -290,8 +230,14 @@ export default function SellerAnalyticsPage() {
               );
             })}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <TrendingUp size={32} className="text-gray-300 dark:text-gray-600 mb-2" />
+            <p className="text-sm font-semibold text-gray-500 dark:text-gray-400">No benchmark data yet</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Add listings with prices to see how you compare to the market.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

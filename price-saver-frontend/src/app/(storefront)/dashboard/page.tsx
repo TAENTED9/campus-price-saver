@@ -96,8 +96,8 @@ export default function BrowseMarketPage() {
       label: "Submissions",
       value: loading ? "---" : (submissionsCount ?? 0).toString(),
       icon: <ClipboardList size={18} />,
-      iconBg: "bg-accent-500/10",
-      iconColor: "text-accent-500",
+      iconBg: "bg-brand-500/10",
+      iconColor: "text-brand-400",
       href: "/dashboard/submissions",
       badge: null as string | null,
       badgeClass: "",
@@ -106,8 +106,8 @@ export default function BrowseMarketPage() {
       label: "Price Alerts",
       value: loading ? "---" : (alertsCount ?? 0).toString(),
       icon: <Bell size={18} />,
-      iconBg: "bg-brand-50 dark:bg-brand-500/10",
-      iconColor: "text-brand-500",
+      iconBg: "bg-warning-500/10",
+      iconColor: "text-warning-400",
       href: "/dashboard/alerts",
       badge: null as string | null,
       badgeClass: "",
@@ -116,41 +116,37 @@ export default function BrowseMarketPage() {
       label: "Wishlist",
       value: getWlCount().toString(),
       icon: <Heart size={18} />,
-      iconBg: "bg-error-50 dark:bg-error-500/10",
-      iconColor: "text-error-500",
+      iconBg: "bg-error-500/10",
+      iconColor: "text-error-400",
       href: "/dashboard/wishlist",
       badge: null as string | null,
       badgeClass: "",
     },
   ];
 
-  const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]";
+  const CARD = "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900";
 
   return (
-    <div className="bg-slate-50 dark:bg-gray-950 pb-0 rounded-2xl overflow-hidden">
+    <div className="p-6 space-y-6">
 
-      {/* 2A -- Dashboard Header Row */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 md:px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="font-bold text-base md:text-lg text-gray-900 dark:text-white">
-              {getGreeting()}, {user?.display_name || user?.username || "there"}
-            </p>
-            <p className="text-xs md:text-sm text-gray-400">Here&apos;s what&apos;s happening today</p>
-          </div>
-          <Link
-            href="/"
-            className="btn-primary"
-          >
-            <Store size={16} />
-            <span className="hidden sm:inline">Go to Homepage</span>
-          </Link>
+      {/* Page header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-gray-400 mb-0.5">{getGreeting()}, {user?.display_name || user?.username || "there"}</p>
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Buyer Dashboard</h1>
         </div>
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors min-h-[44px]"
+        >
+          <Store size={16} />
+          <span className="hidden sm:inline">Browse Marketplace</span>
+        </Link>
       </div>
 
       {/* Seller verification pending banner */}
       {verifiedPending && (
-        <div className="mx-4 mt-4 flex items-start gap-3 p-4 rounded-2xl bg-warning-50 dark:bg-warning-500/10 border border-warning-200 dark:border-warning-500/30">
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-warning-500/10 border border-warning-500/30">
           <ClipboardList size={18} className="text-warning-600 mt-0.5 shrink-0" />
           <div>
             <p className="font-bold text-warning-800 dark:text-warning-300 text-sm">
@@ -163,28 +159,21 @@ export default function BrowseMarketPage() {
         </div>
       )}
 
-      <div className="px-4 pt-4">
+      <div>
 
-        {/* 2. Stats grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+        {/* Stats grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {stats.map((s) => (
             <Link
               key={s.label}
               href={s.href}
-              className={`${CARD} p-5 hover:border-brand-300 dark:hover:border-brand-700 transition-colors min-h-[44px]`}
+              className={`${CARD} p-5 flex flex-col gap-3 hover:border-brand-700 transition-colors min-h-[44px]`}
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${s.iconBg} ${s.iconColor}`}>
-                  {s.icon}
-                </div>
-                {s.badge && (
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${s.badgeClass}`}>
-                    {s.badge}
-                  </span>
-                )}
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.iconBg} flex-shrink-0`}>
+                <span className={s.iconColor}>{s.icon}</span>
               </div>
-              <p className="text-xl md:text-2xl font-black text-gray-800 dark:text-white tracking-tight">{s.value}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 font-medium">{s.label}</p>
+              <p className="text-2xl font-bold text-gray-800 dark:text-white">{s.value}</p>
+              <p className="text-sm text-gray-400">{s.label}</p>
             </Link>
           ))}
         </div>
@@ -194,15 +183,15 @@ export default function BrowseMarketPage() {
 
         {/* 5. Flash Sales */}
         {flashSales.length > 0 && (
-          <section className="mt-10">
-            <div className="flex items-center justify-between mb-5">
+          <section className="mt-6">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Zap size={16} className="text-warning-500" />
-                <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
+                <h2 className="text-lg font-bold text-gray-800 dark:text-white">
                   Flash Sales
                 </h2>
               </div>
-              <span className="text-[11px] font-semibold text-warning-500 bg-warning-50 dark:bg-warning-500/10 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-semibold text-warning-400 bg-warning-500/10 px-2 py-0.5 rounded-full">
                 Limited time
               </span>
             </div>
@@ -215,9 +204,9 @@ export default function BrowseMarketPage() {
                   <Link
                     key={sale.id}
                     href={`/search?q=${encodeURIComponent(sale.item_name ?? "")}`}
-                    className={`${CARD} p-4 flex items-center gap-4 hover:border-warning-300 dark:hover:border-warning-500/40 transition-colors`}
+                    className={`${CARD} p-4 flex items-center gap-4 hover:border-warning-500/40 transition-colors`}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-warning-50 dark:bg-warning-500/10 flex items-center justify-center text-warning-500 flex-shrink-0">
+                    <div className="w-12 h-12 rounded-xl bg-warning-500/10 flex items-center justify-center text-warning-400 flex-shrink-0">
                       <Zap size={22} />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -246,15 +235,15 @@ export default function BrowseMarketPage() {
 
         {/* 6. Trending */}
         {trending.length > 0 && (
-          <section className="mt-10">
-            <div className="flex items-center justify-between mb-5">
+          <section className="mt-6">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <TrendingUp size={16} className="text-brand-500" />
-                <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
+                <TrendingUp size={16} className="text-brand-400" />
+                <h2 className="text-lg font-bold text-gray-800 dark:text-white">
                   Trending Now
                 </h2>
               </div>
-              <Link href="/search" className="text-sm text-brand-500 dark:text-brand-400 font-medium hover:underline transition-colors">
+              <Link href="/search" className="text-sm text-brand-400 font-medium hover:underline transition-colors">
                 See all →
               </Link>
             </div>
@@ -263,12 +252,12 @@ export default function BrowseMarketPage() {
                 <Link
                   key={item.id}
                   href={`/search?q=${encodeURIComponent(item.name)}`}
-                  className={`${CARD} flex items-center gap-4 p-4 hover:border-brand-300 dark:hover:border-brand-700 transition-colors`}
+                  className={`${CARD} flex items-center gap-4 p-4 hover:border-brand-700 transition-colors`}
                 >
-                  <span className="w-6 text-center font-black text-[15px] text-gray-300 dark:text-gray-600 flex-shrink-0">
+                  <span className="w-6 text-center font-black text-[15px] text-gray-400 dark:text-gray-600 flex-shrink-0">
                     {idx + 1}
                   </span>
-                  <div className="w-10 h-10 rounded-xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 font-black flex-shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-brand-500/10 flex items-center justify-center text-brand-400 font-black flex-shrink-0">
                     {item.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -289,7 +278,7 @@ export default function BrowseMarketPage() {
       </div>
 
       {/* 7. How It Works — full-width section outside content padding */}
-      <div className="mt-10">
+      <div>
         <HowItWorks />
       </div>
 

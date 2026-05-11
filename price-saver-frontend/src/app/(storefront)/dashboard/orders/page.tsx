@@ -270,7 +270,7 @@ export default function OrdersPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">This action cannot be undone.</p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setCancelId(null)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-600 dark:text-gray-400">
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-sm font-semibold text-gray-600 dark:text-gray-400">
                 Keep Order
               </button>
               <button type="button" onClick={confirmCancel} disabled={cancelling}

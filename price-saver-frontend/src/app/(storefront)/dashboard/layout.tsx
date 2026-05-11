@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -14,10 +14,16 @@ import {
   Bell,
   Settings,
   LogOut,
+  Store,
+  Search,
+  Menu,
   Sun,
   Moon,
-  Store,
-  // Trophy, // karma — re-enable when implemented
+  ChevronDown,
+  ChevronUp,
+  UserCircle,
+  Info,
+  X,
 } from "lucide-react";
 import BottomNav from "@/components/layout/BottomNav";
 import { useTheme } from "@/context/ThemeContext";
@@ -36,41 +42,47 @@ interface SidebarContentProps {
   avatarUrl: string | null;
   initials: string;
   displayName: string;
-  role: string;
+  bio?: string;
   navItems: Array<{ href: string; label: string; icon: React.ReactNode; count: number }>;
   pathname: string | null;
   onNavClick: () => void;
-  // karmaPoints: number;   // karma — re-enable when implemented
-  // karmaNext: number;     // karma — re-enable when implemented
-  // karmaBadge: string;    // karma — re-enable when implemented
-  // karmaLabel: string;    // karma — re-enable when implemented
-  // karmaColor: string;    // karma — re-enable when implemented
-  // karmaPct: number;      // karma — re-enable when implemented
   onLogout: () => void;
 }
 
 function SidebarContent({
-  avatarUrl, initials, displayName, role, navItems, pathname, onNavClick,
-  // karmaPoints, karmaNext, karmaBadge, karmaLabel, karmaColor, karmaPct, // karma — re-enable when implemented
-  onLogout,
+  avatarUrl, initials, displayName, bio, navItems, pathname, onNavClick, onLogout,
 }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
-      <div className="p-5 border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white font-black text-sm flex-shrink-0 overflow-hidden">
-            {avatarUrl
-              ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-              : initials
-            }
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{displayName}</p>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400 capitalize">{role}</p>
-          </div>
+      {/* Logo */}
+      <div className="flex items-center gap-2 px-4 h-14 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white text-base font-bold flex-shrink-0">
+          C
+        </div>
+        <span className="font-extrabold text-[15px] tracking-tight">
+          <span className="text-brand-500">Camp</span>
+          <span className="text-gray-800 dark:text-white">ify</span>
+        </span>
+      </div>
+
+      {/* Profile section — no role tag */}
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-200 dark:border-gray-800">
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white font-black text-sm flex-shrink-0 overflow-hidden">
+          {avatarUrl
+            ? <img src={avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+            : initials
+          }
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 dark:text-white truncate leading-tight">{displayName}</p>
+          {bio && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5 leading-tight">{bio}</p>
+          )}
         </div>
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+
+      {/* Nav items */}
+      <nav className="flex flex-col px-2 py-4 space-y-0.5 flex-1 overflow-y-auto">
         {navItems.map((item) => {
           const active = pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href));
           return (
@@ -80,47 +92,30 @@ function SidebarContent({
               onClick={onNavClick}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                 active
-                  ? "bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400"
-                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.05] hover:text-gray-900 dark:hover:text-white"
+                  ? "bg-brand-500/10 text-brand-400"
+                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-white"
               }`}
             >
-              <span className={active ? "text-brand-500" : "text-gray-400 dark:text-gray-500"}>{item.icon}</span>
+              <span className="flex-shrink-0">{item.icon}</span>
               <span className="flex-1">{item.label}</span>
               {item.count > 0 && (
-                <span className="bg-brand-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">
-                  {item.count}
+                <span className="min-w-[20px] h-5 px-1.5 bg-error-500 text-white text-xs font-bold rounded-full flex items-center justify-center flex-shrink-0">
+                  {item.count > 99 ? "99+" : item.count}
                 </span>
               )}
             </Link>
           );
         })}
       </nav>
-      {/* Karma Points widget — commented out until investors are onboard
-      <div className="mx-3 mb-3 rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 p-4">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5">
-            <Trophy size={13} className="text-white/80" />
-            <p className="text-white text-[12px] font-bold">Karma Points</p>
-          </div>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${karmaBadge}`}>{karmaLabel}</span>
-        </div>
-        <p className="text-white font-black text-2xl mb-2">{karmaPoints.toLocaleString()}</p>
-        <div className="relative h-1.5 bg-white/30 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full origin-left ${karmaColor}`}
-            style={{ transform: `scaleX(${karmaPct / 100})` }}
-          />
-        </div>
-        <p className="text-white text-xs mt-1.5">{karmaPoints} / {karmaNext.toLocaleString()} to next tier</p>
-      </div>
-      */}
+
+      {/* Sign Out */}
       <div className="px-3 pb-4">
         <button
           type="button"
           onClick={onLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-[13px] font-semibold text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-error-400 hover:text-error-300 hover:bg-error-500/10 transition-colors"
         >
-          <LogOut size={17} />
+          <LogOut size={18} />
           Sign Out
         </button>
       </div>
@@ -136,6 +131,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [wlCount, setWlCount] = useState(0);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [msgUnread, setMsgUnread] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (q) { router.push(`/search?q=${encodeURIComponent(q)}`); setSearchQuery(""); setSearchOpen(false); }
+  };
 
   // Poll for unread message notifications — 10s + immediate on tab focus
   useEffect(() => {
@@ -170,6 +175,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // ⌘K / Ctrl+K opens search modal
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === "k") {
+        ev.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   if (isLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -181,12 +208,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!isAuthenticated) return null;
 
   const NAV_ITEMS = [
-    { href: "/dashboard",          label: "Browse Market", icon: <ShoppingBag size={17} />, count: 0 },
-    { href: "/dashboard/orders",   label: "My Orders",     icon: <Package size={17} />,     count: 0 },
-    { href: "/dashboard/wishlist", label: "Wishlist",      icon: <Heart size={17} />,       count: wlCount },
-    { href: "/dashboard/messages", label: "Messages",      icon: <MessageCircle size={17} />, count: msgUnread },
-    { href: "/dashboard/alerts",   label: "Price Alerts",  icon: <Bell size={17} />,        count: 0 },
-    { href: "/dashboard/settings", label: "Settings",      icon: <Settings size={17} />,    count: 0 },
+    { href: "/dashboard",          label: "Browse Market", icon: <ShoppingBag size={18} />, count: 0 },
+    { href: "/dashboard/orders",   label: "My Orders",     icon: <Package size={18} />,     count: 0 },
+    { href: "/dashboard/wishlist", label: "Wishlist",      icon: <Heart size={18} />,       count: wlCount },
+    { href: "/dashboard/messages", label: "Messages",      icon: <MessageCircle size={18} />, count: msgUnread },
+    { href: "/dashboard/alerts",   label: "Price Alerts",  icon: <Bell size={18} />,        count: 0 },
+    { href: "/dashboard/settings", label: "Settings",      icon: <Settings size={18} />,    count: 0 },
   ];
 
   const initials = (user?.display_name || user?.username || "U")
@@ -196,101 +223,217 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     .toUpperCase()
     .slice(0, 2);
 
+  const displayName = user?.display_name || user?.username || "";
+
   // karma — re-enable when investors are onboard:
   // const karmaPoints = user?.balance ?? 0;
-  // const karmaLabel  = karmaPoints >= 2000 ? "Gold" : karmaPoints >= 500 ? "Silver" : "Bronze";
-  // const [karmaBase, karmaNext] = karmaPoints >= 2000 ? [500, 2000] : karmaPoints >= 500 ? [500, 2000] : [0, 500];
-  // const karmaPct    = Math.min(Math.round(((karmaPoints - karmaBase) / (karmaNext - karmaBase)) * 100), 100);
-  // const karmaColor  = karmaLabel === "Gold" ? "bg-warning-400" : karmaLabel === "Silver" ? "bg-gray-300" : "bg-orange-400";
-  // const karmaBadge  = karmaLabel === "Gold" ? "bg-warning-100 text-warning-700" : karmaLabel === "Silver" ? "bg-gray-100 text-gray-700" : "bg-orange-100 text-orange-700";
 
   const sidebarProps: SidebarContentProps = {
     avatarUrl,
     initials,
-    displayName: user?.display_name || user?.username || "",
-    role: user?.role ?? "Student",
+    displayName,
+    bio: user?.department || "",
     navItems: NAV_ITEMS,
     pathname,
     onNavClick: () => setMobileOpen(false),
-    // karmaPoints,  // karma — re-enable when implemented
-    // karmaNext,    // karma — re-enable when implemented
-    // karmaBadge,   // karma — re-enable when implemented
-    // karmaLabel,   // karma — re-enable when implemented
-    // karmaColor,   // karma — re-enable when implemented
-    // karmaPct,     // karma — re-enable when implemented
     onLogout: () => { logout(); router.replace("/signin"); },
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 sm:px-6 xl:px-8">
+    <div className="min-h-screen">
 
-      {/* Top bar (mobile: hamburger; desktop: title + theme toggle) */}
-      <div className="flex items-center gap-3 py-3">
-        <button
-          type="button"
-          onClick={() => setMobileOpen(true)}
-          title="Open menu"
-          className="lg:hidden w-9 h-9 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-center"
-        >
-          <svg className="size-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <p className="font-bold text-gray-800 dark:text-white text-sm flex-1">Dashboard</p>
-        <div className="flex items-center gap-2">
-          <NotificationDropdown scope="buyer" />
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-[29] bg-black/50 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — fixed on desktop, slide-in on mobile */}
+      <aside
+        className={`
+          fixed top-0 left-0 z-50 flex flex-col h-screen w-[220px]
+          bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800
+          transition-transform duration-300 ease-in-out
+          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+          lg:translate-x-0
+        `}
+      >
+        <SidebarContent {...sidebarProps} />
+      </aside>
+
+      {/* Content area */}
+      <div className="lg:ml-[220px] min-h-screen bg-gray-50 dark:bg-gray-950">
+
+        {/* Desktop header */}
+        <header className="hidden lg:flex items-center h-14 px-6 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-[20] gap-4">
+          {/* Search button — opens modal */}
           <button
             type="button"
-            onClick={toggleTheme}
-            title="Toggle theme"
-            className="w-9 h-9 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/[0.05] transition-colors"
+            onClick={() => setSearchOpen(true)}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-100 dark:bg-gray-800/50 hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white flex-1 max-w-md text-sm"
           >
-            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+            <Search size={15} />
+            <span className="flex-1 text-left">Search listings, stores...</span>
+            <kbd className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-mono hidden sm:block">⌘K</kbd>
           </button>
-        </div>
-      </div>
 
-      {/* Mobile drawer overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute left-0 top-0 h-full w-[260px] bg-white dark:bg-gray-900 shadow-xl flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800">
-              <span className="font-black text-gray-800 dark:text-white text-base">Menu</span>
-              <button type="button" onClick={() => setMobileOpen(false)} aria-label="Close menu" title="Close menu" className="text-gray-500">
-                <svg className="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+          {/* Right actions */}
+          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+            <button
+              type="button"
+              aria-label="Toggle theme"
+              onClick={toggleTheme}
+              className="relative flex items-center justify-center text-gray-500 transition-colors bg-white border border-gray-200 rounded-full hover:text-gray-700 h-11 w-11 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+            >
+              {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <NotificationDropdown scope="buyer" />
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setDropdownOpen(prev => !prev)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                {avatarUrl
+                  ? <img src={avatarUrl} className="w-7 h-7 rounded-full object-cover flex-shrink-0" alt="avatar" />
+                  : <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">{initials}</div>
+                }
+                <span className="text-sm font-medium text-gray-900 dark:text-white hidden xl:block">{displayName}</span>
+                {dropdownOpen
+                  ? <ChevronUp size={14} className="text-gray-400 hidden xl:block" />
+                  : <ChevronDown size={14} className="text-gray-400 hidden xl:block" />
+                }
+              </button>
+
+              {dropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-[50] overflow-hidden">
+                  <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+                    {avatarUrl
+                      ? <img src={avatarUrl} className="w-9 h-9 rounded-full object-cover flex-shrink-0" alt="avatar" />
+                      : <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-accent-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">{initials}</div>
+                    }
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate leading-tight">{displayName}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 leading-tight mt-0.5">Buyer</p>
+                    </div>
+                  </div>
+                  <div className="py-1">
+                    <Link
+                      href="/dashboard/settings?tab=profile"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <UserCircle size={16} className="text-gray-400 flex-shrink-0" />
+                      Edit profile
+                    </Link>
+                    <Link
+                      href="/dashboard/settings"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <Settings size={16} className="text-gray-400 flex-shrink-0" />
+                      Account settings
+                    </Link>
+                    <Link
+                      href="/support"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <Info size={16} className="text-gray-400 flex-shrink-0" />
+                      Support
+                    </Link>
+                    <div className="border-t border-gray-200 dark:border-gray-800 my-1" />
+                    <button
+                      onClick={() => { setDropdownOpen(false); logout(); router.replace("/signin"); }}
+                      className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-500/10 transition-colors"
+                    >
+                      <LogOut size={16} className="flex-shrink-0" />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Mobile header */}
+        <header className="lg:hidden sticky top-0 flex w-full h-14 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-[30]">
+          <div className="flex items-center justify-between w-full px-4">
+            <button
+              type="button"
+              aria-label="Open menu"
+              onClick={() => setMobileOpen(true)}
+              className="flex items-center justify-center w-10 h-10 text-gray-500 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Search"
+                onClick={() => setSearchOpen(true)}
+                className="flex items-center justify-center w-10 h-10 text-gray-500 dark:text-gray-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <Search size={18} />
+              </button>
+              <NotificationDropdown scope="buyer" />
+              <button
+                type="button"
+                aria-label="Toggle theme"
+                onClick={toggleTheme}
+                className="relative flex items-center justify-center text-gray-500 transition-colors bg-white border border-gray-200 rounded-full hover:text-gray-700 h-11 w-11 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
+              >
+                {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              <SidebarContent {...sidebarProps} />
-            </div>
-          </aside>
+          </div>
+        </header>
+
+        {/* Page content */}
+        <div className="p-4 md:p-6 pb-20 md:pb-6">
+          {children}
+        </div>
+
+      </div>
+
+      {/* Search modal */}
+      {searchOpen && (
+        <div className="fixed inset-0 z-[50] bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm flex flex-col">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+            <form className="flex-1 relative" onSubmit={handleSearch}>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                <Search size={18} />
+              </span>
+              <input
+                autoFocus
+                type="search"
+                placeholder="Search listings, stores…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-11 rounded-lg border border-gray-300 dark:border-gray-800 bg-gray-100 dark:bg-gray-800 text-base pl-10 pr-4 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-gray-900 dark:text-white placeholder:text-gray-400"
+              />
+            </form>
+            <button
+              type="button"
+              aria-label="Close search"
+              onClick={() => { setSearchOpen(false); setSearchQuery(""); }}
+              className="flex items-center justify-center w-11 h-11 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="flex gap-6">
-
-        {/* Desktop sidebar */}
-        <aside className="hidden lg:flex flex-col w-[220px] flex-shrink-0 self-start sticky top-[90px] sm:top-[76px] lg:top-[72px] xl:top-[90px] max-h-[calc(100vh-90px)] overflow-y-auto rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]">
-          <SidebarContent {...sidebarProps} />
-        </aside>
-
-        {/* Main content */}
-        <main className="flex-1 min-w-0 pb-20 lg:pb-6">
-          {children}
-        </main>
-
-      </div>
-
-      {/* 2E -- Floating "Browse Market" button (desktop only) */}
+      {/* Floating "Browse Marketplace" CTA */}
       <Link
         href="/"
-        className="hidden md:flex fixed bottom-6 right-6 z-40 bg-blue-600 text-white rounded-full px-5 py-3 font-bold text-sm shadow-lg shadow-blue-200 dark:shadow-blue-900/30 hover:bg-blue-700 hover:scale-105 transition-all items-center gap-2 min-h-[44px]"
+        className="hidden md:flex fixed bottom-6 right-6 z-[20] items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm px-4 py-3 rounded-xl shadow-lg transition-colors"
       >
         <Store size={16} />
-        Browse Market
+        Browse Marketplace
       </Link>
 
       {/* Mobile bottom navigation */}

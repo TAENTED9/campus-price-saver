@@ -186,7 +186,7 @@ export default function Navbar() {
                         <div className="border-t border-gray-100 dark:border-gray-800 mt-1 pt-1">
                           <button
                             type="button"
-                            onClick={() => { logout(); setAvatarOpen(false); }}
+                            onClick={() => { logout(); setAvatarOpen(false); router.push("/signin"); }}
                             className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                           >
                             <LogOut size={14} /> Sign Out
@@ -310,7 +310,7 @@ export default function Navbar() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => { logout(); setDrawerOpen(false); }}
+                    onClick={() => { logout(); setDrawerOpen(false); router.push("/signin"); }}
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-red-500 border border-red-200 dark:border-red-900/30 hover:bg-red-50 dark:hover:bg-red-900/10 font-medium text-sm transition-colors min-h-[44px]"
                   >
                     <LogOut size={15} /> Sign Out

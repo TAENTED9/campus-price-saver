@@ -128,7 +128,7 @@ export default function PromotionsPage() {
             { cost: "120 pts", label: "Category feature 48h", icon: "⭐" },
             { cost: "300 pts", label: "Homepage week", icon: "🚀" },
           ].map(({ cost, label, icon }) => (
-            <div key={label} className="p-3 border border-gray-200 dark:border-gray-700 rounded-xl opacity-60 cursor-not-allowed">
+            <div key={label} className="p-3 border border-gray-200 dark:border-gray-800 rounded-xl opacity-60 cursor-not-allowed">
               <div className="text-2xl mb-1.5">{icon}</div>
               <div className="font-bold text-brand-600 dark:text-brand-400 text-sm">{cost}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{label}</div>
@@ -179,7 +179,7 @@ export default function PromotionsPage() {
           <span className="text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full">Coming Soon</span>
         </div>
         <p className="text-xs text-gray-400 mb-4">Run a time-limited discount on any of your listings</p>
-        <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 p-8 text-center">
+        <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-8 text-center">
           <div className="text-4xl mb-3">⚡</div>
           <p className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-1">Flash Sales Coming Soon</p>
           <p className="text-xs text-gray-400 max-w-xs mx-auto">Create time-limited discounts to drive urgency and move inventory faster.</p>

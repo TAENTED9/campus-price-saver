@@ -1220,7 +1220,7 @@ export type BuyerInquiry = {
 
 // ===================== ADMIN API TYPES =====================
 
-export type AdminUser = {
+export type AdminUserLegacy = {
   id: number;
   username: string | null;
   email: string | null;
@@ -1374,6 +1374,7 @@ export type AdminUserSummary = {
   email: string | null;
   display_name: string | null;
   role: string;
+  avatar_url: string | null;
   is_paused: boolean;
   is_deleted: boolean;
   is_banned: boolean;
@@ -1463,18 +1464,18 @@ export type AdminAnalytics = {
 export const adminApi = {
   // Stats
   getStats: (token: string) =>
-    request<{ success: boolean; registeredStudents: number; pendingVerifications: number; activeListings: number; openReports: number; newUsersToday: number }>("/api/admin/stats", {
+    request<{ success: boolean; data: { registeredStudents: number; pendingVerifications: number; activeListings: number; openReports: number; newUsersToday: number } }>("/api/admin/stats", {
       headers: authHeaders(token),
     }),
 
   getMonthlyAnalytics: (token: string) =>
-    request<{ success: boolean; months: Array<{ month: string; submissions: number; revenue: number }> }>("/api/admin/analytics/monthly", {
+    request<{ success: boolean; data: { months: Array<{ month: string; submissions: number; revenue: number }> } }>("/api/admin/analytics/monthly", {
       headers: authHeaders(token),
     }),
 
   // Users (legacy — kept for existing admin pages; Block 3B getUsers below supersedes this)
   getUsersLegacy: (token: string, role?: string) =>
-    request<{ success: boolean; total: number; data: AdminUser[] }>(`/api/admin/users${role ? `?role=${role}` : ""}`, {
+    request<{ success: boolean; total: number; data: AdminUserLegacy[] }>(`/api/admin/users${role ? `?role=${role}` : ""}`, {
       headers: authHeaders(token),
     }),
 

@@ -13,16 +13,20 @@ import Link from "next/link";
 
 type StatsData = {
   success: boolean;
-  registeredStudents: number;
-  pendingVerifications: number;
-  activeListings: number;
-  openReports: number;
-  newUsersToday: number;
+  data: {
+    registeredStudents: number;
+    pendingVerifications: number;
+    activeListings: number;
+    openReports: number;
+    newUsersToday: number;
+  };
 };
 
 type MonthlyData = {
   success: boolean;
-  months: Array<{ month: string; submissions: number; revenue: number }>;
+  data: {
+    months: Array<{ month: string; submissions: number; revenue: number }>;
+  };
 };
 
 type EventsData = {
@@ -91,15 +95,16 @@ export default function AdminOverview() {
   }
 
   const metricCards = [
-    { label: "Registered Students",   value: stats?.registeredStudents   ?? 0, icon: Users,         color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20",       href: "/admin/users" },
-    { label: "Pending Verifications", value: stats?.pendingVerifications ?? 0, icon: Clock,         color: "text-amber-600 bg-amber-50 dark:bg-amber-900/20",     href: "/admin/seller" },
-    { label: "Active Listings",       value: stats?.activeListings       ?? 0, icon: Package,       color: "text-green-600 bg-green-50 dark:bg-green-900/20",     href: "/admin/listings" },
-    { label: "Open Reports",          value: stats?.openReports          ?? 0, icon: AlertTriangle, color: "text-red-600 bg-red-50 dark:bg-red-900/20",           href: "/admin/reports" },
-    { label: "New Users Today",       value: stats?.newUsersToday        ?? 0, icon: UserPlus,      color: "text-brand-500 bg-brand-500/10 dark:bg-brand-500/20", href: "/admin/users" },
+    { label: "Registered Students",   value: stats?.data?.registeredStudents   ?? 0, icon: Users,         color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20",       href: "/admin/users" },
+    { label: "Pending Verifications", value: stats?.data?.pendingVerifications ?? 0, icon: Clock,         color: "text-amber-600 bg-amber-50 dark:bg-amber-900/20",     href: "/admin/seller" },
+    { label: "Active Listings",       value: stats?.data?.activeListings       ?? 0, icon: Package,       color: "text-green-600 bg-green-50 dark:bg-green-900/20",     href: "/admin/listings" },
+    { label: "Open Reports",          value: stats?.data?.openReports          ?? 0, icon: AlertTriangle, color: "text-red-600 bg-red-50 dark:bg-red-900/20",           href: "/admin/reports" },
+    { label: "New Users Today",       value: stats?.data?.newUsersToday        ?? 0, icon: UserPlus,      color: "text-brand-500 bg-brand-500/10 dark:bg-brand-500/20", href: "/admin/users" },
   ];
 
-  const maxSubmissions = monthly?.months?.length
-    ? Math.max(...monthly.months.map((m) => m.submissions), 1)
+  const monthlyList = monthly?.data?.months ?? [];
+  const maxSubmissions = monthlyList.length
+    ? Math.max(...monthlyList.map((m) => m.submissions), 1)
     : 1;
 
   const eventList = events?.data ?? [];
@@ -164,9 +169,9 @@ export default function AdminOverview() {
                 </div>
               ))}
             </div>
-          ) : monthly?.months?.length ? (
+          ) : monthlyList.length ? (
             <div className="flex h-52 items-end gap-2">
-              {monthly.months.map((m) => {
+              {monthlyList.map((m) => {
                 const pct = (m.submissions / maxSubmissions) * 100;
                 return (
                   <div key={m.month} className="flex flex-1 flex-col items-center gap-1.5 group/bar">
@@ -176,7 +181,7 @@ export default function AdminOverview() {
                     <div
                       className="w-full rounded-t-md bg-brand-500 hover:bg-brand-600 transition-all duration-500"
                       style={{ height: `${Math.max(pct, 4)}%` }}
-                      title={`${m.month}: ${m.submissions} submissions`}
+                      title={`${m.month}: ${m.submissions} submission${m.submissions !== 1 ? "s" : ""}`}
                     />
                     <span className="text-xs text-gray-500 dark:text-gray-400">{m.month}</span>
                   </div>

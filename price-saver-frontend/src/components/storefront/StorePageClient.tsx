@@ -20,6 +20,8 @@ import {
 import { getCategoryConfig } from "@/lib/categoryIcons";
 import { formatPrice } from "@/lib/formatPrice";
 import { resizeImage } from "@/utils/resizeImage";
+import { messageApi } from "@/lib/messageApi";
+import { buildWhatsAppLink } from "@/lib/utils";
 
 // Extra seller fields the backend may return beyond the SellerInfo type
 type RichSeller = SellerInfo & {
@@ -130,6 +132,7 @@ export default function StorePageClient({
   const [reviews, setReviews] = useState<ReviewSummary | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [msgOpen, setMsgOpen] = useState(false);
+  const [dmLoading, setDmLoading] = useState(false);
   const [shareToast, setShareToast] = useState(false);
 
   // Owner edit states
@@ -212,6 +215,18 @@ export default function StorePageClient({
       setAvatarUploading(false);
       if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
+  }
+
+  async function handleDirectMessage() {
+    const targetId = ownerUserId ?? seller.id;
+    if (!token || !targetId) return;
+    setDmLoading(true);
+    try {
+      const conv = await messageApi.startConversation(targetId, token);
+      setMsgOpen(false);
+      router.push(`/dashboard/messages?conv=${conv.id}`);
+    } catch { /* silent */ }
+    finally { setDmLoading(false); }
   }
 
   async function saveAbout() {
@@ -462,7 +477,7 @@ export default function StorePageClient({
               </button>
               {categories.map(([id, label]) => (
                 <button
-                  key={id}
+                  key={`cat-${id}`}
                   type="button"
                   onClick={() => setCatFilter(catFilter === id ? null : id)}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
@@ -483,7 +498,7 @@ export default function StorePageClient({
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {filteredListings.map((l) => <ListingCard key={l.id} listing={l} />)}
+              {filteredListings.map((l) => <ListingCard key={`listing-${l.id}`} listing={l} />)}
             </div>
           )}
         </div>
@@ -654,7 +669,7 @@ export default function StorePageClient({
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Contact</h3>
               {seller.whatsapp && (
                 <a
-                  href={`https://wa.me/${seller.whatsapp.replace(/\D/g, "")}`}
+                  href={buildWhatsAppLink(seller.whatsapp)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-sm font-semibold text-green-600 dark:text-green-400 hover:underline"
@@ -688,17 +703,18 @@ export default function StorePageClient({
                 <X size={18} />
               </button>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              To contact <strong>{seller.display_name}</strong>, open any of their listings and use the{" "}
-              <strong>&quot;Message Seller&quot;</strong> button.
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Start a conversation with <strong>{seller.display_name}</strong>.
             </p>
-            <div className="flex gap-2 mt-5">
+            <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => { setMsgOpen(false); setActiveTab("listings"); }}
-                className="flex-1 py-2.5 rounded-xl bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors"
+                onClick={handleDirectMessage}
+                disabled={dmLoading}
+                className="flex-1 py-2.5 rounded-xl bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
               >
-                View Listings
+                {dmLoading ? <Loader2 size={15} className="animate-spin" /> : <MessageCircle size={15} />}
+                {dmLoading ? "Opening…" : "Open Chat"}
               </button>
               <button
                 type="button"

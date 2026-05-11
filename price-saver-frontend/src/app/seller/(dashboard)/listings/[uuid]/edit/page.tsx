@@ -22,7 +22,7 @@ const pill = (active: boolean) =>
   `px-4 py-2 rounded-lg text-sm font-medium border transition-colors cursor-pointer ${
     active
       ? "bg-brand-500 text-white border-brand-500"
-      : "border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-brand-300"
+      : "border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:border-brand-300"
   }`;
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -297,7 +297,7 @@ export default function EditListingPage() {
                     className={`py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
                       condition === c
                         ? "border-brand-500 bg-brand-50 dark:bg-brand-500/10 text-brand-600"
-                        : "border-gray-200 dark:border-gray-700 text-gray-500"
+                        : "border-gray-200 dark:border-gray-800 text-gray-500"
                     }`}>{c}</button>
                 ))}
               </div>
@@ -366,7 +366,7 @@ export default function EditListingPage() {
               onDragLeave={() => setDragOver(false)}
               onClick={() => fileRef.current?.click()}
               className={`mb-4 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-                dragOver ? "border-brand-400 bg-brand-50 dark:bg-brand-500/10" : "border-gray-300 dark:border-gray-700 hover:border-brand-300"
+                dragOver ? "border-brand-400 bg-brand-50 dark:bg-brand-500/10" : "border-gray-300 dark:border-gray-800 hover:border-brand-300"
               }`}>
               <UploadCloud size={32} className="mx-auto mb-2 text-gray-400" />
               <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Drop photos here or click to upload</p>
@@ -460,7 +460,7 @@ export default function EditListingPage() {
       <div className="flex items-center gap-3 pb-6">
         {step > 1 && (
           <button type="button" onClick={() => setStep(step - 1)}
-            className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+            className="px-5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-800 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
             Back
           </button>
         )}

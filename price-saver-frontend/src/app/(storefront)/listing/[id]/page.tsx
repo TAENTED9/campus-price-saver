@@ -126,10 +126,11 @@ export default function ListingDetailPage() {
       // Sync localStorage so sidebar count updates instantly
       try {
         const WL_KEY = "ps_wishlist";
-        const stored = JSON.parse(localStorage.getItem(WL_KEY) || "[]") as number[];
+        const raw = JSON.parse(localStorage.getItem(WL_KEY) || "[]") as (number | { listing_id?: number })[];
+        const ids = raw.map((x) => (typeof x === "number" ? x : (x as { listing_id?: number }).listing_id ?? 0)).filter(Boolean) as number[];
         const updated = res.wishlisted
-          ? [...new Set([...stored, numId])]
-          : stored.filter((x) => x !== numId);
+          ? [...new Set([...ids, numId])]
+          : ids.filter((x) => x !== numId);
         localStorage.setItem(WL_KEY, JSON.stringify(updated));
         window.dispatchEvent(new CustomEvent("wl-changed"));
       } catch { /* ignore */ }
@@ -153,7 +154,11 @@ export default function ListingDetailPage() {
     if (!listing?.seller?.id) return;
     setStartingDM(true);
     try {
-      await messageApi.startConversation(listing.seller.id, token);
+      const conv = await messageApi.startConversation(listing.seller.id, token);
+      if (!conv.last_message_preview) {
+        const opener = `Hi, I'm interested in "${listing.name}" (${formatPrice(listing.price)}). Is it still available?`;
+        await messageApi.sendMessage(listing.seller.id, opener, token).catch(() => {});
+      }
       router.push("/messages");
     } catch { /* silent */ }
     finally { setStartingDM(false); }

@@ -63,7 +63,7 @@ const LABELS: { key: string; color: string; bg: string }[] = [
   { key: "Hot Lead",  color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30" },
   { key: "Pending",   color: "text-warning-700 dark:text-warning-400", bg: "bg-warning-50 dark:bg-warning-500/10 border-warning-200 dark:border-warning-500/30" },
   { key: "Completed", color: "text-success-700 dark:text-success-400", bg: "bg-success-50 dark:bg-success-500/10 border-success-200 dark:border-success-500/30" },
-  { key: "Spam",      color: "text-gray-500 dark:text-gray-400",       bg: "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700" },
+  { key: "Spam",      color: "text-gray-500 dark:text-gray-400",       bg: "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-800" },
 ];
 
 type Toast = { message: string; type: "success" | "error" } | null;
@@ -366,7 +366,7 @@ export default function SellerInboxPage() {
                       <Tag size={14} />
                     </button>
                     {labelOpen === inq.id && (
-                      <div className="absolute right-0 top-9 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-30 overflow-hidden">
+                      <div className="absolute right-0 top-9 w-36 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl z-30 overflow-hidden">
                         {LABELS.map((l) => (
                           <button key={l.key} type="button" onClick={() => setLabel(inq.id, l.key)}
                             className={`w-full px-3 py-2 text-left text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 ${
@@ -411,7 +411,7 @@ export default function SellerInboxPage() {
                       <Zap size={11} /> Quick replies <ChevronDown size={11} className={templatesOpen ? "rotate-180" : ""} />
                     </button>
                     {templatesOpen && (
-                      <div className="absolute bottom-8 left-0 w-72 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-30 overflow-hidden">
+                      <div className="absolute bottom-8 left-0 w-72 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl z-30 overflow-hidden">
                         {QUICK_TEMPLATES.map((tpl) => (
                           <button key={tpl} type="button" onClick={() => applyTemplate(inq.id, tpl)}
                             className="w-full px-4 py-2.5 text-left text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-50 dark:border-gray-800/50 last:border-0">
@@ -432,7 +432,7 @@ export default function SellerInboxPage() {
                         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(inq); }
                       }}
                       placeholder="Type a reply…"
-                      className="flex-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 resize-none scrollbar-hide"
+                      className="flex-1 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 resize-none scrollbar-hide"
                     />
                     <button type="button" aria-label="Send reply"
                       onClick={() => sendReply(inq)}
@@ -462,7 +462,7 @@ export default function SellerInboxPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">They will no longer be able to message you or see your listings.</p>
             <div className="flex gap-2">
               <button type="button" disabled={blocking} onClick={() => setBlockConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-600 dark:text-gray-400 disabled:opacity-50">
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-sm font-semibold text-gray-600 dark:text-gray-400 disabled:opacity-50">
                 Cancel
               </button>
               <button type="button" disabled={blocking} onClick={confirmBlock}
@@ -499,7 +499,7 @@ export default function SellerInboxPage() {
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
               placeholder="Describe what happened (harassment, spam, scam, etc.)"
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 resize-none"
+              className="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-white/90 placeholder:text-gray-400 focus:border-brand-300 focus:outline-none focus:ring-2 focus:ring-brand-500/10 resize-none"
               maxLength={500}
               disabled={reportSubmitting}
             />
@@ -507,7 +507,7 @@ export default function SellerInboxPage() {
 
             <div className="flex gap-2 mt-5">
               <button type="button" disabled={reportSubmitting} onClick={() => { setReportTarget(null); setReportReason(""); }}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-600 dark:text-gray-400 disabled:opacity-50">
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-sm font-semibold text-gray-600 dark:text-gray-400 disabled:opacity-50">
                 Cancel
               </button>
               <button type="button" disabled={reportSubmitting || !reportReason.trim()} onClick={submitReport}

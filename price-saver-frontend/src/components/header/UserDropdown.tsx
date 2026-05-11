@@ -95,10 +95,10 @@ export default function UserDropdown() {
             <DropdownItem
               onItemClick={closeDropdown}
               tag="a"
-              href={isAdmin ? "/admin/profile" : "/seller/profile"}
+              href={isAdmin ? "/admin/profile" : "/seller/settings?tab=business"}
               className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
             >
-              <UserCircle size={24} className="fill-gray-500 group-hover:fill-gray-700 dark:fill-gray-400 dark:group-hover:fill-gray-300" />
+              <UserCircle size={16} className="text-gray-400 flex-shrink-0" />
               Edit profile
             </DropdownItem>
           </li>
@@ -109,7 +109,7 @@ export default function UserDropdown() {
               href={isAdmin ? "/admin/settings" : "/seller/settings"}
               className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
             >
-              <Settings size={24} className="fill-gray-500 group-hover:fill-gray-700 dark:fill-gray-400 dark:group-hover:fill-gray-300" />
+              <Settings size={16} className="text-gray-400 flex-shrink-0" />
               Account settings
             </DropdownItem>
           </li>
@@ -120,7 +120,7 @@ export default function UserDropdown() {
               href="/support"
               className="flex items-center gap-3 px-3 py-2 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
             >
-              <Info size={24} className="fill-gray-500 group-hover:fill-gray-700 dark:fill-gray-400 dark:group-hover:fill-gray-300" />
+              <Info size={16} className="text-gray-400 flex-shrink-0" />
               Support
             </DropdownItem>
           </li>
@@ -128,9 +128,9 @@ export default function UserDropdown() {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 px-3 py-2 mt-3 font-medium text-gray-700 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/5 dark:hover:text-gray-300"
+          className="flex w-full items-center gap-3 px-3 py-2 mt-3 font-medium text-sm text-error-600 dark:text-error-400 rounded-lg hover:bg-error-50 dark:hover:bg-error-500/10 transition-colors"
         >
-          <LogOut size={24} className="fill-gray-500 group-hover:fill-gray-700 dark:group-hover:fill-gray-300" />
+          <LogOut size={16} className="flex-shrink-0" />
           Sign out
         </button>
       </Dropdown>
