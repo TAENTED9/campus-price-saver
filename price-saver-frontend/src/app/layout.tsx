@@ -12,18 +12,18 @@ export const metadata: Metadata = {
   description: "Find the best prices across campus. Compare products, discover deals, and shop smart.",
 };
 
+// Block 2 — Theme bootstrap reads the `campify_theme` cookie (not
+// localStorage). The cookie is written by settingsStore.applyTheme()
+// whenever the user toggles theme. Falls back to "system" if absent.
+const THEME_BOOTSTRAP = `(function(){try{var c=document.cookie.split('; ').find(function(r){return r.indexOf('campify_theme=')===0;});var t=c?decodeURIComponent(c.split('=')[1]):null;var isDark=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(isDark){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})()`;
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Block 6C — apply theme BEFORE first paint to prevent light→dark flicker */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem('campify_settings');var t=s?JSON.parse(s)?.state?.settings?.theme:null;var isDark=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(isDark){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})()`,
-          }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
       <body className="font-outfit dark:bg-gray-900">
         <ThemeProvider>

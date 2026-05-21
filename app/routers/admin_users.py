@@ -54,40 +54,8 @@ def log_action(
 #  USER MANAGEMENT
 # ════════════════════════════════════════════════════════════════════════
 
-@router.get("/users")
-async def list_users(
-    role: Optional[str] = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, le=200),
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    query = db.query(User)
-    if role:
-        query = query.filter(User.role == role)
-    total = query.count()
-    users = query.order_by(User.created_at.desc()).offset(skip).limit(limit).all()
-    return {
-        "success": True,
-        "total": total,
-        "data": [
-            {
-                "id": u.id,
-                "username": u.username,
-                "email": u.email,
-                "display_name": u.display_name,
-                "role": u.role,
-                "balance": u.balance,
-                "seller_points": u.seller_points,
-                "is_suspended": getattr(u, "is_suspended", False),
-                "is_banned": getattr(u, "is_banned", False),
-                "suspended_until": u.suspended_until.isoformat() if getattr(u, "suspended_until", None) else None,
-                "ban_reason": getattr(u, "ban_reason", None),
-                "created_at": u.created_at.isoformat() if u.created_at else None,
-            }
-            for u in users
-        ],
-    }
+# FIX #14: GET /admin/users moved to app/routers/admin_stats.py
+# (the canonical handler — this duplicate was shadowed by route order).
 
 
 @router.patch("/users/{user_id}/suspend")
@@ -429,158 +397,17 @@ async def admin_unfeature_listing(
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  ANNOUNCEMENTS
+#  ANNOUNCEMENTS — canonical handlers live in app/routers/admin_stats.py
+#  (GET/POST/PATCH/DELETE /admin/announcements). FIX #14 removed the
+#  duplicates here that were silently shadowed.
 # ════════════════════════════════════════════════════════════════════════
-
-@router.get("/announcements")
-async def list_announcements(
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    items = db.query(Announcement).order_by(Announcement.created_at.desc()).all()
-    return {
-        "success": True,
-        "data": [
-            {
-                "id": a.id,
-                "title": a.title,
-                "message": a.message,
-                "type": a.type,
-                "audience": a.audience,
-                "is_active": a.is_active,
-                "banner_url": a.banner_url,
-                "cta_label": a.cta_label,
-                "cta_href": a.cta_href,
-                "created_by": a.created_by,
-                "created_at": a.created_at.isoformat() if a.created_at else None,
-                "updated_at": a.updated_at.isoformat() if a.updated_at else None,
-            }
-            for a in items
-        ],
-    }
-
-
-@router.post("/announcements", status_code=201)
-async def create_announcement(
-    data: AnnouncementCreate,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    ann = Announcement(**data.dict(), created_by=current_admin.id)
-    db.add(ann)
-    log_action(db, current_admin, "Published announcement", "Announcement", None, data.title)
-    db.commit()
-    db.refresh(ann)
-    return {"success": True, "id": ann.id, "message": "Announcement published"}
-
-
-@router.patch("/announcements/{ann_id}")
-async def update_announcement(
-    ann_id: int,
-    data: AnnouncementUpdate,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    ann = db.query(Announcement).filter(Announcement.id == ann_id).first()
-    if not ann:
-        raise HTTPException(status_code=404, detail="Announcement not found")
-    for field, value in data.dict(exclude_none=True).items():
-        setattr(ann, field, value)
-    log_action(db, current_admin, "Updated announcement", "Announcement", ann_id, ann.title)
-    db.commit()
-    return {"success": True, "message": "Announcement updated"}
-
-
-@router.delete("/announcements/{ann_id}")
-async def delete_announcement(
-    ann_id: int,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    ann = db.query(Announcement).filter(Announcement.id == ann_id).first()
-    if not ann:
-        raise HTTPException(status_code=404, detail="Announcement not found")
-    title = ann.title
-    log_action(db, current_admin, "Deleted announcement", "Announcement", ann_id, title)
-    db.delete(ann)
-    db.commit()
-    return {"success": True, "message": "Announcement deleted"}
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  REPORTS
+#  REPORTS — canonical handlers live in app/routers/admin_stats.py
+#  (GET /admin/reports, PATCH /admin/reports/{id}/resolve|review).
+#  FIX #14 removed the duplicates here that were silently shadowed.
 # ════════════════════════════════════════════════════════════════════════
-
-@router.get("/reports")
-async def list_reports(
-    status: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    query = db.query(Report)
-    if status:
-        query = query.filter(Report.status == status)
-    reports = query.order_by(Report.created_at.desc()).all()
-
-    reporter_ids = {r.reporter_id for r in reports}
-    users_map = {}
-    if reporter_ids:
-        users_list = db.query(User).filter(User.id.in_(reporter_ids)).all()
-        users_map = {u.id: u.username or u.display_name or f"User #{u.id}" for u in users_list}
-
-    return {
-        "success": True,
-        "data": [
-            {
-                "id": r.id,
-                "reporter_id": r.reporter_id,
-                "reporter_name": users_map.get(r.reporter_id, "Unknown"),
-                "target_type": r.target_type,
-                "target_id": r.target_id,
-                "target_name": r.target_name,
-                "reason": r.reason,
-                "status": r.status,
-                "admin_notes": r.admin_notes,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
-            }
-            for r in reports
-        ],
-    }
-
-
-@router.patch("/reports/{report_id}/resolve")
-async def resolve_report(
-    report_id: int,
-    body: ReportResolveRequest = Body(default=ReportResolveRequest()),
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    report.status = "Resolved"
-    report.admin_notes = body.admin_notes
-    report.resolved_by = current_admin.id
-    report.resolved_at = datetime.utcnow()
-    log_action(db, current_admin, "Resolved report", "Report", report_id,
-               f"{report.target_type}: {report.target_name}")
-    db.commit()
-    return {"success": True, "message": "Report resolved"}
-
-
-@router.patch("/reports/{report_id}/review")
-async def mark_report_under_review(
-    report_id: int,
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin),
-):
-    report = db.query(Report).filter(Report.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    report.status = "Under Review"
-    db.commit()
-    return {"success": True, "message": "Report marked under review"}
 
 
 # ════════════════════════════════════════════════════════════════════════

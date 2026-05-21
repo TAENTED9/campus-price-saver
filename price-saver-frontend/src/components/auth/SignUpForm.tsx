@@ -372,7 +372,10 @@ function SellerForm({ onBack }: { onBack: () => void }) {
     setIsLoading(true);
     try {
       await authApi.register(username.trim(), password, email.trim(), "seller");
-      sessionStorage.setItem("pendingMatric", matric.trim().toUpperCase());
+      // Block 2 / FIX #5: no sessionStorage. The matric is preserved as a
+      // URL search param when the seller later opens /seller/verify (the
+      // "Continue verification" link below carries it). Matric is identity
+      // info, not a secret — safe in URLs.
       setStep("check_email");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
@@ -422,7 +425,12 @@ function SellerForm({ onBack }: { onBack: () => void }) {
               {resending ? "Sending…" : "Resend verification email"}
             </button>
           )}
-          <Link href="/signin" className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          {/* Block 2 / FIX #5: carry the matric forward via URL param so the
+              seller verification page can pre-fill it — no client storage. */}
+          <Link
+            href={`/signin?redirect=${encodeURIComponent(`/seller/verify?matric=${encodeURIComponent(matric.trim().toUpperCase())}`)}`}
+            className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
             Back to Sign In
           </Link>
         </div>

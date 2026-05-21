@@ -474,7 +474,9 @@ export default function SearchPage() {
             {!loading && items.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
                 {items.map((item) => (
-                  <ListingCard key={item.id} {...toCardProps(item)} />
+                  /* FIX #12: namespace key — search uses paginated appends
+                     where in-flight filter changes can produce duplicate ids. */
+                  <ListingCard key={`search-${item.id}`} {...toCardProps(item)} />
                 ))}
               </div>
             )}

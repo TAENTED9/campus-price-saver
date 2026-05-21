@@ -115,9 +115,9 @@ export default function SellerVerifyPage() {
   const [submitted, setSubmitted]   = useState(false);
 
   // Step 1 state
-  const [matric, setMatric]         = useState(() =>
-    typeof window !== "undefined" ? localStorage.getItem("pendingMatric") || "" : ""
-  );
+  // FIX #5 / Block 2: matric is passed through as a URL search param from
+  // signup, never written to client storage.
+  const [matric, setMatric]         = useState(() => params.get("matric") || "");
   const [matricError, setMatricError] = useState<string | null>(null);
 
   // Step 2 state
@@ -148,7 +148,8 @@ export default function SellerVerifyPage() {
   function handleMatricBlur() {
     const err = validateMatric(matric);
     setMatricError(err);
-    if (!err) localStorage.setItem("pendingMatric", matric);
+    // Block 2: no client storage. Matric stays in component state and the
+    // URL param. Reloading the page preserves it via the search param.
   }
 
   async function uploadId(file: File) {
@@ -186,7 +187,8 @@ export default function SellerVerifyPage() {
   }
 
   function canProceedStep2() {
-    return !!idUrl && !uploadingId && !uploadingPortal;
+    // FIX #7: both documents are required.
+    return !!idUrl && !!portalUrl && !uploadingId && !uploadingPortal;
   }
 
   async function handleSubmit() {
@@ -198,11 +200,11 @@ export default function SellerVerifyPage() {
       fd.append("matric_number", matric.trim().toUpperCase());
       fd.append("seller_name", user.display_name || user.username);
       fd.append("email", user.email || "");
-      fd.append("user_id", String(user.id));
-      if (idUrl)     fd.append("id_card_url", idUrl);
-      if (portalUrl) fd.append("portal_url", portalUrl);
+      // FIX #6: user_id removed — backend reads identity from the JWT.
+      // FIX #7: both URLs are required upstream; canProceedStep2 enforces it.
+      fd.append("id_card_url", idUrl);
+      fd.append("portal_url", portalUrl);
       await sellerApi.submitVerificationDocs(token, fd);
-      sessionStorage.removeItem("pendingMatric");
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Submission failed. Please try again.");
@@ -350,7 +352,7 @@ export default function SellerVerifyPage() {
               />
 
               <DocUpload
-                label="Portal Screenshot"
+                label="Portal Screenshot *"
                 hint="Screenshot showing Name + Matric + Current session"
                 file={portalFile}
                 preview={portalPreview}
@@ -381,7 +383,7 @@ export default function SellerVerifyPage() {
                 {[
                   { label: "Matric Number", value: matric.toUpperCase(), mono: true },
                   { label: "Student ID Card", value: idFile ? `${idFile.name} ✓` : "Not uploaded" },
-                  { label: "Portal Screenshot", value: portalFile ? `${portalFile.name} ✓` : "Not uploaded (optional)" },
+                  { label: "Portal Screenshot", value: portalFile ? `${portalFile.name} ✓` : "Not uploaded" },
                   { label: "Account", value: user?.display_name || user?.username || "" },
                 ].map((r) => (
                   <div key={r.label} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 px-4 py-3">
@@ -425,7 +427,13 @@ export default function SellerVerifyPage() {
                 if (step === 1) {
                   const err = validateMatric(matric);
                   if (err) { setMatricError(err); return; }
-                  localStorage.setItem("pendingMatric", matric);
+                  // Block 2: keep the matric in the URL so reload survives it,
+                  // never in localStorage.
+                  if (typeof window !== "undefined") {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("matric", matric);
+                    window.history.replaceState(null, "", url.toString());
+                  }
                 }
                 setStep(step + 1);
               }}

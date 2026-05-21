@@ -33,13 +33,16 @@ def get_listing(
 
 @router.post("/{listing_uuid}/views")
 @limiter.limit("200/minute")
-def record_view(
+async def record_view(
     request: Request,
     response: Response,
     listing_uuid: str = Path(..., min_length=1),
     db: Session = Depends(get_db),
 ):
-    """Cookie-deduplicated view counter for a listing identified by UUID."""
+    """
+    View counter with two-layer dedup: browser cookie (24h) + Redis IP (1h).
+    Redis degrades to cookie-only when unavailable.
+    """
     raw = request.cookies.get("viewed_listings", "[]")
     try:
         viewed: list = json.loads(raw)
@@ -49,11 +52,29 @@ def record_view(
         viewed = []
 
     if listing_uuid in viewed:
-        return {"counted": False}
+        return {"counted": False, "reason": "cookie"}
 
     listing = db.query(Price).filter(Price.uuid == listing_uuid).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
+
+    ip = (request.client.host if request.client else "") or "unknown"
+    try:
+        from app.services.cache import get_redis
+        r = await get_redis()
+        was_new = await r.set(f"view:listing:{listing_uuid}:{ip}", "1", ex=3600, nx=True)
+        if not was_new:
+            viewed.append(listing_uuid)
+            response.set_cookie(
+                key="viewed_listings",
+                value=json.dumps(viewed),
+                max_age=86400,
+                httponly=False,
+                samesite="lax",
+            )
+            return {"counted": False, "reason": "ip"}
+    except Exception:
+        pass
 
     listing.view_count = (listing.view_count or 0) + 1
     db.commit()

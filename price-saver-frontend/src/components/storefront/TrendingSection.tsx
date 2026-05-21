@@ -66,7 +66,8 @@ export default function TrendingSection() {
             ? Array.from({ length: 8 }).map((_, i) => <ListingCardSkeleton key={i} />)
             : items.map((item) => (
                 <ListingCard
-                  key={item.id}
+                  // FIX #12: namespace so duplicate ids across sections never collide.
+                  key={`trending-${item.id}`}
                   id={item.id}
                   uuid={item.uuid}
                   title={item.name}

@@ -1,29 +1,28 @@
 /**
- * Admin API client — all calls include the admin JWT from localStorage.
- * Only used by client components inside the /admin/* route group.
+ * Admin API client.
+ *
+ * Block 2 — Zero client-side storage.
+ * Each method takes the admin access token as the first argument.
+ * Callers should obtain it from `useAdminAuth().token` (in-memory only).
+ * The old localStorage read of "admin_token" has been removed.
  */
 
 const API_BASE =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) ||
   "http://localhost:8000";
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("admin_token");
-}
-
-function authHeaders(): HeadersInit {
-  const token = getToken();
+function authHeaders(token: string | null): HeadersInit {
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiFetch<T>(token: string | null, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+    credentials: "include",
+    headers: { ...authHeaders(token), ...(init?.headers ?? {}) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Request failed" }));
@@ -64,41 +63,45 @@ export interface MonthlyAnalytics {
 
 export const adminApi = {
   /** Platform overview stats (top cards) */
-  getStats: () =>
-    apiFetch<{ success: boolean; data: AdminStats }>("/api/admin/stats"),
+  getStats: (token: string | null) =>
+    apiFetch<{ success: boolean; data: AdminStats }>(token, "/api/admin/stats"),
 
   /** Monthly submissions + revenue (charts) */
-  getMonthlyAnalytics: () =>
+  getMonthlyAnalytics: (token: string | null) =>
     apiFetch<{ success: boolean; data: MonthlyAnalytics }>(
+      token,
       "/api/admin/analytics/monthly"
     ),
 
   /** List pending/under-review seller verifications */
-  getVerifications: (statusFilter?: string) => {
+  getVerifications: (token: string | null, statusFilter?: string) => {
     const qs = statusFilter ? `?status_filter=${statusFilter}` : "";
     return apiFetch<{
       success: boolean;
       data: VerificationRequest[];
       count: number;
-    }>(`/api/admin/verification/${qs}`);
+    }>(token, `/api/admin/verification/${qs}`);
   },
 
   /** Get single verification detail */
-  getVerification: (id: number) =>
+  getVerification: (token: string | null, id: number) =>
     apiFetch<{ success: boolean; data: VerificationRequest }>(
+      token,
       `/api/admin/verification/${id}`
     ),
 
   /** Approve a verification */
-  approveVerification: (id: number) =>
+  approveVerification: (token: string | null, id: number) =>
     apiFetch<{ success: boolean; message: string }>(
+      token,
       `/api/admin/verification/${id}/approve`,
       { method: "PATCH" }
     ),
 
   /** Reject a verification with optional notes */
-  rejectVerification: (id: number, adminNotes?: string) =>
+  rejectVerification: (token: string | null, id: number, adminNotes?: string) =>
     apiFetch<{ success: boolean; message: string }>(
+      token,
       `/api/admin/verification/${id}/reject`,
       {
         method: "PATCH",
@@ -107,8 +110,9 @@ export const adminApi = {
     ),
 
   /** Mark verification as under review */
-  markUnderReview: (id: number) =>
+  markUnderReview: (token: string | null, id: number) =>
     apiFetch<{ success: boolean; message: string }>(
+      token,
       `/api/admin/verification/${id}/review`,
       { method: "PATCH" }
     ),

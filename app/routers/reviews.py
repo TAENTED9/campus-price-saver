@@ -175,9 +175,14 @@ async def get_listing_reviews(
     if listing is None:
         raise HTTPException(status_code=404, detail="Listing not found")
     lid = listing.id
+    # Block 5 — eager-load reviewer.profile so _review_dict doesn't lazy-load
+    # one extra row per review.
     reviews = (
         db.query(Review)
-        .options(joinedload(Review.reviewer), joinedload(Review.listing))
+        .options(
+            joinedload(Review.reviewer).joinedload(User.profile),
+            joinedload(Review.listing),
+        )
         .filter(Review.listing_id == lid, Review.is_flagged == False)
         .order_by(Review.created_at.desc())
         .offset(skip)
@@ -218,9 +223,10 @@ async def get_seller_reviews(
     if seller is None:
         raise HTTPException(status_code=404, detail="Seller not found")
     sid = seller.id
+    # Block 5 — eager-load reviewer.profile to avoid N+1 in _review_dict.
     reviews = (
         db.query(Review)
-        .options(joinedload(Review.reviewer))
+        .options(joinedload(Review.reviewer).joinedload(User.profile))
         .filter(Review.seller_id == sid, Review.is_flagged == False)
         .order_by(Review.created_at.desc())
         .offset(skip)

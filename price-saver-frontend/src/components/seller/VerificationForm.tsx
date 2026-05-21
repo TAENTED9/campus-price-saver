@@ -129,20 +129,24 @@ function SubmittedSuccessScreen({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function VerificationSubmitForm({ token, userName, userEmail, userId, isWelcome, onDone, isResubmission }: {
+export function VerificationSubmitForm({ token, userName, userEmail, isWelcome, onDone, isResubmission }: {
   token: string;
   userName: string;
   userEmail: string;
-  userId: number;
+  /** FIX #6: caller may still pass userId for back-compat — it is ignored. */
+  userId?: number;
   isWelcome: boolean;
   onDone: () => void;
   isResubmission?: boolean;
 }) {
   const [submitted, setSubmitted] = useState(false);
 
-  const [matric, setMatric] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("pendingMatric") || "";
-    return "";
+  // Block 2: no client storage. Matric is captured from the URL search
+  // param when the seller arrives from signup → /seller/verify?matric=…
+  const [matric, setMatric] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get("matric") || "";
   });
   const [faculty, setFaculty] = useState("");
   const [businessCategory, setBusinessCategory] = useState("");
@@ -231,10 +235,12 @@ export function VerificationSubmitForm({ token, userName, userEmail, userId, isW
         document_url: idUrl,
         portal_screenshot_url: portalUrl,
         email: userEmail,
-        user_id: Number(userId),
+        // FIX #6: user_id removed from request — backend reads identity
+        // from the JWT (current_user). Kept on the type signature for
+        // back-compat but no longer wired through.
       }, token);
 
-      localStorage.removeItem("pendingMatric");
+      // Block 2: matric was never written to localStorage — nothing to clear.
       setSubmitted(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Submission failed. Please try again.");

@@ -13,14 +13,33 @@ interface ActiveAnnouncement {
   cta_href?: string | null;
 }
 
-const DISMISS_KEY = "campify_announcement_dismissed";
+/**
+ * Block 2: dismissal state is stored in a cookie (`campify_announcement_dismissed`)
+ * with a 30-day expiry, not localStorage. The cookie value is just the
+ * announcement id — non-sensitive, fine to live in a cookie.
+ */
+const DISMISS_COOKIE = "campify_announcement_dismissed";
+
+function readDismissedId(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie
+    .split("; ")
+    .find((c) => c.startsWith(`${DISMISS_COOKIE}=`));
+  return match ? decodeURIComponent(match.split("=")[1]) : null;
+}
+
+function writeDismissedId(id: number) {
+  if (typeof document === "undefined") return;
+  // 30 days, root path, lax — non-HttpOnly so this component can read it back.
+  document.cookie = `${DISMISS_COOKIE}=${encodeURIComponent(String(id))};path=/;max-age=2592000;SameSite=Lax`;
+}
 
 export default function AnnouncementBanner() {
   const [announcement, setAnnouncement] = useState<ActiveAnnouncement | null>(null);
   const [visible, setVisible]           = useState(false);
 
   useEffect(() => {
-    const dismissed = localStorage.getItem(DISMISS_KEY);
+    const dismissed = readDismissedId();
     fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/admin/announcements/active`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -35,7 +54,7 @@ export default function AnnouncementBanner() {
   }, []);
 
   const dismiss = () => {
-    if (announcement) localStorage.setItem(DISMISS_KEY, String(announcement.id));
+    if (announcement) writeDismissedId(announcement.id);
     setVisible(false);
   };
 

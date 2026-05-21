@@ -14,7 +14,7 @@ import json
 import time
 
 from app.dependencies import get_db
-from app.models import User, Price, PendingPrice, SellerVerification, AdminEvent, CloudinaryAsset, Announcement, Report
+from app.models import User, Price, PendingPrice, SellerVerification, AdminEvent, CloudinaryAsset, Announcement, Report, Order
 from app.routers.auth import get_current_admin, decode_access_token
 from app.routers.admin_users import log_action
 
@@ -22,6 +22,12 @@ from app.routers.admin_users import log_action
 _analytics_cache: dict = {"data": None, "expires_at": 0.0}
 
 router = APIRouter(prefix="/admin", tags=["admin-stats"])
+
+# FIX #14: This router and app/routers/admin_users.py both mount at /admin.
+# Their non-overlapping handlers coexist fine. The previously-shadowed
+# duplicates (/admin/users list, /admin/announcements*, /admin/reports*)
+# have been removed from admin_users.py — this file is the canonical
+# implementation for those paths.
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -902,6 +908,14 @@ async def get_analytics(
         User.deletion_requested_at != None, User.is_deleted != True
     ).count()
 
+    # Block 10 — order + report metrics (real DB queries, not hardcoded).
+    total_orders     = db.query(Order).count()
+    completed_orders = db.query(Order).filter(Order.status == "completed").count()
+    open_reports     = db.query(Report).filter(Report.status == "open").count()
+    conversion_rate  = round(
+        (completed_orders / total_orders * 100) if total_orders else 0, 1
+    )
+
     # Daily signups — last 30 days (SQLite raw)
     daily_signups_rows = db.execute(sa_text("""
         SELECT DATE(created_at) as day, COUNT(*) as cnt
@@ -963,6 +977,10 @@ async def get_analytics(
             "paused_accounts":        paused_accounts,
             "pending_verifications":  pending_verifications,
             "delete_requests":        delete_requests,
+            "total_orders":           total_orders,
+            "completed_orders":       completed_orders,
+            "open_reports":           open_reports,
+            "conversion_rate":        conversion_rate,
         },
         "daily_signups":    daily_signups,
         "daily_listings":   daily_listings,

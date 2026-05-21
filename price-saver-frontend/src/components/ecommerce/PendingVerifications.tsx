@@ -10,8 +10,10 @@ import {
 import Badge from "../ui/badge/Badge";
 import Link from "next/link";
 import { adminApi, type VerificationRequest } from "@/lib/adminApi";
+import { useAdminAuth } from "@/context/AdminAuthContext";
 
 export default function PendingVerifications() {
+  const { token } = useAdminAuth();
   const [rows, setRows] = useState<VerificationRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionId, setActionId] = useState<number | null>(null);
@@ -19,18 +21,18 @@ export default function PendingVerifications() {
   const load = useCallback(() => {
     setIsLoading(true);
     adminApi
-      .getVerifications()
+      .getVerifications(token)
       .then((res) => { if (res.success) setRows(res.data); })
       .catch(() => {/* keep empty on error */})
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [token]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleApprove = async (id: number) => {
     setActionId(id);
     try {
-      await adminApi.approveVerification(id);
+      await adminApi.approveVerification(token, id);
       setRows((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status: "Approved" } : r))
       );
@@ -40,7 +42,7 @@ export default function PendingVerifications() {
   const handleReject = async (id: number) => {
     setActionId(id);
     try {
-      await adminApi.rejectVerification(id);
+      await adminApi.rejectVerification(token, id);
       setRows((prev) =>
         prev.map((r) => (r.id === id ? { ...r, status: "Rejected" } : r))
       );

@@ -1,0 +1,37 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# No `apt-get install` step — every Python dependency in requirements.txt
+# ships pre-compiled manylinux wheels for python:3.11-slim x86_64
+# (psycopg2-binary, argon2-cffi, bcrypt[wheels], cryptography, hiredis,
+# greenlet, Pillow, etc.). The container healthcheck uses a Python
+# one-liner instead of curl so we don't need it from apt either.
+# This makes the build immune to Debian mirror outages.
+
+# Python dependencies.
+# Network resilience: long timeout + retries protect against the WSL2/
+# Docker Desktop DNS hiccups that frequently break partway through
+# downloading a large wheel (e.g. cryptography ~4.7 MB).
+ENV PIP_DEFAULT_TIMEOUT=180 \
+    PIP_RETRIES=10
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --retries 10 --timeout 180 -r requirements.txt
+
+# App code
+COPY app/ ./app/
+COPY api/ ./api/
+
+# Optional env files (won't fail build if absent)
+COPY env.example ./env.example
+
+# Create logs directory
+RUN mkdir -p logs
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

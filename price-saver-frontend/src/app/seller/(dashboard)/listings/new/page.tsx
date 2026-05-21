@@ -178,15 +178,12 @@ export default function NewListingPage() {
         );
         const endIso = new Date(flashEnd).toISOString();
         try {
-          await flashSalesApi.create(
-            {
-              price_id: res.id,
-              title: name.trim(),
-              discount_pct: Number(discountPct.toFixed(2)),
-              end_time: endIso,
-            },
-            user.id,
-          );
+          await flashSalesApi.create(token, {
+            listing_id: res.id,
+            title: name.trim(),
+            discount_pct: Number(discountPct.toFixed(2)),
+            end_time: endIso,
+          });
         } catch (flashErr) {
           setError(
             flashErr instanceof Error

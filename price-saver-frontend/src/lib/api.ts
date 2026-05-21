@@ -20,8 +20,11 @@ export type LoginResponse = {
 };
 
 export type UserInfo = {
+  /** FIX #1: integer primary key. Safe to compare with message.sender_id etc. */
   id: number;
-  /** Integer DB primary key — always a number, safe to compare with message.sender_id */
+  /** FIX #1: public string UUID. Use this in URLs, never expose `id`. */
+  uuid?: string | null;
+  /** Deprecated alias for `id` — kept for back-compat with older code paths. */
   numeric_id?: number;
   username: string;
   email?: string;
@@ -692,6 +695,16 @@ export const userApi = {
       method: "DELETE",
       headers: authHeaders(token),
     }),
+
+  /** Buyer-side stat cards in one call. Backed by GET /api/auth/me/dashboard-stats. */
+  getDashboardStats: (token: string) =>
+    request<{
+      karma_points:   number;
+      karma_tier:     string;
+      submissions:    number;
+      price_alerts:   number;
+      wishlist_count: number;
+    }>("/api/auth/me/dashboard-stats", { headers: authHeaders(token) }),
 };
 
 // ===================== VERIFICATION API =====================

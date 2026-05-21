@@ -155,20 +155,36 @@ def _price_to_dict(p: Price) -> dict:
 
 @router.get("/stats")
 async def get_platform_stats(db: Session = Depends(get_db)):
-    """Real platform stats for the homepage strip."""
-    total_users = db.query(User).count()
+    """
+    Real platform stats for the homepage strip.
+    Cached in Redis for 60s — see app.services.cache.TTL["platform_stats"].
+    Falls back to a live query if Redis is unavailable.
+    """
+    from app.services.cache import (
+        cache_get, cache_set, key_platform_stats, TTL,
+    )
+
+    cached = await cache_get(key_platform_stats())
+    if cached:
+        return cached
+
+    total_users = db.query(User).filter(User.is_deleted != True).count()
     active_listings = db.query(Price).filter(
         Price.status == "approved", Price.listing_status == "active"
     ).count()
-    total_sellers = db.query(User).filter(User.role == "seller").count()
+    total_sellers = db.query(User).filter(
+        User.role == "seller", User.is_deleted != True
+    ).count()
     total_categories = db.query(Category).count()
-    return {
+    result = {
         "total_users": total_users,
         "total_sellers": total_sellers,
         "active_listings": active_listings,
         "total_categories": total_categories,
         "last_updated": format_wat_iso(now_wat()),
     }
+    await cache_set(key_platform_stats(), result, TTL["platform_stats"])
+    return result
 
 
 @router.get("/featured")

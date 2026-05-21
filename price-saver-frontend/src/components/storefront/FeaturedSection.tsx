@@ -51,7 +51,8 @@ export default function FeaturedSection() {
             ? Array.from({ length: 8 }).map((_, i) => <ListingCardSkeleton key={i} />)
             : items.map((item) => (
                 <ListingCard
-                  key={item.id}
+                  // FIX #12: namespace key to avoid cross-section duplicate-id warnings.
+                  key={`featured-${item.id}`}
                   id={item.id}
                   uuid={item.uuid}
                   title={item.name}

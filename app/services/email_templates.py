@@ -60,6 +60,22 @@ Settings > Account > Request Reactivation
 — The Campify Team"""
 
 
+def SELLER_DOWNGRADE_EMAIL(name: str) -> str:
+    url = _app_url()
+    return f"""Hi {name},
+
+Your seller account has been downgraded to a buyer
+account at your request. All your active listings
+have been paused and are no longer visible to buyers.
+
+You can still browse, message sellers, and order
+on Campify as a regular buyer. If you change your
+mind, you can re-apply to become a seller at:
+{url}/seller/verify
+
+— The Campify Team"""
+
+
 def REACTIVATION_REQUEST_EMAIL(name: str) -> str:
     return f"""Hi {name},
 

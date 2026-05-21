@@ -4,6 +4,14 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+/**
+ * Block 2 — Zero client-side storage.
+ * The admin access token lives in memory only. Session is restored on boot
+ * via the backend's HttpOnly refresh cookie + POST /api/auth/refresh.
+ * The legacy `admin_token` client cookie (readable to JS, vulnerable to XSS)
+ * has been removed; no middleware depended on it.
+ */
+
 export type AdminUser = {
   id: number;
   username: string;
@@ -21,15 +29,6 @@ type AdminAuthContextType = {
 };
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
-
-function setCookie(name: string, value: string, days = 1) {
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
-}
-
-function deleteCookie(name: string) {
-  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
-}
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser]           = useState<AdminUser | null>(null);
@@ -56,14 +55,13 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (me.role !== "admin") throw new Error("Not admin");
 
         const adminUser: AdminUser = {
-          id: me.numeric_id || me.id,
+          id: me.id ?? me.numeric_id,
           username: me.username,
           display_name: me.display_name ?? me.username,
           role: "admin",
         };
         setToken(refreshData.access_token);
         setUser(adminUser);
-        setCookie("admin_token", refreshData.access_token);
       } catch {
         // No valid admin session
       } finally {
@@ -100,7 +98,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     setToken(data.access_token);
     setUser(adminUser);
-    setCookie("admin_token", data.access_token); // for middleware JWT check
   }, []);
 
   const logout = useCallback(() => {
@@ -114,7 +111,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     setToken(null);
     setUser(null);
-    deleteCookie("admin_token");
   }, [token]);
 
   return (

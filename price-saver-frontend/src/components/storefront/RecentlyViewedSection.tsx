@@ -1,29 +1,32 @@
 "use client";
 
+/**
+ * Block 2 — Zero client-side storage.
+ * Recently-viewed items come from the server (`GET /api/auth/recently-viewed`),
+ * which is populated by listing view logging. The previous localStorage
+ * implementation has been removed.
+ */
+
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Eye, ShoppingBag } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { thumbnailImage } from "@/lib/cloudinary";
 
-type ViewedItem = {
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+interface ServerViewed {
+  id: number;
+  name: string;
+  price: number;
+  photos: string[];
+}
+
+interface ViewedItem {
   id: number;
   title: string;
   price: number;
   imageUrl: string;
-  viewedAt: number;
-};
-
-const RV_KEY = "campify_recently_viewed";
-
-function getRecentlyViewed(): ViewedItem[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem(RV_KEY) || "[]") as ViewedItem[];
-    return raw.slice(0, 4);
-  } catch {
-    return [];
-  }
 }
 
 function formatPrice(n: number) {
@@ -36,14 +39,38 @@ function formatPrice(n: number) {
 }
 
 export default function RecentlyViewedSection() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, token } = useAuth();
   const [items, setItems] = useState<ViewedItem[]>([]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      setItems(getRecentlyViewed());
+    if (!isAuthenticated || !token) {
+      setItems([]);
+      return;
     }
-  }, [isAuthenticated]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/recently-viewed?limit=4`, {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data: ServerViewed[] = await res.json();
+        if (cancelled) return;
+        setItems(
+          (data ?? []).slice(0, 4).map((p) => ({
+            id: p.id,
+            title: p.name,
+            price: p.price,
+            imageUrl: p.photos?.[0] ?? "",
+          }))
+        );
+      } catch {
+        /* silent */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, token]);
 
   if (!isAuthenticated || items.length === 0) return null;
 
@@ -62,7 +89,7 @@ export default function RecentlyViewedSection() {
             const thumb = item.imageUrl ? thumbnailImage(item.imageUrl, 300) : "";
             return (
               <Link
-                key={item.id}
+                key={`recent-${item.id}`}
                 href={`/store/listing/${item.id}`}
                 className="bg-white dark:bg-gray-900 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
               >

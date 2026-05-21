@@ -66,15 +66,6 @@ def _sale_dict(sale: FlashSale) -> dict:
     }
 
 
-def _notify_wishlisters(db: Session, listing: Price, old_price: float):
-    """Fire price-drop notifications to anyone who wishlisted this listing."""
-    try:
-        from app.routers.wishlist import notify_price_drop
-        notify_price_drop(db, listing, old_price)
-    except Exception:
-        pass
-
-
 # ── Public endpoints ──────────────────────────────────────────────────────────
 
 @router.get("/active")
@@ -176,9 +167,24 @@ def create_flash_sale(
     db.commit()
     db.refresh(sale)
 
-    # Notify wishlisters about the effective price drop
-    _notify_wishlisters(db, listing, listing.price)
-    db.commit()
+    # Block 3 — fan out price-drop notifications off the request path.
+    # The old _notify_wishlisters(listing, listing.price) call passed the same
+    # value for both old and new price, which produced nonsense "dropped from
+    # ₦X to ₦X" notifications. The Celery task uses the real sale_price.
+    try:
+        from app.tasks.notification_tasks import notify_price_drop_for_listing
+        notify_price_drop_for_listing.delay(
+            listing_id=listing.id,
+            listing_title=listing.name,
+            original_price=float(listing.price),
+            sale_price=float(sale_price),
+        )
+    except Exception as e:
+        # Broker down — log and continue; the sale itself is already saved.
+        import logging
+        logging.getLogger(__name__).warning(
+            f"flash sale price-drop enqueue failed: {e}"
+        )
 
     return {"success": True, "data": _sale_dict(sale)}
 

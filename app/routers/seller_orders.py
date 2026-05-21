@@ -6,12 +6,13 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Lead, Notification, Order, PointsTransaction, Price, User
+from app.models import Lead, Notification, Order, Price, User
 from app.routers.auth import get_current_user
 
 orders_router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -103,7 +104,6 @@ async def create_order(
 @orders_router.post("/express-interest/{listing_uuid}", status_code=201)
 async def express_interest(
     listing_uuid: str,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -174,14 +174,17 @@ async def express_interest(
 
     if seller and seller.email:
         try:
-            from app.services.email import send_interest_notification_email
-            background_tasks.add_task(
-                send_interest_notification_email,
-                seller_email=seller.email,
+            # FIX #11 / Block 4: email now goes via Celery so it survives
+            # cold-stops and retries on Resend outages.
+            from app.tasks.email_tasks import send_interest_email
+            send_interest_email.delay(
+                to=seller.email,
                 seller_name=seller.display_name or seller.username,
-                buyer_name=current_user.display_name or current_user.username,
-                listing_name=listing.name,
-                listing_price=listing.price,
+                buyer_username=current_user.username,
+                buyer_display_name=current_user.display_name or current_user.username,
+                listing_title=listing.name,
+                listing_price=str(listing.price),
+                auto_message="",
             )
         except Exception:
             pass
@@ -199,7 +202,6 @@ async def express_interest(
 @orders_router.post("/express-interest", status_code=201)
 async def express_interest_body(
     body: ExpressInterestBody,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -269,14 +271,17 @@ async def express_interest_body(
 
     if seller and seller.email:
         try:
-            from app.services.email import send_interest_notification_email
-            background_tasks.add_task(
-                send_interest_notification_email,
-                seller_email=seller.email,
+            # FIX #11 / Block 4: email now goes via Celery so it survives
+            # cold-stops and retries on Resend outages.
+            from app.tasks.email_tasks import send_interest_email
+            send_interest_email.delay(
+                to=seller.email,
                 seller_name=seller.display_name or seller.username,
-                buyer_name=current_user.display_name or current_user.username,
-                listing_name=listing.name,
-                listing_price=listing.price,
+                buyer_username=current_user.username,
+                buyer_display_name=current_user.display_name or current_user.username,
+                listing_title=listing.name,
+                listing_price=str(listing.price),
+                auto_message="",
             )
         except Exception:
             pass
@@ -342,25 +347,52 @@ async def update_order_status(
     )
     db.add(notif)
 
-    # Decrement quantity, mark sold_out, and award seller points on completion
+    # ── FIX #3 + #6: completion side-effects ──────────────────────────────
     if body.status == "completed":
+        from app.routers.seller import _award_points
+
         listing = db.query(Price).filter(Price.id == order.listing_id).first()
+        seller = db.query(User).filter(User.id == order.seller_id).first()
+
+        # Decrement listing quantity / mark sold_out
         if listing:
             listing.quantity = max(0, (listing.quantity or 1) - 1)
             if listing.quantity == 0:
                 listing.listing_status = "sold_out"
-        # BUG-007: award karma points to seller
-        POINTS_PER_SALE = 10
-        seller = db.query(User).filter(User.id == order.seller_id).first()
+
         if seller:
-            seller.seller_points = (getattr(seller, "seller_points", 0) or 0) + POINTS_PER_SALE
-            txn = PointsTransaction(
-                user_id=order.seller_id,
-                amount=POINTS_PER_SALE,
-                reason="order_completed",
-                related_price_id=order.listing_id,
+            # FIX #3: canonical karma award via _award_points (writes
+            # PointsTransaction with reason="purchase_confirmed" — the
+            # exact row /api/seller/stats counts as a "confirmed sale").
+            _award_points(db, seller, "purchase_confirmed", order.listing_id)
+
+            # FIX #3: check first-ever completed sale and award the
+            # one-time +25 first_sale bonus that previously never fired.
+            completed_count = (
+                db.query(func.count(Order.id))
+                .filter(
+                    Order.seller_id == seller.id,
+                    Order.status == "completed",
+                )
+                .scalar() or 0
+            ) + 1  # +1 because the current order is not yet committed
+            if completed_count == 1:
+                _award_points(db, seller, "first_sale", order.listing_id)
+
+        # Notify buyer to leave a review
+        if order.buyer_id and listing:
+            review_notif = Notification(
+                user_id=order.buyer_id,
+                type="order_completed",
+                title="Order completed!",
+                body=(
+                    f"Your order for '{listing.name}' is complete. "
+                    "Leave a review to help other buyers."
+                ),
+                related_id=order.id,
+                related_type="Order",
             )
-            db.add(txn)
+            db.add(review_notif)
 
     db.commit()
     return _order_dict(order)

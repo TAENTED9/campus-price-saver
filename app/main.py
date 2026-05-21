@@ -18,7 +18,6 @@ from slowapi.errors import RateLimitExceeded
 from dotenv import load_dotenv
 
 from app.limiter import limiter
-from app.scheduler import scheduler
 from app.config import settings as _app_settings
 from app.routers import (
     items, prices, ml, pending, stores,
@@ -95,10 +94,9 @@ async def lifespan(app: FastAPI):
     if db.query(Category).count() == 0:
         seed_categories(db)
     db.close()
-    scheduler.start()
+    # Scheduled jobs are owned by Celery beat (see app/celery_app.py).
     logger.info("Backend started successfully!")
     yield
-    scheduler.shutdown(wait=False)
 
 
 def seed_categories(db):
@@ -172,23 +170,32 @@ async def log_requests(request: Request, call_next):
 
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Production: set ALLOWED_ORIGINS=https://campify.ng,https://www.campify.ng
-# Do NOT include localhost in the production env var.
-_default_origins = "https://campify.ng,https://www.campify.ng"
-ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv("ALLOWED_ORIGINS", _default_origins).split(",")
-    if o.strip()
+# Production:  ALLOWED_ORIGINS=https://campify.ng,https://www.campify.ng
+# Development: localhost + dev LAN IP are added automatically.
+# FIX #2: never allow localhost via regex in production.
+_PROD_ORIGINS = ["https://campify.ng", "https://www.campify.ng"]
+_DEV_ORIGINS  = _PROD_ORIGINS + [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://192.168.0.195:3000",
 ]
 
-app.add_middleware(
-    CORSMiddleware,
+_env_origins = os.getenv("ALLOWED_ORIGINS")
+if _env_origins:
+    ALLOWED_ORIGINS = [o.strip() for o in _env_origins.split(",") if o.strip()]
+else:
+    ALLOWED_ORIGINS = _PROD_ORIGINS if _app_settings.IS_PRODUCTION else _DEV_ORIGINS
+
+_cors_kwargs = dict(
     allow_origins=ALLOWED_ORIGINS,
-    allow_origin_regex=r"http://(localhost|192\.168\.0\.195):\d+",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
+if not _app_settings.IS_PRODUCTION:
+    _cors_kwargs["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1|192\.168\.0\.195):\d+"
+
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 
 # ── Inject price_updater into prices router ───────────────────────────────────

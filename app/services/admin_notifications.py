@@ -1,10 +1,23 @@
 """
-Block 2B — Admin notification pipeline.
-Every platform event writes to admin_events table AND fires an email to ADMIN_EMAIL.
-Uses asyncio.to_thread() so the sync email sender doesn't block the event loop.
+Admin + user notification pipeline.
+
+Block 4 migration:
+  - Every email is dispatched via Celery (see app.tasks.email_tasks.send_email).
+  - Admin event audit rows are still written synchronously to the request
+    DB session (cheap, transactional, and the request already has the row).
+  - The OLD `send_user_email_bg` helper is kept as a thin async wrapper that
+    enqueues the Celery task, so existing callers keep working without
+    edits. New code can call `app.tasks.email_tasks.send_email.delay(...)`
+    directly.
+
+Why Celery rather than asyncio.create_task / asyncio.to_thread:
+  - Survives worker restarts (Vercel/Render SIGTERM, container redeploys).
+  - Built-in retries with backoff on Resend outages.
+  - Replaces a real bug: the prior implementation called the async
+    `_send(...)` coroutine inside `asyncio.to_thread`, which produced an
+    unawaited coroutine and silently dropped many emails.
 """
 
-import asyncio
 import json
 import os
 from datetime import datetime
@@ -23,8 +36,8 @@ async def notify_admin(
     requires_action: bool = False,
 ):
     """
-    1. Write AdminEvent record to DB (always).
-    2. Fire email to ADMIN_EMAIL in background (non-blocking).
+    1. Write AdminEvent record to DB (always, on the request session).
+    2. Enqueue an admin-notification email via Celery (non-blocking).
     Returns the saved AdminEvent.
     """
     from app.models import AdminEvent
@@ -44,33 +57,37 @@ async def notify_admin(
 
     if ADMIN_EMAIL:
         subject = _subject(event_type, user_email)
-        body    = _body(event_type, user_email, user_role, payload)
-        asyncio.create_task(_send_admin_email_bg(subject, body))
+        body = _body(event_type, user_email, user_role, payload)
+        try:
+            from app.tasks.email_tasks import send_email
+            send_email.delay(to=ADMIN_EMAIL, subject=subject, body=body)
+        except Exception as e:
+            # Celery broker unavailable — log but never break the request
+            print(f"[admin_notifications] enqueue admin email failed: {e}")
 
     return event
 
 
 async def send_user_email_bg(to: str, subject: str, body: str):
     """
-    Fire-and-forget wrapper that sends a plain-text email to a user.
-    Runs the sync email sender in a thread so it doesn't block.
+    Legacy compatibility wrapper. New code should call
+    `app.tasks.email_tasks.send_email.delay(...)` directly.
+
+    Async signature is preserved so callers using `await
+    send_user_email_bg(...)` keep working without edits — but the function
+    no longer blocks on I/O. The Celery enqueue is in-process and ~ms.
     """
-    await asyncio.to_thread(_send_plain, to, subject, body)
-
-
-# ── Internal helpers ──────────────────────────────────────────────────────────
-
-async def _send_admin_email_bg(subject: str, body: str):
-    await asyncio.to_thread(_send_plain, ADMIN_EMAIL, subject, body)
-
-
-def _send_plain(to: str, subject: str, body: str) -> None:
-    """Reuses the existing sync email._send() infrastructure."""
+    if not to:
+        return
     try:
-        from app.services.email import _send
-        _send(to, subject, f"<pre style='font-family:sans-serif'>{body}</pre>")
+        from app.tasks.email_tasks import send_email
+        send_email.delay(to=to, subject=subject, body=body)
     except Exception as e:
-        print(f"[admin_notifications] Email failed to {to}: {e}")
+        # Broker down — log, don't crash the caller.
+        print(f"[admin_notifications] enqueue user email failed to {to}: {e}")
+
+
+# ── Internal helpers ────────────────────────────────────────────────────
 
 
 def _subject(event_type: str, email: str) -> str:

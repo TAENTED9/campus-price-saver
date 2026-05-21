@@ -4,7 +4,12 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { authApi, setAccessToken, setTokenRefreshCallback, type LoginResponse, type RegisterResponse, type UserInfo } from "@/lib/api";
 import { useSettingsStore, type UserSettingsState } from "@/stores/settingsStore";
 
-const AVATAR_CACHE_KEY = "campify_avatar_url";
+/**
+ * Block 2 — Zero client-side storage.
+ * Auth state (user, token, avatar URL) lives in memory only. Session is
+ * restored on boot via the HttpOnly refresh cookie + POST /api/auth/refresh.
+ * No localStorage / sessionStorage anywhere in this file.
+ */
 
 type AuthContextType = {
   user: UserInfo | null;
@@ -12,7 +17,7 @@ type AuthContextType = {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  /** Resolved avatar URL: user.avatar_url ?? localStorage cache — instant on reload */
+  /** Resolved avatar URL: user.avatar_url (in-memory only — no client cache). */
   avatarUrl: string | null;
   login: (username: string, password: string, rememberMe?: boolean) => Promise<LoginResponse>;
   register: (username: string, password: string, email?: string) => Promise<RegisterResponse>;
@@ -28,23 +33,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser]   = useState<UserInfo | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Cached avatar — read from localStorage immediately so avatar shows before refresh completes
-  const [cachedAvatar, setCachedAvatar] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(AVATAR_CACHE_KEY) || null;
-  });
-
-  // Keep localStorage in sync whenever user changes
-  useEffect(() => {
-    if (!user) return;
-    if (user.avatar_url) {
-      localStorage.setItem(AVATAR_CACHE_KEY, user.avatar_url);
-      setCachedAvatar(user.avatar_url);
-    } else {
-      localStorage.removeItem(AVATAR_CACHE_KEY);
-      setCachedAvatar(null);
-    }
-  }, [user]);
 
   // Keep _silentRefresh in sync with React token state
   useEffect(() => {
@@ -55,7 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => setTokenRefreshCallback(null);
   }, []);
 
-  // Block 13B — restore session via HttpOnly refresh cookie (no localStorage)
+  // Block 13B — restore session via HttpOnly refresh cookie (no client storage)
   // Block 6B  — hydrate settings from server on every page load
   useEffect(() => {
     (async () => {
@@ -143,10 +131,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null);
     setUser(null);
     setAccessToken(null);
-    localStorage.removeItem(AVATAR_CACHE_KEY);
-    setCachedAvatar(null);
     useSettingsStore.getState().clearSettings();
-  }, []);  
+  }, []);
 
   const refreshUser = useCallback(async () => {
     if (!token) return;
@@ -163,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         isLoading,
         isAuthenticated: !!token && !!user,
-        avatarUrl: user?.avatar_url ?? cachedAvatar,
+        avatarUrl: user?.avatar_url ?? null,
         login,
         register,
         logout,

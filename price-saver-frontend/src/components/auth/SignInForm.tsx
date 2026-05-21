@@ -20,6 +20,11 @@ export default function SignInForm() {
   const [rememberMe,  setRememberMe]  = useState(false);
   const [isLoading,   setIsLoading]   = useState(false);
   const [error,       setError]       = useState<string | null>(null);
+  // FIX #8: structured error states. EMAIL_NOT_VERIFIED already existed;
+  // ACCOUNT_PAUSED is new — backend returns it as a JSON detail object,
+  // which the API client stringifies into err.message.
+  const [errorType,   setErrorType]   = useState<"email_not_verified" | "account_paused" | null>(null);
+  const [pauseReason, setPauseReason] = useState<string | null>(null);
 
   // verified=true banner
   const [verifiedBanner, setVerifiedBanner] = useState(false);
@@ -60,6 +65,8 @@ export default function SignInForm() {
     }
 
     setIsLoading(true);
+    setErrorType(null);
+    setPauseReason(null);
     try {
       const res = await login(username.trim(), password, rememberMe);
       // BUG-001: handle MFA requirement before any redirect
@@ -76,13 +83,24 @@ export default function SignInForm() {
         router.push("/dashboard");
       }
     } catch (err: unknown) {
-      // Parse EMAIL_NOT_VERIFIED structured error
+      // FIX #8: parse structured error codes (EMAIL_NOT_VERIFIED, ACCOUNT_PAUSED).
+      // The api client stringifies object `detail` values into err.message.
       if (err instanceof Error) {
         try {
           const parsed = JSON.parse(err.message);
           if (parsed?.code === "EMAIL_NOT_VERIFIED") {
+            setErrorType("email_not_verified");
             setUnverifiedEmail(parsed.email || username.trim());
             setError(parsed.message);
+            return;
+          }
+          if (parsed?.code === "ACCOUNT_PAUSED") {
+            setErrorType("account_paused");
+            setPauseReason(
+              parsed.pause_reason || parsed.message ||
+              "Your account has been paused."
+            );
+            setError(null);
             return;
           }
         } catch {
@@ -209,6 +227,24 @@ export default function SignInForm() {
       {error && (
         <div className="mb-5 p-3 rounded-lg bg-error-50 border border-error-200 dark:bg-error-500/10 dark:border-error-500/20">
           <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
+        </div>
+      )}
+
+      {/* FIX #8: ACCOUNT_PAUSED — render structured pause state, not raw JSON */}
+      {errorType === "account_paused" && (
+        <div className="mb-5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+          <p className="text-sm font-bold text-amber-700 dark:text-amber-400">
+            Account Paused
+          </p>
+          <p className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+            {pauseReason}
+          </p>
+          <p className="text-xs text-amber-500 mt-1">
+            Contact support:{" "}
+            <a href="mailto:hello@campify.ng" className="underline">
+              hello@campify.ng
+            </a>
+          </p>
         </div>
       )}
 

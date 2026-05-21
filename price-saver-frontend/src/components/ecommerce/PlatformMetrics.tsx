@@ -9,8 +9,10 @@ import {
   AlertIcon,
 } from "@/icons";
 import { adminApi, type AdminStats } from "@/lib/adminApi";
+import { useAdminAuth } from "@/context/AdminAuthContext";
 
 export const PlatformMetrics = () => {
+  const { token } = useAdminAuth();
   const [stats, setStats] = useState<AdminStats>({
     registeredStudents: 0,
     pendingVerifications: 0,
@@ -21,11 +23,11 @@ export const PlatformMetrics = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    adminApi.getStats()
+    adminApi.getStats(token)
       .then((res) => { if (res.success) setStats(res.data); })
       .catch(() => {/* silently keep zeros on error */})
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [token]);
 
   const fmt = (n: number) =>
     isLoading ? "—" : n.toLocaleString();

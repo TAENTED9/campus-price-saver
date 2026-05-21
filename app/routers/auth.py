@@ -565,16 +565,17 @@ async def register_user(
             db.commit()
 
             link = f"{_cfg.FRONTEND_URL}/verify-email?token={verify_token}&email={body.email}"
+            # Block 7: enqueue verification email via Celery so registration
+            # is non-blocking and survives Resend outages (retries with backoff).
             try:
-                from app.services.admin_notifications import send_user_email_bg
-                from app.services.email_templates import EMAIL_VERIFY_TEMPLATE
-                await send_user_email_bg(
-                    body.email,
-                    "Verify your Campify email to get started",
-                    EMAIL_VERIFY_TEMPLATE(body.username, link),
+                from app.tasks.email_tasks import send_verification_email
+                send_verification_email.delay(
+                    to=body.email,
+                    name=body.username,
+                    link=link,
                 )
             except Exception as ee:
-                logger.warning(f"[register] verification email failed: {ee}")
+                logger.warning(f"[register] verification email enqueue failed: {ee}")
 
         # Block 2D — notify admin (fire-and-forget)
         try:
@@ -1239,8 +1240,12 @@ async def get_current_user_info(
         if sv:
             verification_status = sv.status
 
+    # FIX #1: `id` is the integer (used for internal/auth comparisons).
+    # `uuid` is the public string identifier (used in URLs).
+    # `numeric_id` is preserved as an alias for old callers.
     resp = {
-        "id":             str(current_user.uuid or current_user.id),
+        "id":             current_user.id,
+        "uuid":           str(current_user.uuid) if current_user.uuid else None,
         "numeric_id":     current_user.id,
         "username":       current_user.username,
         "email":          current_user.email,
@@ -1426,10 +1431,19 @@ async def get_sessions(
 @router.delete("/sessions/{session_id}")
 async def revoke_session(
     session_id: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # BUG-004: real session revocation
+    """
+    Revoke a single logged-in session by LoginHistory id.
+
+    Block 2 — narrows refresh-token matching from IP-only to
+    (IP + user_agent + ±60s timestamp window of the login) and refuses
+    to revoke the caller's own active session (same IP + UA), which
+    previously could happen when an admin reviewed sessions from the
+    same network as another device.
+    """
     from app.models import LoginHistory, RefreshToken as _RT
     if session_id == "current":
         raise HTTPException(status_code=400, detail="Cannot revoke current session here — use logout")
@@ -1437,24 +1451,47 @@ async def revoke_session(
         session_id_int = int(session_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid session ID")
+
     history = db.query(LoginHistory).filter(
         LoginHistory.id == session_id_int,
         LoginHistory.user_id == current_user.id,
     ).first()
     if not history:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    current_ip = request.client.host if request.client else None
+    current_ua = request.headers.get("user-agent", "")
+    if (
+        current_ip
+        and history.ip_address == current_ip
+        and (history.user_agent or "") == current_ua
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot revoke your current session. Use logout instead.",
+        )
+
     now = datetime.now(timezone.utc)
-    tokens = db.query(_RT).filter(
+    window_start = history.logged_in_at - timedelta(seconds=60) if history.logged_in_at else None
+    window_end   = history.logged_in_at + timedelta(seconds=60) if history.logged_in_at else None
+
+    token_query = db.query(_RT).filter(
         _RT.user_id == current_user.id,
         _RT.revoked == False,
         _RT.ip_address == history.ip_address,
-    ).all()
+    )
+    if window_start and window_end:
+        token_query = token_query.filter(
+            _RT.created_at >= window_start,
+            _RT.created_at <= window_end,
+        )
+    tokens = token_query.all()
     for token in tokens:
         token.revoked = True
         token.revoked_at = now
     db.delete(history)
     db.commit()
-    return {"message": "Session revoked successfully"}
+    return {"message": "Session revoked successfully", "revoked": len(tokens)}
 
 
 @router.post("/validate-token")
@@ -1661,7 +1698,11 @@ async def get_dashboard_stats(
         return cached[1]
 
     from app.models import Price, PriceAlert, Wishlist
-    karma_points = current_user.balance or 0
+    # Block 5: karma uses `seller_points` (the column _award_points writes
+    # to). `balance` is a separate, currently-unused float column kept for
+    # potential future wallet features. Reading from seller_points here
+    # keeps buyer and seller dashboards in sync.
+    karma_points = current_user.seller_points or 0
     submissions = db.query(Price).filter(Price.submitted_by == uid).count()
     price_alerts = db.query(PriceAlert).filter(
         PriceAlert.user_id == uid, PriceAlert.is_active == True

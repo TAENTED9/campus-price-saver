@@ -163,15 +163,12 @@ export default function EditListingPage() {
           Math.min(100, ((Number(price) - Number(flashPrice)) / Number(price)) * 100),
         );
         try {
-          await flashSalesApi.create(
-            {
-              price_id: listing.id,
-              title: name.trim(),
-              discount_pct: Number(discountPct.toFixed(2)),
-              end_time: new Date(flashEnd).toISOString(),
-            },
-            user.id,
-          );
+          await flashSalesApi.create(token, {
+            listing_id: listing.id,
+            title: name.trim(),
+            discount_pct: Number(discountPct.toFixed(2)),
+            end_time: new Date(flashEnd).toISOString(),
+          });
         } catch (flashErr) {
           setError(
             flashErr instanceof Error

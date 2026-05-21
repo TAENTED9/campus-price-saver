@@ -17,12 +17,7 @@ function getGreeting(): string {
   return "Good evening";
 }
 
-const WL_KEY = "ps_wishlist";
-function getWlCount(): number {
-  if (typeof window === "undefined") return 0;
-  try { return (JSON.parse(localStorage.getItem(WL_KEY) || "[]") as unknown[]).length; }
-  catch { return 0; }
-}
+// Block 2: wishlist count comes from the server.
 
 function formatPrice(n: number) {
   return new Intl.NumberFormat("en-NG", {
@@ -49,6 +44,7 @@ export default function BrowseMarketPage() {
   // const [balance, setBalance]           = useState<number | null>(null); // karma — re-enable when implemented
   const [submissionsCount, setSubmissions] = useState<number | null>(null);
   const [alertsCount, setAlertsCount]      = useState<number | null>(null);
+  const [wishlistCount, setWishlistCount]  = useState<number>(0);
   const [flashSales, setFlashSales]        = useState<FlashSale[]>([]);
   const [trending, setTrending]            = useState<TrendingItem[]>([]);
   const [loading, setLoading]              = useState(true);
@@ -64,6 +60,7 @@ export default function BrowseMarketPage() {
         // userApi.getPoints(token).then((r) => setBalance(r.balance)).catch(() => {}), // karma — re-enable when implemented
         userApi.getSubmissions(token).then((r) => setSubmissions(r.data.length)).catch(() => {}),
         userApi.getAlerts(token).then((r) => setAlertsCount(r.data.length)).catch(() => {}),
+        userApi.getDashboardStats(token).then((s) => setWishlistCount(s.wishlist_count ?? 0)).catch(() => {}),
         publicFetches,
       ]).finally(() => setLoading(false));
     } else {
@@ -114,7 +111,7 @@ export default function BrowseMarketPage() {
     },
     {
       label: "Wishlist",
-      value: getWlCount().toString(),
+      value: loading ? "---" : wishlistCount.toString(),
       icon: <Heart size={18} />,
       iconBg: "bg-error-500/10",
       iconColor: "text-error-400",

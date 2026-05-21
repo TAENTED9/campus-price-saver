@@ -119,23 +119,20 @@ export default function ListingDetailPage() {
   async function toggleWishlist() {
     if (!token) { router.push("/signin"); return; }
     const numId = listing?.id ?? Number(id);
+    // FIX #13: optimistic toggle with rollback on failure.
+    const previous = wishlisted;
+    setWishlisted(!wishlisted);
     setWishlistLoading(true);
     try {
       const res = await wishlistApi.toggle(token, numId);
       setWishlisted(res.wishlisted);
-      // Sync localStorage so sidebar count updates instantly
-      try {
-        const WL_KEY = "ps_wishlist";
-        const raw = JSON.parse(localStorage.getItem(WL_KEY) || "[]") as (number | { listing_id?: number })[];
-        const ids = raw.map((x) => (typeof x === "number" ? x : (x as { listing_id?: number }).listing_id ?? 0)).filter(Boolean) as number[];
-        const updated = res.wishlisted
-          ? [...new Set([...ids, numId])]
-          : ids.filter((x) => x !== numId);
-        localStorage.setItem(WL_KEY, JSON.stringify(updated));
-        window.dispatchEvent(new CustomEvent("wl-changed"));
-      } catch { /* ignore */ }
-    } catch { /* silent */ }
-    finally { setWishlistLoading(false); }
+      // Block 2: server is source of truth. Just notify the sidebar to refetch.
+      window.dispatchEvent(new CustomEvent("wl-changed"));
+    } catch {
+      setWishlisted(previous); // rollback
+    } finally {
+      setWishlistLoading(false);
+    }
   }
 
   async function toggleFollow() {
@@ -159,7 +156,14 @@ export default function ListingDetailPage() {
         const opener = `Hi, I'm interested in "${listing.name}" (${formatPrice(listing.price)}). Is it still available?`;
         await messageApi.sendMessage(listing.seller.id, opener, token).catch(() => {});
       }
-      router.push("/messages");
+      // FIX #9: buyers' inbox lives under /dashboard/messages, not /messages.
+      // Pass the conversation handle so the page can open it directly.
+      const convHandle =
+        (conv as { conversation_uuid?: string; uuid?: string; id?: number }).conversation_uuid ??
+        (conv as { uuid?: string }).uuid ??
+        (conv as { id?: number }).id;
+      const qs = convHandle != null ? `?conversation=${encodeURIComponent(String(convHandle))}` : "";
+      router.push(`/dashboard/messages${qs}`);
     } catch { /* silent */ }
     finally { setStartingDM(false); }
   }

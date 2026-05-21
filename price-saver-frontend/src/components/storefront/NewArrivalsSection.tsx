@@ -66,7 +66,8 @@ export default function NewArrivalsSection() {
             ? Array.from({ length: 8 }).map((_, i) => <ListingCardSkeleton key={i} />)
             : items.map((item) => (
                 <ListingCard
-                  key={item.id}
+                  // FIX #12: namespace key so cross-section duplicate ids don't collide.
+                  key={`new-arrivals-${item.id}`}
                   id={item.id}
                   uuid={item.uuid}
                   title={item.name}

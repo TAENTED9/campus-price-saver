@@ -231,6 +231,7 @@ class Price(Base):
     duration_days = Column(Integer, nullable=True)         # 7 / 14 / 30
     expires_at = timestamp_col(auto=False)
     listing_status = Column(String, default="active", index=True)  # draft/active/paused/sold/expired
+    paused_by_vacation = Column(Boolean, default=False, nullable=False)
     photos = Column(Text, nullable=True)                   # JSON array of Cloudinary URLs (up to 5)
     subcategory = Column(String, nullable=True)
 

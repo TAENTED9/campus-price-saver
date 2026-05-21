@@ -29,14 +29,11 @@ function formatPrice(n: number) {
 }
 
 const CARD = "rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03]";
-const WL_KEY = "ps_wishlist";
 
-/** Sync the server-side wishlist into localStorage so the sidebar badge stays accurate. */
-function syncWishlistToStorage(items: WishlistItem[]) {
-  try {
-    localStorage.setItem(WL_KEY, JSON.stringify(items));
-    window.dispatchEvent(new Event("wl-changed"));
-  } catch { /* silent */ }
+// Block 2: the wishlist data lives server-side only. We just dispatch
+// `wl-changed` after any mutation so the sidebar badge refetches.
+function notifyWishlistChanged() {
+  window.dispatchEvent(new Event("wl-changed"));
 }
 
 export default function WishlistPage() {
@@ -49,30 +46,27 @@ export default function WishlistPage() {
     if (!token) { setLoading(false); return; }
     setLoading(true);
     wishlistApi.list(token)
-      .then((data) => {
-        const fetched = data as unknown as WishlistItem[];
-        setItems(fetched);
-        syncWishlistToStorage(fetched);
-      })
-      .catch(() => {
-        setItems([]);
-        syncWishlistToStorage([]);
-      })
+      .then((data) => setItems(data as unknown as WishlistItem[]))
+      .catch(() => setItems([]))
       .finally(() => setLoading(false));
   }, [token]);
 
   useEffect(() => { fetchWishlist(); }, [fetchWishlist]);
 
+  // FIX #13: optimistic remove with rollback on failure.
   async function handleRemove(listingId: number) {
     if (!token) return;
     setRemoving(listingId);
+    const previous = items;
+    setItems((prev) => prev.filter((i) => i.listing_id !== listingId));
     try {
       await wishlistApi.toggle(token, listingId);
-      const updated = items.filter((i) => i.listing_id !== listingId);
-      setItems(updated);
-      syncWishlistToStorage(updated);
-    } catch { /* silent */ }
-    finally { setRemoving(null); }
+      notifyWishlistChanged();
+    } catch {
+      setItems(previous); // rollback
+    } finally {
+      setRemoving(null);
+    }
   }
 
   return (

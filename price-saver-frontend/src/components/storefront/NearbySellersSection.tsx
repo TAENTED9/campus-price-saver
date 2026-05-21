@@ -136,7 +136,10 @@ export default function NearbySellersSection() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {items.map((item) => <ListingCard key={item.id} item={item} />)}
+            {items.map((item) => (
+              // FIX #12: namespace key to avoid cross-section duplicate-id warnings.
+              <ListingCard key={`nearby-${item.id}`} item={item} />
+            ))}
           </div>
         )}
       </div>

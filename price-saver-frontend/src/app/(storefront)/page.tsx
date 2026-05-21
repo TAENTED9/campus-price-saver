@@ -19,9 +19,46 @@ import GuestOnlyBlock from "@/components/storefront/GuestOnlyBlock";
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Campify -- Campus Marketplace",
+  title: "Campify — UNILAG Campus Marketplace",
   description:
-    "Find the best prices across campus. Compare products, discover deals, and shop smart.",
+    "Buy and sell within the UNILAG community. Find phones, clothes, textbooks, food, and more from verified student sellers.",
+  keywords: [
+    "UNILAG marketplace",
+    "campus market",
+    "student selling",
+    "buy sell UNILAG",
+    "Campify Nigeria",
+  ],
+  openGraph: {
+    title: "Campify — UNILAG Campus Marketplace",
+    description:
+      "Buy and sell within the UNILAG community. Verified student sellers, fair prices, fast meetups.",
+    url: "https://campify.ng",
+    siteName: "Campify",
+    images: [
+      {
+        url: "https://campify.ng/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Campify Campus Marketplace",
+      },
+    ],
+    locale: "en_NG",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Campify — UNILAG Campus Marketplace",
+    description: "Buy and sell within the UNILAG community.",
+    images: ["https://campify.ng/og-image.png"],
+  },
+  alternates: {
+    canonical: "https://campify.ng",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function HomePage() {

@@ -250,8 +250,11 @@ export default function BuyerSettingsPage() {
       setLevel(user.level || "");
       setAvatarPreview(user.avatar_url || "");
     }
-    const saved = localStorage.getItem("campify_dark");
-    if (saved) setDarkMode(saved === "true");
+    // Block 2: theme comes from settingsStore (server-backed) or the
+    // applied DOM class. No localStorage read here.
+    if (typeof document !== "undefined") {
+      setDarkMode(document.documentElement.classList.contains("dark"));
+    }
   }, [user]);
 
   useEffect(() => {
@@ -283,8 +286,10 @@ export default function BuyerSettingsPage() {
       });
       const isDark = settings.theme === "dark";
       setDarkMode(isDark);
-      localStorage.setItem("campify_dark", String(isDark));
-      document.documentElement.classList.toggle("dark", isDark);
+      // Block 2: theme is propagated via the settings store (which writes
+      // a `campify_theme` cookie for the pre-paint boot script). No
+      // localStorage write here.
+      useSettingsStore.getState().updateLocal({ theme: isDark ? "dark" : "light" });
     }).catch(() => {});
   }, [token]);
 
@@ -442,9 +447,10 @@ export default function BuyerSettingsPage() {
   }
 
   function toggleDarkMode(val: boolean) {
+    // Block 2: applyTheme() (called by updateLocal via the settings store)
+    // toggles the .dark class on <html> and writes the `campify_theme`
+    // cookie that the boot script reads. No localStorage involved.
     setDarkMode(val);
-    localStorage.setItem("campify_dark", String(val));
-    document.documentElement.classList.toggle("dark", val);
     useSettingsStore.getState().updateLocal({ theme: val ? "dark" : "light" });
     if (token) {
       settingsApi.patchSettings(token, { theme: val ? "dark" : "light" }).then(res => {

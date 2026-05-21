@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { notificationsApi } from "@/lib/api";
+import { notificationsApi, userApi } from "@/lib/api";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import {
   ShoppingBag,
@@ -28,15 +28,9 @@ import {
 import BottomNav from "@/components/layout/BottomNav";
 import { useTheme } from "@/context/ThemeContext";
 
-const WL_KEY = "ps_wishlist";
-function getWishlistCount(): number {
-  if (typeof window === "undefined") return 0;
-  try {
-    return (JSON.parse(localStorage.getItem(WL_KEY) || "[]") as unknown[]).length;
-  } catch {
-    return 0;
-  }
-}
+// Block 2: wishlist count comes from the server (no localStorage).
+// `wl-changed` is dispatched by the listing detail page and wishlist page
+// after a successful toggle so the badge refetches immediately.
 
 interface SidebarContentProps {
   avatarUrl: string | null;
@@ -164,16 +158,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!isLoading && !isAuthenticated) router.push("/signin");
   }, [isLoading, isAuthenticated, router]);
 
+  // Block 2: wishlist count lives server-side. Fetch on mount, refetch
+  // whenever the listing pages dispatch `wl-changed`.
   useEffect(() => {
-    setWlCount(getWishlistCount());
-    const handler = () => setWlCount(getWishlistCount());
-    window.addEventListener("storage", handler);
-    window.addEventListener("wl-changed", handler);
-    return () => {
-      window.removeEventListener("storage", handler);
-      window.removeEventListener("wl-changed", handler);
+    if (!token) { setWlCount(0); return; }
+    let cancelled = false;
+    const refresh = () => {
+      userApi.getDashboardStats(token)
+        .then((s) => { if (!cancelled) setWlCount(s.wishlist_count ?? 0); })
+        .catch(() => {});
     };
-  }, []);
+    refresh();
+    window.addEventListener("wl-changed", refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("wl-changed", refresh);
+    };
+  }, [token]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {

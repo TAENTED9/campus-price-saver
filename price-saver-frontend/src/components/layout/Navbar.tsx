@@ -5,23 +5,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
+import { itemsApi, type Category } from "@/lib/api";
+import { getCategoryConfig } from "@/lib/categoryIcons";
 import {
   GraduationCap, Search, ChevronDown, X, Menu,
   Store, Package, Heart, MessageCircle, Settings, User,
   LogOut, Home, BarChart2, Zap, ShoppingCart,
-  UtensilsCrossed, Shirt, Smartphone, BookOpen,
-  Sparkles, Wrench, MoreHorizontal,
 } from "lucide-react";
-
-const CATEGORIES = [
-  { label: "Food & Groceries", slug: "food",    icon: UtensilsCrossed },
-  { label: "Fashion",          slug: "fashion",  icon: Shirt },
-  { label: "Tech & Gadgets",   slug: "tech",     icon: Smartphone },
-  { label: "Books",            slug: "books",    icon: BookOpen },
-  { label: "Beauty",           slug: "beauty",   icon: Sparkles },
-  { label: "Services",         slug: "services", icon: Wrench },
-  { label: "Other",            slug: "other",    icon: MoreHorizontal },
-];
 
 export default function Navbar() {
   const pathname  = usePathname();
@@ -31,11 +21,21 @@ export default function Navbar() {
   const [drawerOpen,  setDrawerOpen]  = useState(false);
   const [catOpen,     setCatOpen]     = useState(false);
   const [avatarOpen,  setAvatarOpen]  = useState(false);
+  const [categories,  setCategories]  = useState<Category[]>([]);
+  const [catsLoaded,  setCatsLoaded]  = useState(false);
 
   const catRef    = useRef<HTMLDivElement>(null);
   const avatarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setDrawerOpen(false); setCatOpen(false); setAvatarOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    if (!catOpen || catsLoaded) return;
+    itemsApi
+      .getCategories()
+      .then((data) => { setCategories(data); setCatsLoaded(true); })
+      .catch(() => {});
+  }, [catOpen, catsLoaded]);
 
   const closeOnOutside = useCallback((ref: React.RefObject<HTMLElement | null>, cb: () => void) => {
     const handler = (e: MouseEvent) => {
@@ -85,20 +85,31 @@ export default function Navbar() {
               {catOpen && (
                 <div className="absolute left-0 top-full mt-2 w-52 bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 py-2 z-50">
                   <p className="px-4 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Categories</p>
-                  {CATEGORIES.map((cat) => {
-                    const Icon = cat.icon;
-                    return (
-                      <Link
-                        key={cat.slug}
-                        href={`/search?category=${cat.slug}`}
-                        onClick={() => setCatOpen(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                      >
-                        <Icon size={14} className="text-blue-500" />
-                        {cat.label}
-                      </Link>
-                    );
-                  })}
+                  {!catsLoaded ? (
+                    <div className="px-4 py-3 space-y-2">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="h-4 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
+                      ))}
+                    </div>
+                  ) : categories.length === 0 ? (
+                    <p className="px-4 py-3 text-xs text-gray-400">No categories available</p>
+                  ) : (
+                    categories.map((cat) => {
+                      const cfg = getCategoryConfig(cat.id);
+                      const Icon = cfg.icon;
+                      return (
+                        <Link
+                          key={cat.id}
+                          href={`/search?category_id=${cat.id}`}
+                          onClick={() => setCatOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                        >
+                          <Icon size={14} className={cfg.color} />
+                          {cat.name}
+                        </Link>
+                      );
+                    })
+                  )}
                 </div>
               )}
             </div>

@@ -360,14 +360,21 @@ async def mark_conversation_read(
     return {"success": True, "message": "Marked as read"}
 
 
-@router.put("/{message_uuid}/read")
+@router.put("/{message_id}/read")
 async def mark_message_read(
-    message_uuid: int,
+    message_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """PUT /api/messages/{uuid}/read"""
-    msg = db.query(DirectMessage).filter(DirectMessage.id == message_uuid).first()
+    """
+    PUT /api/messages/{message_id}/read
+
+    FIX #10: the path param is the integer DirectMessage.id (DB primary
+    key). The previous `message_uuid: int` naming was a contradiction —
+    a UUID is not an int. Use the per-conversation `mark-read` endpoint
+    if you only have a conversation handle.
+    """
+    msg = db.query(DirectMessage).filter(DirectMessage.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
     # SEC-004: only a participant in the conversation may mark messages as read

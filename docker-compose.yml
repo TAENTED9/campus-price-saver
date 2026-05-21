@@ -1,28 +1,147 @@
-version: "3.9"
-
 services:
+
+  # ── Redis (cache + Celery broker) ──────────────
+  redis:
+    image: redis:7-alpine
+    container_name: campify_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI backend ────────────────────────────
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-T$$$DAEMP999}
-      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-["admin","super_admin"]}
+      dockerfile: Dockerfile.backend
+    container_name: campify_backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+      # data.db is dev SQLite only. In production, set DATABASE_URL to
+      # the Supabase Postgres URL and remove the next line.
+      - ./data.db:/app/data.db
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    healthcheck:
+      # No curl in the image (see Dockerfile.backend) — Python urllib does the job.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5); sys.exit(0)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Celery worker ──────────────────────────────
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: campify_celery_worker
     restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+      # data.db is dev SQLite only. In production, set DATABASE_URL to
+      # the Supabase Postgres URL and remove the next line.
+      - ./data.db:/app/data.db
+    command: >
+      celery -A app.celery_app worker
+      --loglevel=info
+      --concurrency=4
+      --queues=emails,notifications,media,default
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Optional: serve static frontend with nginx on port 8080 and proxy /api to backend
-  # Uncomment this service and the nginx stage in Dockerfile if desired
-  # web:
-  #   image: nginx:stable-alpine
-  #   volumes:
-  #     - ./frontend:/usr/share/nginx/html:ro
-  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-  #   ports:
-  #     - "8080:80"
-  #   depends_on:
-  #     - backend
-  #   restart: unless-stopped
+  # ── Celery beat (scheduled tasks) ─────────────
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: campify_celery_beat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+      # data.db is dev SQLite only. In production, set DATABASE_URL to
+      # the Supabase Postgres URL and remove the next line.
+      - ./data.db:/app/data.db
+    command: >
+      celery -A app.celery_app beat
+      --loglevel=info
+      --scheduler celery.beat:PersistentScheduler
+      --schedule /tmp/celerybeat-schedule
 
+  # ── Celery Flower (monitoring UI) ─────────────
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: campify_flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    env_file: .env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+    depends_on:
+      - redis
+      - celery_worker
+    command: >
+      celery -A app.celery_app flower
+      --port=5555
+      --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
+
+  # Note: the Next.js frontend is intentionally NOT in this compose file.
+  # Run it locally from price-saver-frontend/ with `npm run dev` —
+  # backend dev-CORS allows http://localhost:3000 automatically.
+
+volumes:
+  redis_data:

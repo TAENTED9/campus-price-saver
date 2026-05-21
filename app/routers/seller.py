@@ -3,8 +3,8 @@ Seller Dashboard API — stats, listings management, analytics.
 All endpoints require a valid JWT token (seller role).
 """
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from sqlalchemy.orm import Session
-from sqlalchemy import func, extract
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, extract, text as sa_text
 from datetime import datetime, timedelta
 from app.utils.timezone import now_wat, to_wat, format_wat_iso
 from pydantic import BaseModel, Field
@@ -102,11 +102,26 @@ async def get_seller_stats(
         .filter(Price.submitted_by == uid, Price.status == "approved")
         .scalar() or 0
     )
+    # FIX #3 + Block 6: count from PointsTransaction. After FIX #3,
+    # completions write reason="purchase_confirmed"; older rows wrote
+    # "order_completed". Count both, then fall back to the Order table
+    # if neither produced anything (covers schemas where points
+    # transactions were not back-filled).
+    from app.models import Order
     confirmed_sales = (
         db.query(PointsTransaction)
-        .filter(PointsTransaction.user_id == uid, PointsTransaction.reason == "order_completed")
+        .filter(
+            PointsTransaction.user_id == uid,
+            PointsTransaction.reason.in_(("purchase_confirmed", "order_completed")),
+        )
         .count()
     )
+    if confirmed_sales == 0:
+        confirmed_sales = (
+            db.query(Order)
+            .filter(Order.seller_id == uid, Order.status == "completed")
+            .count()
+        )
 
     # Verification status
     verification = (
@@ -417,7 +432,14 @@ async def delete_listing(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Delete a listing owned by this seller."""
+    """
+    Delete a listing owned by this seller.
+
+    FIX #15: collect the listing's CloudinaryAsset IDs BEFORE the cascade
+    delete drops them, then enqueue a Celery task to destroy them in
+    Cloudinary off the request path.
+    """
+    from app.models import CloudinaryAsset
     listing = (
         db.query(Price)
         .filter(Price.id == listing_id, Price.submitted_by == current_user.id)
@@ -425,8 +447,26 @@ async def delete_listing(
     )
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
+
+    asset_ids = [
+        row[0]
+        for row in db.query(CloudinaryAsset.id)
+        .filter(CloudinaryAsset.listing_id == listing.id)
+        .all()
+    ]
+
     db.delete(listing)
     db.commit()
+
+    if asset_ids:
+        try:
+            from app.tasks.media_tasks import delete_cloudinary_assets
+            delete_cloudinary_assets.delay(asset_ids)
+        except Exception as e:
+            # Broker down: log and continue. The DB rows are already gone;
+            # orphans can be reconciled with a periodic sweep.
+            print(f"[seller] Cloudinary cleanup enqueue failed: {e}")
+
     return {"success": True, "message": "Listing deleted"}
 
 
@@ -513,6 +553,36 @@ async def get_seller_analytics(
                 "competitive": p.price <= float(avg),
             })
 
+    # Block 9 — real order / revenue / rating numbers, no hardcoded values.
+    # Pulled here at the end so they layer onto the existing months/charts
+    # response without changing the shape the frontend already consumes.
+    total_orders = db.query(func.count(Order.id)).filter(
+        Order.seller_id == uid
+    ).scalar() or 0
+    completed_orders = db.query(func.count(Order.id)).filter(
+        Order.seller_id == uid, Order.status == "completed"
+    ).scalar() or 0
+    revenue_estimate = db.execute(
+        sa_text(
+            "SELECT COALESCE(SUM(p.price), 0) FROM orders o "
+            "JOIN prices p ON p.id = o.listing_id "
+            "WHERE o.seller_id = :sid AND o.status = 'completed'"
+        ),
+        {"sid": uid},
+    ).scalar() or 0
+    avg_rating_row = db.query(func.avg(Review.rating)).filter(
+        Review.seller_id == uid, Review.is_flagged == False
+    ).scalar()
+    category_dist_rows = db.execute(
+        sa_text(
+            "SELECT c.name, COUNT(p.id) AS cnt "
+            "FROM prices p JOIN categories c ON p.category_id = c.id "
+            "WHERE p.submitted_by = :sid "
+            "GROUP BY c.name ORDER BY cnt DESC"
+        ),
+        {"sid": uid},
+    ).fetchall()
+
     return {
         "success": True,
         "data": {
@@ -524,6 +594,17 @@ async def get_seller_analytics(
                 for p in top_listings
             ],
             "benchmarks": benchmarks[:5],
+            # Block 9 additions — all real DB-derived values
+            "total_views": int(sum(views_data)),
+            "total_orders": int(total_orders),
+            "completed_orders": int(completed_orders),
+            "revenue_estimate": float(revenue_estimate),
+            "avg_rating": (
+                round(float(avg_rating_row), 1) if avg_rating_row else None
+            ),
+            "category_distribution": [
+                {"category": r[0], "count": r[1]} for r in category_dist_rows
+            ],
         },
     }
 
@@ -571,7 +652,6 @@ async def submit_seller_verification_docs(
     matric_number: str = Form(...),
     seller_name: str = Form(...),
     email: str = Form(...),
-    user_id: int | None = Form(None),
     id_card_url: str | None = Form(None),
     portal_url: str | None = Form(None),
     faculty: str | None = Form(None),
@@ -585,10 +665,17 @@ async def submit_seller_verification_docs(
     """
     Seller submits/updates their verification documents.
     Creates a new SellerVerification row (or updates an existing Pending/Rejected one).
+
+    FIX #6: user identity comes from the JWT (`current_user`) — the old
+    `user_id` Form field has been removed so clients can't impersonate.
+    FIX #7: both ID card and portal screenshot are required.
     """
     matric_number = matric_number.strip().upper()
-    if not id_card_url:
-        raise HTTPException(status_code=400, detail="Student ID card is required.")
+    if not id_card_url or not portal_url:
+        raise HTTPException(
+            status_code=422,
+            detail="Both ID card and portal screenshot are required.",
+        )
 
     # Reuse an existing Pending/Under Review/Rejected row for the same user
     existing = (
@@ -768,8 +855,14 @@ async def get_seller_inquiries(
     db: Session = Depends(get_db),
 ):
     """Get all inquiries sent to this seller's listings."""
+    # Block 5 — eager-load listing + buyer (+ buyer.profile) to avoid N+1
+    # when serializing inquiry.listing.name / inquiry.buyer.uuid below.
     rows = (
         db.query(Inquiry)
+        .options(
+            joinedload(Inquiry.listing),
+            joinedload(Inquiry.buyer).joinedload(User.profile),
+        )
         .filter(Inquiry.seller_id == current_user.id)
         .order_by(Inquiry.created_at.desc())
         .limit(100)
@@ -1094,12 +1187,45 @@ async def downgrade_to_buyer(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Voluntarily downgrade a seller account back to buyer role."""
+    """
+    Voluntarily downgrade a seller account back to buyer role.
+
+    Pauses all active listings so they disappear from the storefront,
+    flips role to "buyer" (matches admin_stats filter), and notifies
+    the user by email.
+    """
     if current_user.role != "seller":
         raise HTTPException(status_code=400, detail="Account is not a seller account")
-    current_user.role = "user"
+
+    db.query(Price).filter(
+        Price.submitted_by == current_user.id,
+        Price.listing_status == "active",
+    ).update({"listing_status": "paused"})
+
+    current_user.role = "buyer"
     db.commit()
-    return {"success": True, "message": "Account downgraded to buyer"}
+
+    try:
+        from app.services.admin_notifications import send_user_email_bg
+        from app.services.email_templates import SELLER_DOWNGRADE_EMAIL
+        display = (
+            (current_user.profile.display_name if current_user.profile else None)
+            or current_user.display_name
+            or current_user.username
+            or "there"
+        )
+        asyncio.create_task(send_user_email_bg(
+            current_user.email or "",
+            "Your Campify seller account has been downgraded",
+            SELLER_DOWNGRADE_EMAIL(display),
+        ))
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": "Account downgraded to buyer. Your listings have been paused.",
+    }
 
 
 class AvailabilityUpdate(BaseModel):
@@ -1340,53 +1466,6 @@ async def get_karma_history(
             for t in txs
         ],
     }
-
-
-# ── Listing defaults ────────────────────────────────────────────────────────
-
-class ListingDefaultsUpdate(BaseModel):
-    default_location:    str | None = Field(None, max_length=200)
-    default_duration:    int | None = Field(None, ge=1, le=365)
-    auto_renew:          bool | None = None
-    default_negotiable: bool | None = None
-
-
-@router.patch("/listing-defaults")
-async def update_listing_defaults(
-    data: ListingDefaultsUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Save seller's default values for new listing creation."""
-    if data.default_location is not None:
-        current_user.default_pickup_location = data.default_location
-    if data.default_duration is not None:
-        current_user.default_listing_duration = data.default_duration
-    if data.auto_renew is not None:
-        current_user.auto_renew_listings = data.auto_renew
-    if data.default_negotiable is not None:
-        current_user.default_negotiable = data.default_negotiable
-    db.commit()
-    return {"success": True, "message": "Listing defaults updated"}
-
-
-# ── Seller downgrade ─────────────────────────────────────────────────────────
-
-@router.post("/downgrade")
-async def downgrade_seller(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Allow a seller to voluntarily downgrade back to a regular user role."""
-    if current_user.role != "seller":
-        raise HTTPException(status_code=400, detail="Account is not a seller account")
-    current_user.role = "user"
-    db.query(Price).filter(
-        Price.submitted_by == current_user.id,
-        Price.listing_status == "active",
-    ).update({"listing_status": "paused"})
-    db.commit()
-    return {"success": True, "message": "Seller account downgraded. Your listings have been paused."}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

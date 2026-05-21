@@ -133,6 +133,40 @@ def get_featured_prices(
     )
 
 
+# ═══════════════════════════════════════════════════════
+# SITEMAP — minimal listing data for /sitemap.xml
+# ═══════════════════════════════════════════════════════
+
+@router.get("/listings/sitemap")
+@limiter.limit("30/minute")
+def get_listings_sitemap(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Block 4 — minimal active-listing data for the Next.js sitemap route.
+    Capped at 5000 to keep the XML under Google's 50MB / 50k URL limit.
+    """
+    rows = (
+        db.query(Price.uuid, Price.submitted_at)
+        .filter(
+            Price.listing_status == "active",
+            Price.status == "approved",
+            Price.uuid.isnot(None),
+        )
+        .order_by(Price.submitted_at.desc())
+        .limit(5000)
+        .all()
+    )
+    return [
+        {
+            "uuid":       r[0],
+            "updated_at": r[1].isoformat() if r[1] else None,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/prices/search", response_model=List[PriceOut])
 @limiter.limit("60/minute")
 def search_prices(
@@ -297,18 +331,23 @@ def submit_price(
 
 @router.post("/prices/{price_id}/view")
 @limiter.limit("200/minute")
-def increment_view(
+async def increment_view(
     request: Request,
     response: Response,
     price_id: int = Path(..., gt=0),
     db: Session = Depends(get_db),
 ):
     """
-    Deduplicated view counter using a browser cookie.
-    Cookie "viewed_listings" holds a JSON array of already-counted IDs.
-    Returns {"counted": false} when the same browser visits again within 24 h.
+    Deduplicated view counter.
+
+    Two layers:
+      1. Browser cookie  — primary dedup per browser for 24h.
+      2. Redis IP dedup  — secondary guard so clearing cookies (or incognito
+         tabs from the same IP) can't inflate within 1 hour.
+
+    If Redis is unavailable the cookie layer still applies, so we degrade
+    to "cookie-only" rather than "always count".
     """
-    # Read existing cookie
     raw = request.cookies.get("viewed_listings", "[]")
     try:
         viewed: list = json.loads(raw)
@@ -318,11 +357,31 @@ def increment_view(
         viewed = []
 
     if price_id in viewed:
-        return {"counted": False}
+        return {"counted": False, "reason": "cookie"}
 
     price = db.query(Price).filter(Price.id == price_id).first()
     if not price:
         raise HTTPException(status_code=404, detail="Price not found")
+
+    ip = (request.client.host if request.client else "") or "unknown"
+    try:
+        from app.services.cache import get_redis
+        r = await get_redis()
+        was_new = await r.set(f"view:price:{price_id}:{ip}", "1", ex=3600, nx=True)
+        if not was_new:
+            # Still update cookie so subsequent requests short-circuit.
+            viewed.append(price_id)
+            response.set_cookie(
+                key="viewed_listings",
+                value=json.dumps(viewed),
+                max_age=86400,
+                httponly=False,
+                samesite="lax",
+            )
+            return {"counted": False, "reason": "ip"}
+    except Exception:
+        # Redis miss — fall through to cookie-only behavior.
+        pass
 
     price.view_count = (price.view_count or 0) + 1
     db.commit()
@@ -332,7 +391,7 @@ def increment_view(
         key="viewed_listings",
         value=json.dumps(viewed),
         max_age=86400,
-        httponly=False,   # frontend must be able to read it
+        httponly=False,
         samesite="lax",
     )
     return {"counted": True, "view_count": price.view_count}
