@@ -5,12 +5,17 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminListing } from "@/lib/api";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 import { AlertTriangle, Trash2, ShieldCheck } from "lucide-react";
 
 export default function FlaggedContentPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<AdminListing | null>(null);
+  const [clearTarget, setClearTarget] = useState<AdminListing | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) router.push("/admin/signin");
@@ -19,17 +24,27 @@ export default function FlaggedContentPage() {
   const fetchData = useCallback(() => adminApi.getListings(token!, "flagged"), [token]);
   const { data, loading, error, refetch } = usePolling<{ success: boolean; total: number; data: AdminListing[] }>(fetchData, 30000, isAuthenticated && !!token);
 
-  const handleRemove = async (item: AdminListing) => {
-    if (!window.confirm(`Remove flagged listing "${item.name}"? This cannot be undone.`)) return;
-    setActionLoading(item.id);
-    try { await adminApi.removeListing(token!, item.id); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  const confirmRemove = async () => {
+    if (!removeTarget) return;
+    setActionLoading(removeTarget.id);
+    try {
+      await adminApi.removeListing(token!, removeTarget.id);
+      showToast("Listing removed", "success");
+      refetch();
+      setRemoveTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
-  const handleClear = async (item: AdminListing) => {
-    if (!window.confirm(`Clear flag on "${item.name}"? This will restore the listing.`)) return;
-    setActionLoading(item.id);
-    try { await adminApi.unflagListing(token!, item.id); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  const confirmClear = async () => {
+    if (!clearTarget) return;
+    setActionLoading(clearTarget.id);
+    try {
+      await adminApi.unflagListing(token!, clearTarget.id);
+      showToast("Flag cleared, listing restored", "success");
+      refetch();
+      setClearTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -72,8 +87,8 @@ export default function FlaggedContentPage() {
                 <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(item.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
                 <td className="px-5 py-4">
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => handleClear(item)} disabled={actionLoading === item.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><ShieldCheck size={14} /> Clear</button>
-                    <button type="button" onClick={() => handleRemove(item)} disabled={actionLoading === item.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"><Trash2 size={14} /> Remove</button>
+                    <button type="button" onClick={() => setClearTarget(item)} disabled={actionLoading === item.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><ShieldCheck size={14} /> Clear</button>
+                    <button type="button" onClick={() => setRemoveTarget(item)} disabled={actionLoading === item.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"><Trash2 size={14} /> Remove</button>
                   </div>
                 </td>
               </tr>
@@ -81,6 +96,29 @@ export default function FlaggedContentPage() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal
+        isOpen={!!removeTarget}
+        onClose={() => setRemoveTarget(null)}
+        onConfirm={confirmRemove}
+        title="Delete Listing"
+        description={`Remove flagged listing "${removeTarget?.name ?? ""}"? This cannot be undone.`}
+        confirmLabel="Delete Listing"
+        cancelLabel="Keep It"
+        variant="danger"
+        loading={actionLoading === removeTarget?.id}
+      />
+
+      <ConfirmModal
+        isOpen={!!clearTarget}
+        onClose={() => setClearTarget(null)}
+        onConfirm={confirmClear}
+        title="Clear Flag"
+        description={`Clear flag on "${clearTarget?.name ?? ""}"? This will restore the listing.`}
+        confirmLabel="Clear Flag"
+        variant="primary"
+        loading={actionLoading === clearTarget?.id}
+      />
     </div>
   );
 }

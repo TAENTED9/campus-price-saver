@@ -138,6 +138,7 @@ def _price_to_dict(p: Price) -> dict:
         "quantity": p.quantity or 1,
         "is_negotiable": p.is_negotiable or False,
         "delivery_options": p.delivery_options,
+        "delivery_fee": p.delivery_fee,
         "photos": json.loads(p.photos) if p.photos else [],
         "status": p.status,
         "listing_status": p.listing_status or "active",

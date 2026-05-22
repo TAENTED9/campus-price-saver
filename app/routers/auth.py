@@ -51,7 +51,23 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError(
         "SECRET_KEY environment variable is not set. "
-        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+    )
+
+# In production we hard-require a 64-char minimum (HS256 needs ≥256 bits of
+# entropy; 64 url-safe chars covers that with margin). In dev we only warn
+# so local 'change-me' values don't break the loop.
+_IS_PROD = os.getenv("ENVIRONMENT", "development") == "production"
+if len(SECRET_KEY) < 64:
+    if _IS_PROD:
+        raise RuntimeError(
+            f"SECRET_KEY is too short ({len(SECRET_KEY)} chars). "
+            "Minimum 64 characters required in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+    logger.warning(
+        "SECRET_KEY is shorter than 64 chars — acceptable for development but "
+        "deployments MUST use a 64-char value."
     )
 
 ALGORITHM = "HS256"
@@ -217,18 +233,34 @@ async def get_current_user(
         )
 
     if getattr(user, "is_banned", False):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="Your account has been permanently banned.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "ACCOUNT_BANNED",
+                "message": "Your account has been permanently banned.",
+                "ban_reason": getattr(user, "ban_reason", None),
+            },
+        )
     if getattr(user, "is_suspended", False):
         until = getattr(user, "suspended_until", None)
-        if until and until > datetime.utcnow():
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                                detail=f"Your account is suspended until {until.isoformat()}.")
-        else:
+        # Only auto-lift suspensions that were time-boxed AND have expired.
+        # Indefinite suspensions (until is None) stay in force until admin
+        # explicitly restores the account — never silently clear them here.
+        if until is not None and until <= datetime.utcnow():
             user.is_suspended = False
             user.suspended_until = None
             user.suspension_reason = None
             db.commit()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "ACCOUNT_SUSPENDED",
+                    "message": "Your account has been suspended.",
+                    "suspension_reason": getattr(user, "suspension_reason", None),
+                    "suspended_until": until.isoformat() if until else None,
+                },
+            )
     return user
 
 
@@ -508,6 +540,22 @@ async def register_user(
         if existing_email:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
+        # Block permanently-banned emails (set by admin when banning a user)
+        try:
+            from app.models import BannedEmail
+            email_norm = body.email.strip().lower()
+            banned = db.query(BannedEmail).filter(BannedEmail.email == email_norm).first()
+            if banned:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This email is permanently blocked from registering on Campify.",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            # Table might not exist on a fresh DB — tolerate gracefully.
+            pass
+
     try:
         password_hash = hash_password(body.password)
 
@@ -657,10 +705,41 @@ async def login_user(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="Invalid username or password")
 
-        # Lifecycle checks before issuing any token
+        # Lifecycle checks before issuing any token.
+        # Order matters: ban/suspend get checked BEFORE the generic paused flag
+        # so the user sees a specific reason ("banned" / "suspended") instead
+        # of a vague "paused" message — admin actions set both flags at once.
         if getattr(user, "is_deleted", False):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                                 detail="Account no longer exists")
+        if getattr(user, "is_banned", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "ACCOUNT_BANNED",
+                    "message": "Your account has been permanently banned.",
+                    "ban_reason": getattr(user, "ban_reason", None),
+                },
+            )
+        if getattr(user, "is_suspended", False):
+            until = getattr(user, "suspended_until", None)
+            # Lift an EXPIRED time-boxed suspension. Indefinite suspensions
+            # (until is None) must NOT be auto-lifted here.
+            if until is not None and until <= datetime.utcnow():
+                user.is_suspended = False
+                user.suspended_until = None
+                user.suspension_reason = None
+                db.commit()
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "code": "ACCOUNT_SUSPENDED",
+                        "message": "Your account has been suspended.",
+                        "suspension_reason": getattr(user, "suspension_reason", None),
+                        "suspended_until": until.isoformat() if until else None,
+                    },
+                )
         if getattr(user, "is_paused", False):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1100,7 +1179,9 @@ async def login_admin(
 
 
 @router.post("/logout")
+@limiter.limit("30/minute")
 async def logout(
+    request: Request,
     response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1500,6 +1581,7 @@ async def validate_token(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/refresh")
+@limiter.limit("20/minute")
 async def refresh_token(
     request: Request,
     response: Response,
@@ -1528,6 +1610,47 @@ async def refresh_token(
         raise HTTPException(status_code=401, detail="Invalid or expired session. Please log in again.")
 
     new_raw_token, user, remember_me = result  # FIND-27: unpack persisted remember_me preference
+
+    # Lifecycle gate: never mint a new access token for a banned, suspended,
+    # deleted, or paused account — otherwise a still-valid refresh cookie
+    # lets an offender keep their session alive after admin action.
+    if getattr(user, "is_deleted", False):
+        clear_refresh_cookie(response)
+        raise HTTPException(status_code=401, detail="Account no longer exists")
+    if getattr(user, "is_banned", False):
+        clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "ACCOUNT_BANNED",
+                "message": "Your account has been permanently banned.",
+                "ban_reason": getattr(user, "ban_reason", None),
+            },
+        )
+    if getattr(user, "is_suspended", False):
+        until = getattr(user, "suspended_until", None)
+        if until is None or until > datetime.utcnow():
+            clear_refresh_cookie(response)
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "ACCOUNT_SUSPENDED",
+                    "message": "Your account has been suspended.",
+                    "suspension_reason": getattr(user, "suspension_reason", None),
+                    "suspended_until": until.isoformat() if until else None,
+                },
+            )
+    if getattr(user, "is_paused", False):
+        clear_refresh_cookie(response)
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "ACCOUNT_PAUSED",
+                "message": "Your account is currently paused.",
+                "pause_reason": getattr(user, "pause_reason", None),
+            },
+        )
+
     access_token = ts_create_token(user.id, user.role, str(user.uuid or user.id))
     set_refresh_cookie(response, new_raw_token, remember_me=remember_me, is_production=_settings.IS_PRODUCTION)
     from app.services.settings_service import (

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, itemsApi, type SellerListing, type Category } from "@/lib/api";
 import { formatPrice } from "@/lib/formatPrice";
+import { useToast } from "@/components/ui/Toast";
 import { Plus, Eye, Trash2, PencilLine, Copy, CheckCircle, Pause, Play, Moon, Search, Camera, MapPin, ChevronDown, X, AlertTriangle } from "lucide-react";
 
 type ListingStatusTab = "all" | "draft" | "active" | "paused" | "sold" | "expired";
@@ -61,6 +62,7 @@ function SkeletonCard() {
 
 export default function SellerListingsPage() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [listings, setListings]     = useState<SellerListing[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeTab, setActiveTab]   = useState<ListingStatusTab>("all");
@@ -152,7 +154,7 @@ export default function SellerListingsPage() {
       await sellerApi.setListingStatus(token, id, status);
       setListings((prev) => prev.map((l) => l.id === id ? { ...l, listing_status: status } : l));
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Action failed");
+      showToast(err instanceof Error ? err.message : "Action failed", "error");
     } finally {
       setActioning(null);
     }
@@ -165,7 +167,7 @@ export default function SellerListingsPage() {
       await sellerApi.duplicateListing(token, id);
       await fetchListings();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Duplicate failed");
+      showToast(err instanceof Error ? err.message : "Duplicate failed", "error");
     } finally {
       setActioning(null);
     }
@@ -179,7 +181,7 @@ export default function SellerListingsPage() {
       setVacationMode(res.vacation_mode);
       await fetchListings();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      showToast(err instanceof Error ? err.message : "Failed", "error");
     } finally {
       setTogglingVacation(false);
     }

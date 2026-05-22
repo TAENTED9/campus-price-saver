@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { authApi } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -36,16 +37,14 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // SEC-002: restore session via HttpOnly refresh cookie — no localStorage
+    // SEC-002: restore session via HttpOnly refresh cookie — no localStorage.
+    // Use the shared dedup'd authApi.refresh() so concurrent AuthContext +
+    // AdminAuthContext boots (and StrictMode's double-invoke in dev) share
+    // one in-flight refresh instead of racing each other into the backend's
+    // token-theft detector and logging the user out.
     (async () => {
       try {
-        const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
-          method: "POST",
-          credentials: "include",
-        });
-        if (!refreshRes.ok) throw new Error("No session");
-        const refreshData = await refreshRes.json();
-
+        const refreshData = await authApi.refresh();
         const meRes = await fetch(`${API_BASE}/api/auth/me`, {
           headers: { Authorization: `Bearer ${refreshData.access_token}` },
           credentials: "include",

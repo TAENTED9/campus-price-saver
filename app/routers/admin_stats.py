@@ -2,7 +2,7 @@
 Admin statistics and seller verification management router.
 All endpoints require a valid admin JWT token.
 """
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import extract, func, text as sa_text
@@ -15,7 +15,8 @@ import time
 
 from app.dependencies import get_db
 from app.models import User, Price, PendingPrice, SellerVerification, AdminEvent, CloudinaryAsset, Announcement, Report, Order
-from app.routers.auth import get_current_admin, decode_access_token
+from app.routers.auth import get_current_admin, get_current_user, decode_access_token
+from app.limiter import limiter
 from app.routers.admin_users import log_action
 
 # Simple in-memory analytics cache (Block 6A)
@@ -175,20 +176,29 @@ async def get_monthly_analytics(
 
 # ── Seller verification CRUD ──────────────────────────────────────────────────
 
+@router.get("/verification")
 @router.get("/verification/")
 async def list_verifications(
     status_filter: Optional[str] = None,
+    status: Optional[str] = None,   # alias for status_filter
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """List seller verification requests (defaults to pending/under-review)."""
+    """List seller verification requests.
+
+    Two improvements over the previous version:
+    - Accepts both `?status_filter=...` and `?status=...` (the frontend has
+      drifted between both).
+    - Compares status case-insensitively so a record stored as 'approved'
+      still matches the 'Approved' tab.
+    - No status filter means 'show everything', not 'only Pending'. The
+      frontend has tabs for each state; defaulting to Pending here hid
+      Approved/Rejected entries from the All-style listing.
+    """
+    requested = (status_filter or status or "").strip()
     query = db.query(SellerVerification)
-    if status_filter:
-        query = query.filter(SellerVerification.status == status_filter)
-    else:
-        query = query.filter(
-            SellerVerification.status.in_(["Pending", "Under Review"])
-        )
+    if requested and requested.lower() != "all":
+        query = query.filter(func.lower(SellerVerification.status) == requested.lower())
 
     verifications = query.order_by(SellerVerification.submitted_at.desc()).all()
 
@@ -208,12 +218,54 @@ async def list_verifications(
                 "document_url": v.document_url,
                 "portal_screenshot_url": getattr(v, "portal_screenshot_url", None),
                 "submitted_at": v.submitted_at.isoformat() if v.submitted_at else None,
+                "reviewed_at": v.reviewed_at.isoformat() if getattr(v, "reviewed_at", None) else None,
                 "status": v.status,
                 "admin_notes": v.admin_notes,
             }
             for v in verifications
         ],
         "count": len(verifications),
+    }
+
+
+@router.get("/verification/seller/{user_id}")
+async def get_verification_by_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """Lookup the latest verification record for a given user.
+    Used by the admin user-detail drawer to render the seller's submitted
+    documents inline. 404 if the user has never submitted."""
+    v = (
+        db.query(SellerVerification)
+        .filter(SellerVerification.user_id == user_id)
+        .order_by(SellerVerification.submitted_at.desc())
+        .first()
+    )
+    if not v:
+        raise HTTPException(status_code=404, detail="No verification record for this user")
+    return {
+        "success": True,
+        "data": {
+            "id": v.id,
+            "user_id": v.user_id,
+            "seller_name": v.seller_name,
+            "matric_no": v.matric_no,
+            "faculty": v.faculty,
+            "business_name": v.business_name,
+            "business_description": v.business_description,
+            "business_category": getattr(v, "business_category", None),
+            "pickup_location": getattr(v, "pickup_location", None),
+            "email": v.email,
+            "document_url": v.document_url,
+            "portal_screenshot_url": getattr(v, "portal_screenshot_url", None),
+            "status": v.status,
+            "admin_notes": v.admin_notes,
+            "submitted_at": v.submitted_at.isoformat() if v.submitted_at else None,
+            "reviewed_at": v.reviewed_at.isoformat() if v.reviewed_at else None,
+            "reviewed_by": v.reviewed_by,
+        },
     }
 
 
@@ -428,28 +480,100 @@ async def reject_verification(
 # ── Public: submit a new verification request (called during seller signup) ──
 
 @router.post("/verification/submit")
+@limiter.limit("3/day")
 async def submit_verification(
+    request: Request,
     data: SellerVerificationCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Submit a new seller verification request.
     Called immediately after a seller creates their account.
-    No auth required — submission is tied to user_id if provided.
+    Auth required — the JWT identifies the submitting user; the body's
+    user_id is ignored to prevent impersonation.
     """
-    # Prevent duplicate submissions for same matric number
-    existing = (
+    # Force the verification to be tied to the authenticated user, never
+    # the value supplied in the body — clients cannot submit on behalf
+    # of someone else.
+    data.user_id = current_user.id
+    email_norm = (data.email or "").strip().lower()
+
+    # 1. Already-approved email — block hard. One verified seller per email.
+    approved_email = (
         db.query(SellerVerification)
         .filter(
-            SellerVerification.matric_no == data.matric_no,
-            SellerVerification.status.in_(["Pending", "Under Review", "Approved"]),
+            func.lower(SellerVerification.email) == email_norm,
+            SellerVerification.status == "Approved",
         )
         .first()
     )
-    if existing:
+    if approved_email:
         raise HTTPException(
             status_code=400,
-            detail="A verification for this matric number is already pending or approved.",
+            detail={
+                "code": "EMAIL_ALREADY_VERIFIED",
+                "message": (
+                    "This email is already linked to a verified seller account. "
+                    "Each email can only be verified once. "
+                    "If you've lost access, contact support at hello@campify.ng."
+                ),
+            },
+        )
+
+    # 2. Already-approved user — block resubmission for an approved account.
+    if data.user_id is not None:
+        approved_user = (
+            db.query(SellerVerification)
+            .filter(
+                SellerVerification.user_id == data.user_id,
+                SellerVerification.status == "Approved",
+            )
+            .first()
+        )
+        if approved_user:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "USER_ALREADY_VERIFIED",
+                    "message": "Your seller account is already verified. No resubmission needed.",
+                },
+            )
+
+    # 3. Open submission already in flight (same matric) — avoid duplicates.
+    pending_matric = (
+        db.query(SellerVerification)
+        .filter(
+            SellerVerification.matric_no == data.matric_no,
+            SellerVerification.status.in_(["Pending", "Under Review"]),
+        )
+        .first()
+    )
+    if pending_matric:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VERIFICATION_PENDING",
+                "message": "A verification for this matric number is already under review.",
+            },
+        )
+
+    # 4. Open submission already in flight (same email) — same idea.
+    pending_email = (
+        db.query(SellerVerification)
+        .filter(
+            func.lower(SellerVerification.email) == email_norm,
+            SellerVerification.status.in_(["Pending", "Under Review"]),
+        )
+        .first()
+    )
+    if pending_email:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VERIFICATION_PENDING",
+                "message": "A verification for this email is already under review.",
+            },
         )
 
     verification = SellerVerification(
@@ -581,20 +705,40 @@ async def mark_all_events_read(
 @router.get("/users")
 async def list_users(
     role: Optional[str] = None,
-    status: Optional[str] = None,   # active | paused | deleted
+    status: Optional[str] = None,   # active | paused | banned | deleted
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """Block 3B — Paginated user list with optional role/status filters."""
+    """Paginated user list with optional role/status filters.
+
+    Role normalization: 'user' (legacy buyer role) and 'buyer' are treated as
+    equivalent so the Buyers tab catches every buyer regardless of which
+    registration era they belong to.
+    """
     q = db.query(User)
-    if role:
+    if role == "user" or role == "buyer":
+        q = q.filter(User.role.in_(["user", "buyer", "student"]))
+    elif role:
         q = q.filter(User.role == role)
+
     if status == "active":
-        q = q.filter(User.is_deleted != True, User.is_paused != True)
+        q = q.filter(
+            User.is_deleted != True,
+            User.is_paused != True,
+            User.is_banned != True,
+            User.is_suspended != True,
+        )
     elif status == "paused":
-        q = q.filter(User.is_paused == True, User.is_deleted != True)
+        # "Paused" tab also surfaces time-based suspensions so admins see the full set.
+        q = q.filter(
+            (User.is_paused == True) | (User.is_suspended == True),
+            User.is_deleted != True,
+            User.is_banned != True,
+        )
+    elif status == "banned":
+        q = q.filter(User.is_banned == True, User.is_deleted != True)
     elif status == "deleted":
         q = q.filter(User.is_deleted == True)
 
@@ -615,6 +759,7 @@ async def list_users(
                 "is_paused":    bool(getattr(u, "is_paused", False)),
                 "is_deleted":   bool(getattr(u, "is_deleted", False)),
                 "is_banned":    bool(getattr(u, "is_banned", False)),
+                "is_suspended": bool(getattr(u, "is_suspended", False)),
                 "created_at":   u.created_at.isoformat() if u.created_at else None,
             }
             for u in users
@@ -660,7 +805,9 @@ async def get_user_detail(
             "is_deleted":   bool(getattr(u, "is_deleted", False)),
             "deleted_at":   u.deleted_at.isoformat() if getattr(u, "deleted_at", None) else None,
             "is_banned":    bool(getattr(u, "is_banned", False)),
+            "ban_reason":   getattr(u, "ban_reason", None),
             "is_suspended": bool(getattr(u, "is_suspended", False)),
+            "suspension_reason": getattr(u, "suspension_reason", None),
             "deletion_requested_at": u.deletion_requested_at.isoformat() if getattr(u, "deletion_requested_at", None) else None,
             "deletion_request_reason": getattr(u, "deletion_request_reason", None),
             "reactivation_requested_at": u.reactivation_requested_at.isoformat() if getattr(u, "reactivation_requested_at", None) else None,
@@ -676,9 +823,15 @@ async def get_user_detail(
                 "status":     verification.status,
                 "seller_name": verification.seller_name,
                 "matric_no":  verification.matric_no,
+                "faculty":    verification.faculty,
+                "business_name": verification.business_name,
+                "business_category": getattr(verification, "business_category", None),
+                "pickup_location":   getattr(verification, "pickup_location", None),
                 "document_url": verification.document_url,
                 "portal_screenshot_url": verification.portal_screenshot_url,
+                "admin_notes": verification.admin_notes,
                 "submitted_at": verification.submitted_at.isoformat() if verification.submitted_at else None,
+                "reviewed_at":  verification.reviewed_at.isoformat()  if verification.reviewed_at  else None,
             } if verification else None,
             "cloudinary_assets": [
                 {"id": a.id, "asset_type": a.asset_type, "url": a.url,
@@ -743,68 +896,84 @@ async def admin_delete_user(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """
-    Block 4D — Hard delete: wipes Cloudinary assets, listings, reviews, etc.
-    Anonymises the user record (soft-delete for audit trail).
-    """
+    """True hard delete: every trace of the user is removed from the database.
+    The user row itself disappears — they will not show up in the 'Deleted' tab.
+    Email is preserved on the BannedEmail blacklist only if the user was banned."""
     u = db.query(User).filter(User.id == user_id).first()
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
+    if u.role == "admin":
+        raise HTTPException(status_code=403, detail="Cannot delete admin accounts")
 
-    # 1. Preserve identity before wiping
+    # Snapshot identity for confirmation email (sent AFTER the row is gone).
     saved_email = u.email or ""
     saved_name  = u.display_name or u.username or "User"
 
-    # 2. Delete Cloudinary assets
+    # 1. Cloudinary assets
     try:
         from app.services.cloudinary_service import delete_asset
         assets = db.query(CloudinaryAsset).filter(CloudinaryAsset.user_id == user_id).all()
         for asset in assets:
-            delete_asset(asset.public_id)
+            try:
+                delete_asset(asset.public_id)
+            except Exception:
+                pass
             db.delete(asset)
         db.flush()
     except Exception as e:
         print(f"[admin_delete] Cloudinary cleanup error for user {user_id}: {e}")
 
-    # 3. Delete listings
-    db.query(Price).filter(Price.submitted_by == user_id).delete(synchronize_session=False)
+    # 2. Cascade delete every owned row. Done synchronously since SQLite
+    # cascade-on-delete is unreliable without explicit ondelete clauses on
+    # every FK in the schema.
+    def _safe_delete(model, *filters):
+        try:
+            db.query(model).filter(*filters).delete(synchronize_session=False)
+        except Exception as e:
+            print(f"[admin_delete] {model.__name__} cleanup failed: {e}")
 
-    # 4. Delete wishlist
+    _safe_delete(Price, Price.submitted_by == user_id)
+    _safe_delete(SellerVerification, SellerVerification.user_id == user_id)
+
     try:
-        from app.models import Wishlist
-        db.query(Wishlist).filter(Wishlist.user_id == user_id).delete(synchronize_session=False)
-    except Exception:
-        pass
+        from app.models import (
+            Wishlist, Review, Notification, Inquiry, BlockedUser,
+            LoginHistory, RefreshToken, AdminEvent, Report, Dispute,
+            FlashSale, PointsTransaction, Order,
+        )
+        _safe_delete(Wishlist, Wishlist.user_id == user_id)
+        _safe_delete(Review, (Review.reviewer_id == user_id) | (Review.seller_id == user_id))
+        _safe_delete(Notification, Notification.user_id == user_id)
+        _safe_delete(BlockedUser, (BlockedUser.blocker_id == user_id) | (BlockedUser.blocked_id == user_id))
+        _safe_delete(LoginHistory, LoginHistory.user_id == user_id)
+        _safe_delete(RefreshToken, RefreshToken.user_id == user_id)
+        _safe_delete(AdminEvent, AdminEvent.user_id == user_id)
+        _safe_delete(PointsTransaction, PointsTransaction.user_id == user_id)
+        _safe_delete(FlashSale, FlashSale.seller_id == user_id)
+        # Reports / disputes / orders: preserve the row, null out the actor FKs
+        # so admins can still see the historic record.
+        try:
+            db.query(Report).filter(Report.reporter_id == user_id).update(
+                {"reporter_id": None}, synchronize_session=False)
+            db.query(Report).filter(Report.resolved_by == user_id).update(
+                {"resolved_by": None}, synchronize_session=False)
+        except Exception:
+            pass
+        try:
+            db.query(Dispute).filter(Dispute.buyer_id == user_id).update(
+                {"buyer_id": None}, synchronize_session=False)
+            db.query(Dispute).filter(Dispute.seller_id == user_id).update(
+                {"seller_id": None}, synchronize_session=False)
+        except Exception:
+            pass
+        # Inquiry and Order have NOT NULL buyer_id/seller_id FKs, so they
+        # have to be deleted outright rather than nulled.
+        _safe_delete(Inquiry, (Inquiry.buyer_id == user_id) | (Inquiry.seller_id == user_id))
+        _safe_delete(Order, (Order.buyer_id == user_id) | (Order.seller_id == user_id))
+    except Exception as e:
+        print(f"[admin_delete] relation cleanup failed for {user_id}: {e}")
 
-    # 5. Delete reviews
-    try:
-        from app.models import Review
-        db.query(Review).filter(
-            (Review.reviewer_id == user_id) | (Review.seller_id == user_id)
-        ).delete(synchronize_session=False)
-    except Exception:
-        pass
-
-    # 6. Delete notifications
-    try:
-        from app.models import Notification
-        db.query(Notification).filter(Notification.user_id == user_id).delete(synchronize_session=False)
-    except Exception:
-        pass
-
-    # 7. Delete verification record
-    db.query(SellerVerification).filter(SellerVerification.user_id == user_id).delete(synchronize_session=False)
-
-    # 8. Nullify buyer_id on inquiries (keep conversation history intact)
-    try:
-        from app.models import Inquiry
-        db.query(Inquiry).filter(
-            (Inquiry.buyer_id == user_id) | (Inquiry.seller_id == user_id)
-        ).update({"buyer_id": None, "seller_id": None}, synchronize_session=False)
-    except Exception:
-        pass
-
-    # 9. Block 5 — drop per-user isolated tables (total data wipe)
+    # 3. Drop per-user isolated tables
     try:
         from app.services.user_db import drop_user_tables
         from app.database import engine as _engine
@@ -812,35 +981,42 @@ async def admin_delete_user(
     except Exception as e:
         print(f"[admin_delete] per-user table drop failed for {user_id}: {e}")
 
-    # 10. Soft-delete the user record
-    ts = int(datetime.utcnow().timestamp())
-    u.is_deleted     = True
-    u.deleted_at     = datetime.utcnow()
-    u.email          = f"deleted_{user_id}_{ts}@deleted.invalid"
-    u.username       = f"deleted_user_{user_id}"
-    u.display_name   = "Deleted User"
-    u.password_hash  = ""
-    u.phone          = None
-    u.avatar_url     = None
+    # 4. Profile + settings (cascade should handle, but be explicit on SQLite).
+    try:
+        from app.models import Profile, UserSettings
+        _safe_delete(Profile, Profile.user_id == user_id)
+        _safe_delete(UserSettings, UserSettings.user_id == user_id)
+    except Exception:
+        pass
 
-    # 11. Commit
+    # 5. Finally, drop the user row itself.
+    db.delete(u)
     db.commit()
 
-    # 12. Confirm email to saved address
-    from app.services.admin_notifications import notify_admin, send_user_email_bg
-    from app.services.email_templates import ACCOUNT_DELETED_EMAIL
-    asyncio.create_task(send_user_email_bg(
-        saved_email,
-        "Your Campify account has been deleted",
-        ACCOUNT_DELETED_EMAIL(saved_name),
-    ))
+    # 6. Confirmation email + admin audit log (after the commit, so a failed
+    # email never blocks the delete from finalising).
+    try:
+        from app.tasks.email_tasks import send_email
+        from app.services.email_templates import ACCOUNT_DELETED_EMAIL
+        if saved_email:
+            send_email.delay(
+                to=saved_email,
+                subject="Your Campify account has been deleted",
+                body=ACCOUNT_DELETED_EMAIL(saved_name),
+            )
+    except Exception as e:
+        print(f"[admin_delete] confirmation email enqueue failed: {e}")
 
-    # 13. Log event
-    await notify_admin(db, "account_deleted", user_id, saved_email, "deleted",
-                       {"deleted_by": "admin", "deleted_at": datetime.utcnow().isoformat()})
-    log_action(db, current_admin, "Deleted account", "User", user_id, saved_email)
+    try:
+        await notify_admin(db, "account_deleted", user_id, saved_email, "deleted",
+                           {"deleted_by": "admin",
+                            "deleted_at": datetime.utcnow().isoformat()})
+    except Exception:
+        pass
+    log_action(db, current_admin, "Hard-deleted account", "User", user_id, saved_email)
+    db.commit()
 
-    return {"success": True, "message": "Account deleted", "user_id": user_id}
+    return {"success": True, "message": "Account permanently deleted", "user_id": user_id}
 
 
 @router.post("/users/{user_id}/reactivate")
@@ -894,9 +1070,13 @@ async def get_analytics(
     if time.time() < _analytics_cache["expires_at"] and _analytics_cache["data"]:
         return _analytics_cache["data"]
 
-    # Platform totals
+    # Platform totals — buyer role has shifted over time (legacy "student"
+    # → "user" → "buyer"), so count every non-seller / non-admin row.
     total_users    = db.query(User).filter(User.is_deleted != True).count()
-    total_buyers   = db.query(User).filter(User.role == "buyer",  User.is_deleted != True).count()
+    total_buyers   = db.query(User).filter(
+        User.role.in_(["user", "buyer", "student"]),
+        User.is_deleted != True,
+    ).count()
     total_sellers  = db.query(User).filter(User.role == "seller", User.is_deleted != True).count()
     total_listings = db.query(Price).filter(Price.listing_status == "active").count()
     total_views    = db.query(func.coalesce(func.sum(Price.view_count), 0)).scalar() or 0
@@ -911,7 +1091,7 @@ async def get_analytics(
     # Block 10 — order + report metrics (real DB queries, not hardcoded).
     total_orders     = db.query(Order).count()
     completed_orders = db.query(Order).filter(Order.status == "completed").count()
-    open_reports     = db.query(Report).filter(Report.status == "open").count()
+    open_reports     = db.query(Report).filter(Report.status.in_(["Open", "Under Review"])).count()
     conversion_rate  = round(
         (completed_orders / total_orders * 100) if total_orders else 0, 1
     )
@@ -1095,6 +1275,15 @@ async def list_announcements(
     }
 
 
+def _normalize_audience(audience: str | None, ann_type: str | None) -> str:
+    """Map lowercase frontend values to the canonical capitalized form
+    stored in the DB. Banner-type announcements are forced to 'All'."""
+    if ann_type == "banner":
+        return "All"
+    m = (audience or "All").strip().lower()
+    return {"all": "All", "sellers": "Sellers", "buyers": "Buyers"}.get(m, "All")
+
+
 @router.post("/announcements", status_code=201)
 async def create_announcement(
     body: AnnouncementCreate,
@@ -1106,7 +1295,7 @@ async def create_announcement(
         title=body.title.strip(),
         message=body.message.strip(),
         type=body.type,
-        audience=body.audience,
+        audience=_normalize_audience(body.audience, body.type),
         is_active=body.is_active,
         banner_url=body.banner_url,
         cta_label=body.cta_label,
@@ -1131,8 +1320,12 @@ async def update_announcement(
     ann = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not ann:
         raise HTTPException(status_code=404, detail="Announcement not found")
-    for field, value in body.model_dump(exclude_none=True).items():
+    payload = body.model_dump(exclude_none=True)
+    for field, value in payload.items():
         setattr(ann, field, value)
+    # Re-normalize audience if either the type or audience changed.
+    if "audience" in payload or "type" in payload:
+        ann.audience = _normalize_audience(ann.audience, ann.type)
     ann.updated_at = datetime.utcnow()
     db.commit()
     log_action(db, current_admin, "update_announcement", "Announcement", ann.id, ann.title)
@@ -1228,18 +1421,71 @@ async def resolve_report(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """PATCH /api/admin/reports/{id}/resolve — mark report resolved."""
+    """Resolve a report. For Listing targets this takes down the listing
+    AND emails / notifies the seller. Admin should have confirmed the report
+    is genuine before resolving."""
+    from app.models import Notification
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+
     report.status = "Resolved"
     report.resolved_by = current_admin.id
     report.resolved_at = datetime.utcnow()
-    if body and body.get("admin_notes"):
-        report.admin_notes = body["admin_notes"]
+    admin_notes = (body or {}).get("admin_notes") or ""
+    if admin_notes:
+        report.admin_notes = admin_notes
+
+    took_down: dict | None = None
+    if report.target_type == "Listing" and report.target_id:
+        listing = db.query(Price).filter(Price.id == report.target_id).first()
+        if listing:
+            seller_id = listing.submitted_by
+            listing_name = listing.name
+            took_down = {"listing_id": listing.id, "listing_name": listing_name,
+                         "seller_id": seller_id}
+
+            # Take it down.
+            db.delete(listing)
+
+            # In-app notification + email to the seller.
+            if seller_id:
+                seller = db.query(User).filter(User.id == seller_id).first()
+                reason_for_seller = admin_notes or report.reason or "Reported by users"
+                db.add(Notification(
+                    user_id=seller_id,
+                    type="listing_removed",
+                    title="Your listing was taken down",
+                    body=(
+                        f'"{listing_name}" was removed after a user report. '
+                        f"Reason: {reason_for_seller}"
+                    ),
+                    related_id=report.id,
+                    related_type="Report",
+                    action_url="/seller/listings",
+                ))
+                if seller and seller.email:
+                    try:
+                        from app.tasks.email_tasks import send_email
+                        from app.services.email_templates import LISTING_REMOVED_EMAIL
+                        send_email.delay(
+                            to=seller.email,
+                            subject="Your Campify listing was taken down",
+                            body=LISTING_REMOVED_EMAIL(
+                                seller.display_name or seller.username or "Seller",
+                                listing_name,
+                                reason_for_seller,
+                            ),
+                        )
+                    except Exception as e:
+                        print(f"[resolve_report] seller email enqueue failed: {e}")
+
     db.commit()
-    log_action(db, current_admin, "resolve_report", "Report", report_id, f"{report.target_type}:{report.target_id}")
-    return {"success": True, "message": "Report resolved", **_report_dict(report)}
+    log_action(db, current_admin, "resolve_report", "Report", report_id,
+               f"{report.target_type}:{report.target_id}",
+               {"took_down": took_down, "notes": admin_notes})
+    return {"success": True, "message": "Report resolved", "took_down": took_down,
+            **_report_dict(report)}
 
 
 @router.patch("/reports/{report_id}/review")
@@ -1301,29 +1547,83 @@ async def broadcast_announcement(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
-    """POST /api/admin/announcements/{id}/broadcast — push as notification to audience."""
+    """Push the announcement to its audience as BOTH an in-app notification
+    and an email — so users stay informed even when they're not actively on
+    the app. Buyers are identified by role in ('user','buyer','student')
+    because the registration role has shifted over time."""
     from app.models import Notification
     ann = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not ann:
         raise HTTPException(status_code=404, detail="Announcement not found")
 
-    q = db.query(User).filter(User.role != "admin", User.is_deleted.isnot(True))
-    if ann.audience == "Sellers":
+    aud = (ann.audience or "All").strip().lower()
+    q = db.query(User).filter(User.role != "admin", User.is_deleted.isnot(True),
+                              User.is_banned.isnot(True))
+    if aud == "sellers":
         q = q.filter(User.role == "seller")
-    elif ann.audience == "Buyers":
-        q = q.filter(User.role == "buyer")
+    elif aud == "buyers":
+        q = q.filter(User.role.in_(["user", "buyer", "student"]))
 
     users = q.all()
+
+    # In-app notifications — batched insert
+    notif_type = ann.type if ann.type in ("promo", "system", "maintenance", "banner") else "system"
     for u in users:
         db.add(Notification(
             user_id=u.id,
-            type="system",
+            type=notif_type,
             title=ann.title,
             body=ann.message[:500],
             related_id=ann.id,
             related_type="Announcement",
+            action_url=ann.cta_href or None,
         ))
     db.commit()
+
+    # Emails — fire-and-forget via Celery, one per user with verified email
+    emailed = 0
+    try:
+        from app.tasks.email_tasks import send_email
+        from app.services.email_templates import ANNOUNCEMENT_EMAIL
+        subject_prefix = {
+            "maintenance": "[Maintenance]",
+            "promo":       "[Promo]",
+            "banner":      "[Update]",
+        }.get(notif_type, "[Campify]")
+        subject = f"{subject_prefix} {ann.title}"[:120]
+        for u in users:
+            if not u.email:
+                continue
+            try:
+                send_email.delay(
+                    to=u.email,
+                    subject=subject,
+                    body=ANNOUNCEMENT_EMAIL(
+                        u.display_name or u.username or "there",
+                        ann.title,
+                        ann.message,
+                        ann.cta_label,
+                        ann.cta_href,
+                    ),
+                )
+                emailed += 1
+            except Exception as e:
+                import logging as _lg
+                _lg.getLogger("campify").error(
+                    f"[broadcast_announcement] enqueue failed user_id={u.id} err={type(e).__name__}"
+                )
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger("campify").error(
+            f"[broadcast_announcement] email path failed err={type(e).__name__}"
+        )
+
     log_action(db, current_admin, "broadcast_announcement",
-               "Announcement", ann.id, ann.title)
-    return {"success": True, "sent_to": len(users), "message": f"Sent to {len(users)} users"}
+               "Announcement", ann.id, ann.title,
+               {"in_app": len(users), "emailed": emailed, "audience": ann.audience})
+    return {
+        "success": True,
+        "sent_to": len(users),
+        "emailed": emailed,
+        "message": f"Sent to {len(users)} users ({emailed} emails queued)",
+    }

@@ -4,12 +4,22 @@ Seller write endpoints require JWT authentication via get_current_user.
 Admin override endpoints require get_current_admin.
 """
 import json as _json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
+
+
+def _to_naive_utc(v: datetime) -> datetime:
+    """Coerce an aware datetime (e.g. from the frontend's ISO string with
+    a `Z` or `+HH:MM` suffix) into naive UTC so it can be compared with
+    `datetime.utcnow()` and stored in the naive DATETIME columns without
+    triggering 'offset-naive vs offset-aware' TypeErrors."""
+    if v.tzinfo is not None:
+        v = v.astimezone(timezone.utc).replace(tzinfo=None)
+    return v
 
 from app.database import get_db
 from app.models import FlashSale, Price, User
@@ -27,11 +37,21 @@ class FlashSaleCreateBody(BaseModel):
     end_time: datetime
     title: Optional[str] = Field(None, max_length=100)
 
+    @field_validator("end_time")
+    @classmethod
+    def _strip_tz(cls, v: datetime) -> datetime:
+        return _to_naive_utc(v)
+
 
 class FlashSaleUpdateBody(BaseModel):
     title: Optional[str] = Field(None, max_length=100)
     end_time: Optional[datetime] = None
     discount_pct: Optional[float] = Field(None, gt=0, le=100)
+
+    @field_validator("end_time")
+    @classmethod
+    def _strip_tz(cls, v: Optional[datetime]) -> Optional[datetime]:
+        return _to_naive_utc(v) if v is not None else v
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

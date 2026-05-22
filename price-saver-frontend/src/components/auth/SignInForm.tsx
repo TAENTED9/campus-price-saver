@@ -23,8 +23,13 @@ export default function SignInForm() {
   // FIX #8: structured error states. EMAIL_NOT_VERIFIED already existed;
   // ACCOUNT_PAUSED is new — backend returns it as a JSON detail object,
   // which the API client stringifies into err.message.
-  const [errorType,   setErrorType]   = useState<"email_not_verified" | "account_paused" | null>(null);
+  const [errorType,   setErrorType]   = useState<
+    "email_not_verified" | "account_paused" | "account_banned" | "account_suspended" | null
+  >(null);
   const [pauseReason, setPauseReason] = useState<string | null>(null);
+  const [banReason, setBanReason]   = useState<string | null>(null);
+  const [suspensionReason, setSuspensionReason] = useState<string | null>(null);
+  const [suspendedUntil,  setSuspendedUntil]  = useState<string | null>(null);
 
   // verified=true banner
   const [verifiedBanner, setVerifiedBanner] = useState(false);
@@ -67,6 +72,9 @@ export default function SignInForm() {
     setIsLoading(true);
     setErrorType(null);
     setPauseReason(null);
+    setBanReason(null);
+    setSuspensionReason(null);
+    setSuspendedUntil(null);
     try {
       const res = await login(username.trim(), password, rememberMe);
       // BUG-001: handle MFA requirement before any redirect
@@ -100,6 +108,25 @@ export default function SignInForm() {
               parsed.pause_reason || parsed.message ||
               "Your account has been paused."
             );
+            setError(null);
+            return;
+          }
+          if (parsed?.code === "ACCOUNT_BANNED") {
+            setErrorType("account_banned");
+            setBanReason(
+              parsed.ban_reason || parsed.message ||
+              "Your account has been permanently banned."
+            );
+            setError(null);
+            return;
+          }
+          if (parsed?.code === "ACCOUNT_SUSPENDED") {
+            setErrorType("account_suspended");
+            setSuspensionReason(
+              parsed.suspension_reason || parsed.message ||
+              "Your account has been suspended."
+            );
+            setSuspendedUntil(parsed.suspended_until || null);
             setError(null);
             return;
           }
@@ -244,6 +271,53 @@ export default function SignInForm() {
             <a href="mailto:hello@campify.ng" className="underline">
               hello@campify.ng
             </a>
+          </p>
+        </div>
+      )}
+
+      {/* ACCOUNT_BANNED — permanent, no self-service path */}
+      {errorType === "account_banned" && (
+        <div className="mb-5 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+          <p className="text-sm font-bold text-red-700 dark:text-red-400">
+            Account Permanently Banned
+          </p>
+          <p className="text-xs text-red-600 dark:text-red-500 mt-1">
+            Reason: {banReason}
+          </p>
+          <p className="text-xs text-red-500 mt-1">
+            This decision is final. To appeal, email{" "}
+            <a href="mailto:hello@campify.ng" className="underline">
+              hello@campify.ng
+            </a>{" "}
+            within 14 days.
+          </p>
+        </div>
+      )}
+
+      {/* ACCOUNT_SUSPENDED — blocked until admin restores (or until date) */}
+      {errorType === "account_suspended" && (
+        <div className="mb-5 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
+          <p className="text-sm font-bold text-orange-700 dark:text-orange-400">
+            Account Suspended
+          </p>
+          <p className="text-xs text-orange-600 dark:text-orange-500 mt-1">
+            Reason: {suspensionReason}
+          </p>
+          {suspendedUntil ? (
+            <p className="text-xs text-orange-500 mt-1">
+              Suspended until {new Date(suspendedUntil).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}.
+            </p>
+          ) : (
+            <p className="text-xs text-orange-500 mt-1">
+              You can&apos;t sign in until an admin lifts the suspension.
+            </p>
+          )}
+          <p className="text-xs text-orange-500 mt-1">
+            To appeal, email{" "}
+            <a href="mailto:hello@campify.ng" className="underline">
+              hello@campify.ng
+            </a>
+            .
           </p>
         </div>
       )}

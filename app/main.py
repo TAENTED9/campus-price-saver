@@ -143,7 +143,22 @@ if _app_settings.IS_PRODUCTION:
     from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
     app.add_middleware(HTTPSRedirectMiddleware)
 
-# ── Block 12C: Security headers (+ HSTS in production) ────────────────────
+# ── Block 12C: Security headers (+ HSTS + CSP in production) ──────────────
+_CSP_POLICY = (
+    "default-src 'self'; "
+    "img-src 'self' https://res.cloudinary.com data: blob:; "
+    "media-src 'self' https://res.cloudinary.com; "
+    "script-src 'self' 'unsafe-inline'; "                  # TODO post-launch: remove 'unsafe-inline'
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self' data:; "
+    "connect-src 'self' https://api.cloudinary.com https://res.cloudinary.com; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none';"
+)
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -151,11 +166,23 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    )
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+
     if _app_settings.IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = (
             "max-age=31536000; includeSubDomains; preload"
         )
+        # CSP only in production — leaves dev tools (HMR, sourcemaps) unbroken.
+        response.headers["Content-Security-Policy"] = _CSP_POLICY
+
+    # Remove server fingerprinting headers if any framework set them.
+    for h in ("Server", "X-Powered-By"):
+        if h in response.headers:
+            del response.headers[h]
     return response
 
 
@@ -172,7 +199,7 @@ async def log_requests(request: Request, call_next):
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Production:  ALLOWED_ORIGINS=https://campify.ng,https://www.campify.ng
 # Development: localhost + dev LAN IP are added automatically.
-# FIX #2: never allow localhost via regex in production.
+# Security: never allow "*", and never allow localhost (regex or literal) in production.
 _PROD_ORIGINS = ["https://campify.ng", "https://www.campify.ng"]
 _DEV_ORIGINS  = _PROD_ORIGINS + [
     "http://localhost:3000",
@@ -186,11 +213,21 @@ if _env_origins:
 else:
     ALLOWED_ORIGINS = _PROD_ORIGINS if _app_settings.IS_PRODUCTION else _DEV_ORIGINS
 
+# Hard guard: refuse to start in production with a wildcard or empty origins list.
+if _app_settings.IS_PRODUCTION:
+    if not ALLOWED_ORIGINS or any(o == "*" for o in ALLOWED_ORIGINS):
+        raise RuntimeError(
+            "ALLOWED_ORIGINS must be set to an explicit list of HTTPS origins in production "
+            "(wildcard '*' is forbidden when allow_credentials=True)."
+        )
+
 _cors_kwargs = dict(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    expose_headers=[],
+    max_age=600,
 )
 if not _app_settings.IS_PRODUCTION:
     _cors_kwargs["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1|192\.168\.0\.195):\d+"

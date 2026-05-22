@@ -139,7 +139,7 @@ export default function HomePage() {
                     href="/signup"
                     className="inline-flex items-center justify-center px-8 py-3 text-sm font-medium text-blue-700 bg-white rounded-full hover:bg-gray-100 transition-colors min-h-[44px]"
                   >
-                    Get Started -- It&apos;s Free
+                    Get Started - It&apos;s Free
                   </Link>
                   <Link
                     href="/search"

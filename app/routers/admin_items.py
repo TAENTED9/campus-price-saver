@@ -20,8 +20,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ── Admin endpoints (JWT admin role required) ─────────────────────────────────
 
 @router.get("/", response_model=list[ItemOut])
-def list_all_items(db: Session = Depends(get_db)):
-    """List all public items."""
+def list_all_items(
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin),
+):
+    """ADMIN: List all public items."""
     return db.query(Item).filter(Item.is_public == True).all()
 
 

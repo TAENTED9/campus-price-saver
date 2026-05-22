@@ -9,7 +9,7 @@ when supplied (falling back to a minimal wrapper around the plain body).
 """
 
 from app.celery_app import celery
-from app.services.email import _send
+from app.services.email import _send, _mask_email
 import asyncio
 import logging
 
@@ -55,9 +55,9 @@ def send_email(
     try:
         payload = html if html else _plain_to_html(body)
         _run_async(_send(to, subject, payload))
-        logger.info(f"Email sent to {to}: {subject}")
+        logger.info(f"Email sent to={_mask_email(to)} subject='{subject}'")
     except Exception as exc:
-        logger.error(f"Email failed to {to}: {exc}")
+        logger.error(f"Email failed to={_mask_email(to)} err={type(exc).__name__}")
         raise self.retry(exc=exc)
 
 
@@ -101,9 +101,9 @@ def send_otp_email_task(self, to: str, name: str, otp: str):
     from app.services.email import send_otp_email
     try:
         _run_async(send_otp_email(to, name, otp))
-        logger.info(f"OTP email sent to {to}")
+        logger.info(f"OTP email sent to={_mask_email(to)}")
     except Exception as exc:
-        logger.error(f"OTP email failed to {to}: {exc}")
+        logger.error(f"OTP email failed to={_mask_email(to)} err={type(exc).__name__}")
         raise self.retry(exc=exc)
 
 
@@ -226,9 +226,9 @@ def send_interest_email(
             listing_name=listing_title,
             listing_price=price_val,
         ))
-        logger.info(f"Interest email sent to {to}")
+        logger.info(f"Interest email sent to={_mask_email(to)}")
     except Exception as exc:
-        logger.error(f"Interest email failed to {to}: {exc}")
+        logger.error(f"Interest email failed to={_mask_email(to)} err={type(exc).__name__}")
         raise self.retry(exc=exc)
 
 

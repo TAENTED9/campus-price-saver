@@ -10,21 +10,22 @@ import {
 } from "lucide-react";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { formatPrice } from "@/lib/formatPrice";
+import { useToast } from "@/components/ui/Toast";
 import { AdminAvatar, AdminErrorState } from "@/components/admin";
 
 type RoleFilter = "all" | "user" | "seller" | "admin";
-type StatusFilter = "all" | "paused" | "banned" | "deleted";
+type StatusFilter = "all" | "paused" | "banned";
 
 function userStatus(u: AdminUserSummary): string {
   if (u.is_deleted) return "deleted";
   if (u.is_banned)  return "banned";
-  if (u.is_paused)  return "paused";
+  if (u.is_paused || u.is_suspended) return "paused";
   return "active";
 }
 
 export default function UsersPage() {
   const { token } = useAdminAuth();
+  const { showToast } = useToast();
 
   const [roleFilter, setRoleFilter]     = useState<RoleFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -83,15 +84,14 @@ export default function UsersPage() {
     setActionLoading(true);
     try {
       const { user, action } = actionTarget;
-      if (action === "suspend")   await adminApi.suspendUser(token, user.id, { reason: actionReason, hours: 24 });
+      if (action === "suspend")   await adminApi.suspendUser(token, user.id, { reason: actionReason });
       else if (action === "ban")  await adminApi.banUser(token, user.id, actionReason || "Policy violation");
       else if (action === "restore") await adminApi.restoreUser(token, user.id);
-      else if (action === "pause")   await adminApi.pauseUser(token, user.id, actionReason || "Admin paused");
       else if (action === "delete")  await adminApi.deleteUser(token, user.id);
       refetch();
       setActionTarget(null);
       setActionReason("");
-    } catch (e) { alert(e instanceof Error ? e.message : "Action failed"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Action failed", "error"); }
     finally { setActionLoading(false); }
   };
 
@@ -103,10 +103,9 @@ export default function UsersPage() {
   ];
 
   const STATUS_TABS: { label: string; value: StatusFilter }[] = [
-    { label: "All",     value: "all" },
-    { label: "Paused",  value: "paused" },
-    { label: "Banned",  value: "banned" },
-    { label: "Deleted", value: "deleted" },
+    { label: "All",       value: "all" },
+    { label: "Suspended", value: "paused" },
+    { label: "Banned",    value: "banned" },
   ];
 
   return (
@@ -330,8 +329,8 @@ export default function UsersPage() {
       {(drawerLoading || drawer) && (
         <div className="fixed inset-0 z-[9000] flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(null)} />
-          <div className="relative w-full max-w-sm bg-white dark:bg-gray-900 h-full overflow-y-auto shadow-2xl border-l border-gray-200 dark:border-gray-800">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10">
+          <div className="relative w-full sm:max-w-md md:max-w-lg bg-white dark:bg-gray-900 h-full overflow-y-auto shadow-2xl border-l border-gray-200 dark:border-gray-800">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10">
               <h2 className="font-semibold text-gray-900 dark:text-white">User Detail</h2>
               <button type="button" onClick={() => setDrawer(null)} title="Close"
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -346,30 +345,48 @@ export default function UsersPage() {
             )}
 
             {drawer && (
-              <div className="p-5 space-y-5">
-                {/* Avatar + name */}
-                <div className="flex items-center gap-4">
+              <div className="p-6 space-y-6">
+                {/* Avatar + name header */}
+                <div className="flex items-start gap-4">
                   <AdminAvatar src={drawer.avatar_url} name={drawer.display_name || drawer.username} size="lg" />
-                  <div>
-                    <p className="font-semibold text-gray-900 dark:text-white">{drawer.display_name || drawer.username}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{drawer.email}</p>
-                    <StatusBadge status={drawer.role === "user" ? "buyer" : drawer.role} className="mt-1" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-gray-900 dark:text-white text-base truncate">
+                      {drawer.display_name || drawer.username || `User #${drawer.id}`}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{drawer.email || "—"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <StatusBadge status={drawer.role === "user" ? "buyer" : drawer.role} />
+                      {drawer.is_banned && <StatusBadge status="banned" />}
+                      {(drawer.is_paused || drawer.is_suspended) && !drawer.is_banned && <StatusBadge status="paused" />}
+                      {drawer.is_deleted && <StatusBadge status="deleted" />}
+                    </div>
                   </div>
                 </div>
 
-                {/* Info grid */}
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                {/* Suspension / ban reason banner */}
+                {(drawer.is_banned || drawer.is_paused || drawer.is_suspended) && (drawer.pause_reason || drawer.ban_reason) && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10 p-3">
+                    <p className="text-[11px] font-semibold text-red-700 dark:text-red-400 uppercase tracking-wide mb-1">
+                      {drawer.is_banned ? "Ban Reason" : "Suspension Reason"}
+                    </p>
+                    <p className="text-sm text-red-800 dark:text-red-300">
+                      {drawer.ban_reason || drawer.pause_reason}
+                    </p>
+                  </div>
+                )}
+
+                {/* Info grid — Balance removed per product decision */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
                   {[
                     ["Department", drawer.department || "—"],
                     ["Level", drawer.level || "—"],
                     ["Phone", drawer.phone || "—"],
-                    ["Balance", formatPrice(drawer.balance ?? 0)],
                     ["Seller Points", String(drawer.seller_points ?? 0)],
                     ["Joined", drawer.created_at ? new Date(drawer.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" }) : "—"],
                   ].map(([label, val]) => (
                     <div key={label}>
-                      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-                      <p className="font-medium text-gray-700 dark:text-gray-300">{val}</p>
+                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1">{label}</p>
+                      <p className="font-medium text-gray-800 dark:text-gray-200 break-words">{val}</p>
                     </div>
                   ))}
                 </div>
@@ -377,13 +394,13 @@ export default function UsersPage() {
                 {/* Listings */}
                 {drawer.listings?.length > 0 && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                    <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                       Listings ({drawer.listings.length})
                     </p>
                     <div className="space-y-2">
-                      {drawer.listings.slice(0, 5).map((l) => (
-                        <div key={l.id} className="flex items-center justify-between rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2">
-                          <div className="flex items-center gap-2 min-w-0">
+                      {drawer.listings.slice(0, 6).map((l) => (
+                        <div key={l.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2.5">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
                             <Package size={13} className="text-gray-400 shrink-0" />
                             <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{l.name}</span>
                           </div>
@@ -394,24 +411,92 @@ export default function UsersPage() {
                   </div>
                 )}
 
-                {/* Verification */}
+                {/* Verification — full panel for sellers */}
                 {drawer.verification && (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Verification</p>
-                    <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-3 space-y-1.5 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Matric No.</span>
-                        <span className="font-mono font-medium text-gray-700 dark:text-gray-300">{drawer.verification.matric_no}</span>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Verification Details</p>
+                      <StatusBadge status={drawer.verification.status.toLowerCase()} />
+                    </div>
+                    <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-4 space-y-4">
+                      {/* Form fields */}
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+                        <div>
+                          <p className="text-gray-400 mb-0.5">Matric Number</p>
+                          <p className="font-mono font-medium text-gray-700 dark:text-gray-300 break-all">{drawer.verification.matric_no || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 mb-0.5">Faculty / Dept</p>
+                          <p className="font-medium text-gray-700 dark:text-gray-300 break-words">{drawer.verification.faculty || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 mb-0.5">Business Category</p>
+                          <p className="font-medium text-gray-700 dark:text-gray-300 break-words">{drawer.verification.business_category || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400 mb-0.5">Pickup Location</p>
+                          <p className="font-medium text-gray-700 dark:text-gray-300 break-words">{drawer.verification.pickup_location || "—"}</p>
+                        </div>
+                        {drawer.verification.submitted_at && (
+                          <div>
+                            <p className="text-gray-400 mb-0.5">Submitted</p>
+                            <p className="font-medium text-gray-700 dark:text-gray-300">{new Date(drawer.verification.submitted_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</p>
+                          </div>
+                        )}
+                        {drawer.verification.reviewed_at && (
+                          <div>
+                            <p className="text-gray-400 mb-0.5">Reviewed</p>
+                            <p className="font-medium text-gray-700 dark:text-gray-300">{new Date(drawer.verification.reviewed_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</p>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-400">Status</span>
-                        <StatusBadge status={drawer.verification.status.toLowerCase()} />
-                      </div>
-                      {drawer.verification.document_url && (
-                        <a href={drawer.verification.document_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-brand-500 hover:underline">
-                          <ExternalLink size={11} /> View Document
-                        </a>
+
+                      {/* Document thumbnails */}
+                      {(drawer.verification.document_url || drawer.verification.portal_screenshot_url) && (
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          {drawer.verification.document_url && (
+                            <div>
+                              <p className="text-[11px] text-gray-400 mb-1.5">Student ID Card</p>
+                              <a href={drawer.verification.document_url} target="_blank" rel="noopener noreferrer"
+                                 title="Open student ID card in new tab"
+                                 className="block group relative aspect-[16/10] rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:border-brand-400 transition-colors">
+                                <img src={drawer.verification.document_url} alt="Student ID Card"
+                                     className="absolute inset-0 w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
+                                <div className="absolute bottom-1 right-1 rounded bg-black/60 text-white text-[10px] px-1.5 py-0.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <ExternalLink size={9} /> Open
+                                </div>
+                              </a>
+                            </div>
+                          )}
+                          {drawer.verification.portal_screenshot_url && (
+                            <div>
+                              <p className="text-[11px] text-gray-400 mb-1.5">Portal Screenshot</p>
+                              <a href={drawer.verification.portal_screenshot_url} target="_blank" rel="noopener noreferrer"
+                                 title="Open portal screenshot in new tab"
+                                 className="block group relative aspect-[16/10] rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 hover:border-brand-400 transition-colors">
+                                <img src={drawer.verification.portal_screenshot_url} alt="Portal Screenshot"
+                                     className="absolute inset-0 w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
+                                <div className="absolute bottom-1 right-1 rounded bg-black/60 text-white text-[10px] px-1.5 py-0.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <ExternalLink size={9} /> Open
+                                </div>
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Rejection / admin notes banner */}
+                      {drawer.verification.admin_notes && drawer.verification.status.toLowerCase() === "rejected" && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10 p-3">
+                          <p className="text-[10px] font-semibold text-red-700 dark:text-red-400 uppercase tracking-wide mb-1">Rejection Reason</p>
+                          <p className="text-xs text-red-800 dark:text-red-300">{drawer.verification.admin_notes}</p>
+                        </div>
+                      )}
+                      {drawer.verification.admin_notes && drawer.verification.status.toLowerCase() !== "rejected" && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 p-3">
+                          <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-1">Admin Notes</p>
+                          <p className="text-xs text-amber-800 dark:text-amber-300">{drawer.verification.admin_notes}</p>
+                        </div>
                       )}
                     </div>
                   </div>

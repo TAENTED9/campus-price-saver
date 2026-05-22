@@ -79,18 +79,34 @@ def upload_file(
     folder_path: str,          # e.g. "verification/id_card", "avatar", "listings/42/photo_0"
     public_id: str | None = None,
     resource_type: str = "image",
+    is_sensitive: bool = False,
 ) -> dict | None:
     """
     Upload bytes to Cloudinary under campify/users/{user_id}/{folder_path}.
     Returns a dict with url, public_id, folder, asset_id, bytes, format.
     Returns None if Cloudinary is not configured or upload fails.
     Retries up to 3× on SSL / timeout errors with exponential back-off.
+
+    is_sensitive=True stores the asset with type='authenticated' so the
+    delivery URL is non-guessable and requires a signed URL to view
+    (used for verification documents — ID cards, portal screenshots).
     """
     if not _ensure_configured():
         logger.warning(f"[cloudinary_service] Not configured — skipping upload for user {user_id}")
         return None
 
     full_folder = f"campify/users/{user_id}/{folder_path}"
+
+    extra_kwargs: dict = {}
+    if is_sensitive:
+        # 'authenticated' delivery requires a signed URL to view — protects
+        # verification documents from being shared via public URL guessing.
+        extra_kwargs["type"] = "authenticated"
+        extra_kwargs["access_mode"] = "authenticated"
+        # Don't run auto-transformations on sensitive uploads — keep originals intact.
+        transformation: list = []
+    else:
+        transformation = [{"fetch_format": "auto", "quality": "auto"}]
 
     try:
         result = _upload_with_retry(
@@ -100,13 +116,12 @@ def upload_file(
             resource_type=resource_type,
             overwrite=True,
             timeout=_UPLOAD_TIMEOUT,
-            transformation=[
-                {"fetch_format": "auto", "quality": "auto"}
-            ],
+            transformation=transformation,
             context={
                 "user_id": str(user_id),
                 "uploaded_at": datetime.utcnow().isoformat(),
             },
+            **extra_kwargs,
         )
         return {
             "url":        result["secure_url"],
@@ -115,9 +130,38 @@ def upload_file(
             "asset_id":   result.get("asset_id", ""),
             "bytes":      result.get("bytes"),
             "format":     result.get("format"),
+            "is_sensitive": is_sensitive,
+            "delivery_type": result.get("type", "upload"),
         }
     except Exception as e:
-        logger.error(f"[cloudinary_service] Upload failed for user {user_id} / {folder_path}: {e}")
+        logger.error(f"[cloudinary_service] Upload failed for user_id={user_id} path={folder_path}: {type(e).__name__}")
+        return None
+
+
+def get_signed_verification_url(public_id: str, expires_in_seconds: int = 3600) -> str | None:
+    """
+    Generate a time-limited signed URL for a verification document stored with
+    type='authenticated'. Returns None if Cloudinary isn't configured.
+    Default expiry: 1 hour.
+
+    ONLY call this from admin endpoints — the resulting URL must never be
+    handed to non-admin clients.
+    """
+    if not _ensure_configured():
+        return None
+    try:
+        import time as _time
+        from cloudinary import utils as cloudinary_utils
+        url, _opts = cloudinary_utils.cloudinary_url(
+            public_id,
+            type="authenticated",
+            sign_url=True,
+            expires_at=int(_time.time()) + max(60, expires_in_seconds),
+            secure=True,
+        )
+        return url
+    except Exception as e:
+        logger.error(f"[cloudinary_service] Signed URL generation failed: {type(e).__name__}")
         return None
 
 

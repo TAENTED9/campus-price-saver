@@ -6,6 +6,7 @@ import { usePolling } from "@/hooks/usePolling";
 import { adminApi, type AdminReport } from "@/lib/api";
 import { ShieldAlert, CheckCircle, Eye, XCircle, RefreshCw, User, Tag, Clock } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
+import { useToast } from "@/components/ui/Toast";
 
 type TabFilter = "all" | "open" | "under_review" | "resolved" | "dismissed";
 
@@ -16,6 +17,14 @@ const TABS: { label: string; value: TabFilter }[] = [
   { label: "Resolved",     value: "resolved" },
   { label: "Dismissed",    value: "dismissed" },
 ];
+
+// Backend stores capitalized statuses; the UI filter values are lowercase keys.
+const STATUS_KEY: Record<string, TabFilter> = {
+  "Open":         "open",
+  "Under Review": "under_review",
+  "Resolved":     "resolved",
+  "Dismissed":    "dismissed",
+};
 
 function parseServerDate(dateStr: string): Date {
   // Backend sends naive UTC ISO strings (no "Z"). Force-treat as UTC.
@@ -45,6 +54,7 @@ type ModalState = { report: AdminReport; mode: "resolve" | "dismiss" } | null;
 
 export default function ReportsPage() {
   const { token } = useAdminAuth();
+  const { showToast } = useToast();
   const [tab, setTab]               = useState<TabFilter>("all");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [modal, setModal]           = useState<ModalState>(null);
@@ -56,14 +66,14 @@ export default function ReportsPage() {
   );
 
   const allReports  = data?.data ?? [];
-  const openCount   = allReports.filter((r) => r.status === "open").length;
-  const filtered    = tab === "all" ? allReports : allReports.filter((r) => r.status === tab);
+  const openCount   = allReports.filter((r) => STATUS_KEY[r.status] === "open").length;
+  const filtered    = tab === "all" ? allReports : allReports.filter((r) => STATUS_KEY[r.status] === tab);
 
   const handleReview = async (r: AdminReport) => {
     if (!token) return;
     setActionLoading(r.id);
     try { await adminApi.reviewReport(token, r.id); refetch(); }
-    catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -73,10 +83,11 @@ export default function ReportsPage() {
     try {
       if (modal.mode === "resolve")  await adminApi.resolveReport(token, modal.report.id, noteText || undefined);
       else                           await adminApi.dismissReport(token, modal.report.id, noteText || undefined);
+      showToast(modal.mode === "resolve" ? "Report resolved" : "Report dismissed", "success");
       refetch();
       setModal(null);
       setNoteText("");
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -179,9 +190,9 @@ export default function ReportsPage() {
                 </div>
 
                 {/* Actions */}
-                {r.status !== "resolved" && r.status !== "dismissed" && (
+                {r.status !== "Resolved" && r.status !== "Dismissed" && (
                   <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100 dark:border-gray-800 mt-auto">
-                    {r.status === "open" && (
+                    {r.status === "Open" && (
                       <button type="button" onClick={() => handleReview(r)} disabled={actionLoading === r.id}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
                         <Eye size={12} /> Mark Under Review

@@ -7,6 +7,7 @@ import Backdrop from "@/layout/Backdrop";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import UserDropdown from "@/components/header/UserDropdown";
 import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
+import { ToastProvider } from "@/components/ui/Toast";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Store, Search } from "lucide-react";
@@ -59,6 +60,7 @@ export default function SellerDashboardLayout({ children }: { children: React.Re
   }
 
   return (
+    <ToastProvider>
     <div className="min-h-screen xl:flex">
       <SellerSidebar />
       <Backdrop />
@@ -111,5 +113,6 @@ export default function SellerDashboardLayout({ children }: { children: React.Re
       {/* Mobile bottom navigation */}
       <BottomNav />
     </div>
+    </ToastProvider>
   );
 }

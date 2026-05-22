@@ -5,12 +5,17 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminDispute } from "@/lib/api";
+import PromptModal from "@/components/ui/PromptModal";
+import { useToast } from "@/components/ui/Toast";
 import { Scale, CheckCircle, AlertTriangle } from "lucide-react";
 
 export default function DisputesPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [resolveTarget, setResolveTarget] = useState<AdminDispute | null>(null);
+  const [escalateTarget, setEscalateTarget] = useState<AdminDispute | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) router.push("/admin/signin");
@@ -19,19 +24,27 @@ export default function DisputesPage() {
   const fetchData = useCallback(() => adminApi.getDisputes(token!), [token]);
   const { data, loading, error, refetch } = usePolling<{ success: boolean; data: AdminDispute[] }>(fetchData, 30000, isAuthenticated && !!token);
 
-  const handleResolve = async (d: AdminDispute) => {
-    const notes = window.prompt(`Resolve dispute "${d.listing_name}" — admin notes?`);
-    if (notes === null) return;
-    setActionLoading(d.id);
-    try { await adminApi.updateDispute(token!, d.id, { status: "resolved", admin_notes: notes }); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  const confirmResolve = async (notes: string) => {
+    if (!resolveTarget) return;
+    setActionLoading(resolveTarget.id);
+    try {
+      await adminApi.updateDispute(token!, resolveTarget.id, { status: "resolved", admin_notes: notes });
+      showToast("Dispute resolved", "success");
+      refetch();
+      setResolveTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
-  const handleEscalate = async (d: AdminDispute) => {
-    const notes = window.prompt(`Escalate dispute "${d.listing_name}" — reason?`);
-    if (notes === null) return;
-    setActionLoading(d.id);
-    try { await adminApi.updateDispute(token!, d.id, { status: "escalated", admin_notes: notes }); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  const confirmEscalate = async (notes: string) => {
+    if (!escalateTarget) return;
+    setActionLoading(escalateTarget.id);
+    try {
+      await adminApi.updateDispute(token!, escalateTarget.id, { status: "escalated", admin_notes: notes });
+      showToast("Dispute escalated", "success");
+      refetch();
+      setEscalateTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -86,8 +99,8 @@ export default function DisputesPage() {
                 <td className="px-5 py-4">
                   {d.status !== "resolved" ? (
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => handleResolve(d)} disabled={actionLoading === d.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><CheckCircle size={14} /> Resolve</button>
-                      {d.status !== "escalated" && <button type="button" onClick={() => handleEscalate(d)} disabled={actionLoading === d.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"><AlertTriangle size={14} /> Escalate</button>}
+                      <button type="button" onClick={() => setResolveTarget(d)} disabled={actionLoading === d.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><CheckCircle size={14} /> Resolve</button>
+                      {d.status !== "escalated" && <button type="button" onClick={() => setEscalateTarget(d)} disabled={actionLoading === d.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"><AlertTriangle size={14} /> Escalate</button>}
                     </div>
                   ) : (
                     <span className="text-xs text-gray-400">Resolved</span>
@@ -98,6 +111,35 @@ export default function DisputesPage() {
           </tbody>
         </table>
       </div>
+
+      <PromptModal
+        isOpen={!!resolveTarget}
+        onClose={() => setResolveTarget(null)}
+        onSubmit={confirmResolve}
+        title="Resolve Dispute"
+        description={`Resolving dispute on "${resolveTarget?.listing_name ?? ""}".`}
+        label="Admin notes (optional)"
+        placeholder="What was the resolution?"
+        confirmLabel="Resolve"
+        variant="primary"
+        multiline
+        loading={actionLoading === resolveTarget?.id}
+      />
+
+      <PromptModal
+        isOpen={!!escalateTarget}
+        onClose={() => setEscalateTarget(null)}
+        onSubmit={confirmEscalate}
+        title="Escalate Dispute"
+        description={`Escalating dispute on "${escalateTarget?.listing_name ?? ""}".`}
+        label="Reason"
+        placeholder="Why is this being escalated?"
+        confirmLabel="Escalate"
+        variant="danger"
+        required
+        multiline
+        loading={actionLoading === escalateTarget?.id}
+      />
     </div>
   );
 }

@@ -47,6 +47,7 @@ export default function NewListingPage() {
   const [quantity, setQuantity] = useState(1);
   const [hasPickup, setHasPickup] = useState(true);
   const [hasDelivery, setHasDelivery] = useState(false);
+  const [deliveryFee, setDeliveryFee] = useState<number | "">("");
   const [location, setLocation] = useState("");
   const [duration, setDuration] = useState<number>(30);
   const [brand, setBrand] = useState("");
@@ -166,6 +167,7 @@ export default function NewListingPage() {
         quantity,
         is_negotiable: isNegotiable,
         delivery_options: buildDeliveryOptions() || undefined,
+        delivery_fee: hasDelivery && deliveryFee !== "" ? Number(deliveryFee) : undefined,
         duration_days: duration,
         listing_status: listingStatus,
         photos,
@@ -487,8 +489,16 @@ export default function NewListingPage() {
                 <label className={lbl}>Delivery Fee (₦)</label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-gray-400">₦</span>
-                  <NumberInput value="" onValueChange={() => {}} placeholder="0" className={`${inp} pl-8`} />
+                  <NumberInput
+                    value={deliveryFee}
+                    onValueChange={(v) => setDeliveryFee(v === "" ? "" : Number(v))}
+                    placeholder="0"
+                    className={`${inp} pl-8`}
+                  />
                 </div>
+                <p className="mt-1 text-xs text-gray-400">
+                  Leave blank for free delivery, or set a flat fee buyers will pay on top of the listing price.
+                </p>
               </div>
             )}
 

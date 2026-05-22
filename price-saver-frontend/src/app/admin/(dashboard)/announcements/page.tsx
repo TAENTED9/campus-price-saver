@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminAnnouncement, uploadApi } from "@/lib/api";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 import { Megaphone, Plus, Pencil, Trash2, X, Send, Upload, Link as LinkIcon } from "lucide-react";
 
 const BLANK_FORM = { title: "", message: "", type: "info", audience: "all", banner_url: "", cta_label: "", cta_href: "" };
@@ -14,6 +16,7 @@ const BANNER_H = 480;
 export default function AnnouncementsPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -21,6 +24,7 @@ export default function AnnouncementsPage() {
   const [broadcastMsg, setBroadcastMsg] = useState<Record<number, string>>({});
   const [bannerTab, setBannerTab] = useState<"url" | "upload">("url");
   const [bannerUploading, setBannerUploading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<AdminAnnouncement | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) router.push("/admin/signin");
@@ -38,6 +42,9 @@ export default function AnnouncementsPage() {
     try {
       const payload = {
         ...form,
+        // Homepage banner slides MUST target all users — they're the public
+        // hero carousel, so a buyers-only / sellers-only slide makes no sense.
+        audience: form.type === "banner" ? "all" : form.audience,
         banner_url: form.banner_url.trim() || undefined,
         cta_label: form.cta_label.trim() || undefined,
         cta_href: form.cta_href.trim() || undefined,
@@ -49,7 +56,7 @@ export default function AnnouncementsPage() {
       }
       refetch();
       resetForm();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+    } catch (err) { showToast(err instanceof Error ? err.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -59,16 +66,22 @@ export default function AnnouncementsPage() {
     setShowForm(true);
   };
 
-  const handleDelete = async (a: AdminAnnouncement) => {
-    if (!window.confirm(`Delete announcement "${a.title}"?`)) return;
-    setActionLoading(a.id);
-    try { await adminApi.deleteAnnouncement(token!, a.id); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setActionLoading(id);
+    try {
+      await adminApi.deleteAnnouncement(token!, id);
+      showToast("Announcement deleted", "success");
+      refetch();
+      setDeleteTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
   const handleToggle = async (a: AdminAnnouncement) => {
     setActionLoading(a.id);
-    try { await adminApi.updateAnnouncement(token!, a.id, { is_active: !a.is_active }); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    try { await adminApi.updateAnnouncement(token!, a.id, { is_active: !a.is_active }); refetch(); } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -78,7 +91,7 @@ export default function AnnouncementsPage() {
       const res = await adminApi.broadcastAnnouncement(token!, a.id);
       setBroadcastMsg(prev => ({ ...prev, [a.id]: `Sent to ${res.sent_to} user(s)` }));
       setTimeout(() => setBroadcastMsg(prev => { const n = { ...prev }; delete n[a.id]; return n; }), 4000);
-    } catch (e) { alert(e instanceof Error ? e.message : "Broadcast failed"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Broadcast failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -168,7 +181,7 @@ export default function AnnouncementsPage() {
                         img.onload = () => {
                           URL.revokeObjectURL(img.src);
                           if (img.naturalWidth !== BANNER_W || img.naturalHeight !== BANNER_H) {
-                            alert(`Image must be exactly ${BANNER_W}×${BANNER_H} px.\nYours is ${img.naturalWidth}×${img.naturalHeight} px.`);
+                            showToast(`Image must be exactly ${BANNER_W}×${BANNER_H} px. Yours is ${img.naturalWidth}×${img.naturalHeight} px.`, "error");
                             e.target.value = "";
                           }
                           resolve();
@@ -182,7 +195,7 @@ export default function AnnouncementsPage() {
                         const url = await uploadApi.uploadBannerSlide(token, file);
                         setForm(f => ({ ...f, banner_url: url }));
                       } catch (err) {
-                        alert(err instanceof Error ? err.message : "Upload failed");
+                        showToast(err instanceof Error ? err.message : "Upload failed", "error");
                       } finally {
                         setBannerUploading(false);
                       }
@@ -218,8 +231,16 @@ export default function AnnouncementsPage() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Audience</label>
-              <select title="Audience" value={form.audience} onChange={e => setForm(f => ({ ...f, audience: e.target.value }))} className="rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:[color-scheme:dark] px-4 py-2.5 text-sm text-gray-800 dark:border-gray-700 dark:text-white/90">
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                Audience {form.type === "banner" && <span className="font-normal text-gray-400">(locked to All for banners)</span>}
+              </label>
+              <select
+                title="Audience"
+                value={form.type === "banner" ? "all" : form.audience}
+                disabled={form.type === "banner"}
+                onChange={e => setForm(f => ({ ...f, audience: e.target.value }))}
+                className="rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:[color-scheme:dark] px-4 py-2.5 text-sm text-gray-800 dark:border-gray-700 dark:text-white/90 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
                 <option value="all">All Users</option>
                 <option value="sellers">Sellers Only</option>
                 <option value="buyers">Buyers Only</option>
@@ -313,7 +334,7 @@ export default function AnnouncementsPage() {
                   <button type="button" onClick={() => handleEdit(a)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
                     <Pencil size={12} /> Edit
                   </button>
-                  <button type="button" onClick={() => handleDelete(a)} disabled={actionLoading === a.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50">
+                  <button type="button" onClick={() => setDeleteTarget(a)} disabled={actionLoading === a.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50">
                     <Trash2 size={12} /> Delete
                   </button>
                 </div>
@@ -322,6 +343,17 @@ export default function AnnouncementsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Delete Announcement"
+        description={`Delete announcement "${deleteTarget?.title ?? ""}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        loading={actionLoading === deleteTarget?.id}
+      />
     </div>
   );
 }

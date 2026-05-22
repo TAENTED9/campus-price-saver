@@ -207,7 +207,18 @@ export default function SellerVerifyPage() {
       await sellerApi.submitVerificationDocs(token, fd);
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Submission failed. Please try again.");
+      // Structured backend errors come through as JSON-stringified `detail`
+      // objects on err.message. Parse and surface a clean message.
+      let msg = err instanceof Error ? err.message : "Submission failed. Please try again.";
+      if (err instanceof Error) {
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.message) msg = parsed.message;
+        } catch {
+          // not JSON — keep raw err.message
+        }
+      }
+      setError(msg);
     } finally {
       setSubmitting(false);
     }

@@ -7,11 +7,14 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.dependencies import get_db
 from app.models import (
     User, Price, Category, FlashSale,
-    Announcement, Report, Dispute, AuditLog, Notification,
+    Announcement, Report, Dispute, AuditLog, Notification, BannedEmail,
 )
 from app.routers.auth import get_current_admin
 from app.schemas import (
@@ -65,21 +68,55 @@ async def suspend_user(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
+    """Indefinite suspension. Lifts only when admin calls /restore.
+    Time-boxed suspensions are gone — the UI label says 'Suspend until I unsuspend'."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.role == "admin":
         raise HTTPException(status_code=403, detail="Cannot suspend admin accounts")
 
-    hours = body.hours or 24
+    reason = body.reason or "Admin suspension"
     user.is_suspended = True
-    user.suspended_until = datetime.utcnow() + timedelta(hours=hours)
-    user.suspension_reason = body.reason
+    user.suspended_until = None
+    user.suspension_reason = reason
+    user.is_paused = True
+    user.paused_at = datetime.utcnow()
+    user.paused_by = "admin"
+    user.pause_reason = reason
 
-    log_action(db, current_admin, f"Suspended user for {hours}h",
-               "User", user.id, user.username, {"reason": body.reason})
+    if user.role == "seller":
+        db.query(Price).filter(
+            Price.submitted_by == user_id, Price.listing_status == "active"
+        ).update({"listing_status": "paused"}, synchronize_session=False)
+
+    log_action(db, current_admin, "Suspended user (indefinite)",
+               "User", user.id, user.username, {"reason": reason})
     db.commit()
-    return {"success": True, "message": f"User suspended for {hours} hours"}
+
+    # Email + in-app notification
+    try:
+        from app.tasks.email_tasks import send_email
+        from app.services.email_templates import ACCOUNT_SUSPENDED_EMAIL
+        if user.email:
+            send_email.delay(
+                to=user.email,
+                subject="Your Campify account has been suspended",
+                body=ACCOUNT_SUSPENDED_EMAIL(user.display_name or user.username or "User", reason),
+            )
+    except Exception as e:
+        print(f"[suspend_user] email enqueue failed: {e}")
+
+    db.add(Notification(
+        user_id=user.id,
+        type="account_suspended",
+        title="Account suspended",
+        body=f"Your account has been suspended. Reason: {reason}",
+        action_url="/support",
+    ))
+    db.commit()
+
+    return {"success": True, "message": "User suspended indefinitely"}
 
 
 @router.patch("/users/{user_id}/ban")
@@ -89,18 +126,65 @@ async def ban_user(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
+    """Permanent ban. Blacklists the email so it can't re-register."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.role == "admin":
         raise HTTPException(status_code=403, detail="Cannot ban admin accounts")
 
+    reason = body.reason or "Severe policy violation"
     user.is_banned = True
-    user.ban_reason = body.reason
+    user.ban_reason = reason
+    user.is_paused = True
+    user.paused_at = datetime.utcnow()
+    user.paused_by = "admin"
+    user.pause_reason = reason
+
+    # Hide all listings
+    if user.role == "seller":
+        db.query(Price).filter(
+            Price.submitted_by == user_id, Price.listing_status == "active"
+        ).update({"listing_status": "paused"}, synchronize_session=False)
+
+    # Blacklist the email — survives even if user row is later deleted.
+    email_norm = (user.email or "").strip().lower()
+    if email_norm:
+        existing = db.query(BannedEmail).filter(BannedEmail.email == email_norm).first()
+        if not existing:
+            db.add(BannedEmail(
+                email=email_norm,
+                reason=reason,
+                banned_by=current_admin.id,
+                original_user_id=user.id,
+            ))
 
     log_action(db, current_admin, "Permanently banned user",
-               "User", user.id, user.username, {"reason": body.reason})
+               "User", user.id, user.username, {"reason": reason, "email": email_norm})
     db.commit()
+
+    # Email + in-app notification
+    try:
+        from app.tasks.email_tasks import send_email
+        from app.services.email_templates import ACCOUNT_BANNED_EMAIL
+        if user.email:
+            send_email.delay(
+                to=user.email,
+                subject="Your Campify account has been permanently banned",
+                body=ACCOUNT_BANNED_EMAIL(user.display_name or user.username or "User", reason),
+            )
+    except Exception as e:
+        print(f"[ban_user] email enqueue failed: {e}")
+
+    db.add(Notification(
+        user_id=user.id,
+        type="account_banned",
+        title="Account banned",
+        body=f"Your account has been permanently banned. Reason: {reason}",
+        action_url="/support",
+    ))
+    db.commit()
+
     return {"success": True, "message": "User permanently banned"}
 
 
@@ -110,19 +194,60 @@ async def restore_user(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
+    """Lift every active hold: suspension, pause, ban. Removes email from blacklist."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    was_banned = bool(user.is_banned)
 
     user.is_suspended = False
     user.is_banned = False
     user.suspended_until = None
     user.ban_reason = None
     user.suspension_reason = None
+    user.is_paused = False
+    user.paused_at = None
+    user.paused_by = None
+    user.pause_reason = None
+
+    # Un-hide listings paused by the suspension/ban
+    if user.role == "seller":
+        db.query(Price).filter(
+            Price.submitted_by == user_id, Price.listing_status == "paused"
+        ).update({"listing_status": "active"}, synchronize_session=False)
+
+    # Lift email blacklist if this user's email was on it.
+    email_norm = (user.email or "").strip().lower()
+    if email_norm:
+        db.query(BannedEmail).filter(BannedEmail.email == email_norm).delete(synchronize_session=False)
 
     log_action(db, current_admin, "Restored user account",
-               "User", user.id, user.username)
+               "User", user.id, user.username, {"was_banned": was_banned})
     db.commit()
+
+    # Email + in-app
+    try:
+        from app.tasks.email_tasks import send_email
+        from app.services.email_templates import ACCOUNT_REACTIVATED_EMAIL
+        if user.email:
+            send_email.delay(
+                to=user.email,
+                subject="Your Campify account has been restored",
+                body=ACCOUNT_REACTIVATED_EMAIL(user.display_name or user.username or "User"),
+            )
+    except Exception as e:
+        print(f"[restore_user] email enqueue failed: {e}")
+
+    db.add(Notification(
+        user_id=user.id,
+        type="account_restored",
+        title="Account restored",
+        body="Your account has been reactivated. Welcome back!",
+        action_url="/",
+    ))
+    db.commit()
+
     return {"success": True, "message": "User account restored"}
 
 
@@ -267,6 +392,15 @@ async def admin_approve_listing(
             related_type="Listing",
             action_url=f"/seller/listings",
         ))
+
+    # Fan out matching price-alert notifications. Approval is the moment the
+    # listing becomes visible to buyers, so it's the right place to fire.
+    try:
+        from app.services.price_alerts import notify_matching_price_alerts
+        notify_matching_price_alerts(db, price)
+    except Exception as e:
+        logger.warning(f"[admin_approve_listing] price-alert fan-out failed for listing {price.id}: {e}")
+
     db.commit()
     return {"success": True, "message": "Listing approved"}
 
@@ -308,10 +442,21 @@ async def admin_remove_listing(
     if not price:
         raise HTTPException(status_code=404, detail="Listing not found")
     name = price.name
-    log_action(db, current_admin, "Removed listing", "Listing", price_id, name)
-    db.delete(price)
-    db.commit()
-    return {"success": True, "message": "Listing removed"}
+
+    try:
+        from app.services.listing_cleanup import delete_listing_with_children
+        log_action(db, current_admin, "Removed listing", "Listing", price_id, name)
+        delete_listing_with_children(db, price)
+        db.commit()
+        return {"success": True, "message": "Listing removed"}
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete listing {price_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete listing: {e}",
+        )
 
 
 @router.patch("/listings/{price_id}/flag")
@@ -329,6 +474,8 @@ async def admin_flag_listing(
         price.flag_reason = reason
     log_action(db, current_admin, "Flagged listing", "Listing", price.id, price.name,
                {"reason": reason or ""})
+
+    seller = None
     if price.submitted_by:
         from app.models import Notification as _Notif
         db.add(_Notif(
@@ -345,7 +492,26 @@ async def admin_flag_listing(
             is_read=False,
             action_url="/seller/listings",
         ))
+        seller = db.query(User).filter(User.id == price.submitted_by).first()
     db.commit()
+
+    # Email the seller about the flag (fire-and-forget via Celery)
+    if seller and seller.email:
+        try:
+            from app.tasks.email_tasks import send_email
+            from app.services.email_templates import LISTING_FLAGGED_EMAIL
+            send_email.delay(
+                to=seller.email,
+                subject=f'Your Campify listing "{price.name}" has been flagged',
+                body=LISTING_FLAGGED_EMAIL(
+                    seller.display_name or seller.username or "Seller",
+                    price.name,
+                    reason or "",
+                ),
+            )
+        except Exception as e:
+            logger.warning(f"[admin_flag_listing] email enqueue failed for listing {price.id}: {e}")
+
     return {"success": True, "message": "Listing flagged"}
 
 

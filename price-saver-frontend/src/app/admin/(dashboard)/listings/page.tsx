@@ -8,6 +8,7 @@ import { adminApi, type AdminListing, type AdminListingDetail } from "@/lib/api"
 import { Package, Flag, CheckCircle, Trash2, Search, Star, StarOff, RefreshCw, Eye, X, MapPin, Tag, Store, Calendar } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 import { formatPrice } from "@/lib/formatPrice";
 
 function wat(iso: string | null) {
@@ -34,6 +35,7 @@ type ActionType = "approve" | "reject" | "flag" | "unflag" | "remove" | "feature
 
 export default function ListingsPage() {
   const { token } = useAdminAuth();
+  const { showToast } = useToast();
   const [filter, setFilter]         = useState<FilterType>("all");
   const [search, setSearch]         = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -51,7 +53,7 @@ export default function ListingsPage() {
     try {
       const res = await adminApi.getListingDetail(token, id);
       setDetailTarget(res.data);
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed to load listing"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed to load listing", "error"); }
     finally { setDetailLoading(false); }
   };
 
@@ -82,7 +84,7 @@ export default function ListingsPage() {
       setConfirmTarget(null);
       setFlagReason("");
       setRejectReason("");
-    } catch (e) { alert(e instanceof Error ? e.message : "Action failed"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Action failed", "error"); }
     finally { setActionLoading(null); }
   };
 

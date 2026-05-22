@@ -36,6 +36,100 @@ within 7 days — we may be able to restore your data.
 — The Campify Team"""
 
 
+def ACCOUNT_SUSPENDED_EMAIL(name: str, reason: str) -> str:
+    url = _app_url()
+    return f"""Hi {name},
+
+Your Campify account has been suspended by our team.
+
+Reason: {reason or "Policy violation"}
+
+While suspended:
+- Your listings are hidden from buyers.
+- You can't log in, message, or transact.
+
+The suspension stays in place until an admin lifts it.
+To appeal, reply to this email or visit {url}/support.
+
+— The Campify Team"""
+
+
+def ACCOUNT_BANNED_EMAIL(name: str, reason: str) -> str:
+    return f"""Hi {name},
+
+Your Campify account has been permanently banned.
+
+Reason: {reason or "Severe policy violation"}
+
+This decision is final. Your email address has been
+added to our blocked list and cannot be used to
+register again on Campify.
+
+If you believe this is a mistake, reply to this email
+within 14 days to request a review.
+
+— The Campify Team"""
+
+
+def LISTING_FLAGGED_EMAIL(name: str, listing_name: str, reason: str) -> str:
+    url = _app_url()
+    return f"""Hi {name},
+
+One of your listings on Campify has been flagged for review:
+
+Listing: {listing_name}
+Reason: {reason or "Reported by a user — awaiting moderation review"}
+
+What happens next:
+- The listing is temporarily hidden from buyers while we review it.
+- Our team will assess whether it meets our seller guidelines.
+- You'll get another email once the review is complete.
+
+If you believe this is a mistake or want to update the listing
+to address the issue, visit {url}/seller/listings.
+
+Review our seller guidelines: {url}/help/seller-policy
+
+— The Campify Team"""
+
+
+def LISTING_REMOVED_EMAIL(name: str, listing_name: str, reason: str) -> str:
+    url = _app_url()
+    return f"""Hi {name},
+
+We've taken down one of your listings on Campify:
+
+Listing: {listing_name}
+Reason: {reason or "Reported by users and confirmed by our moderation team"}
+
+Repeated takedowns can lead to account suspension or
+permanent ban. Please review our seller guidelines:
+{url}/help/seller-policy
+
+If you believe this was a mistake, reply to this email
+and our team will review.
+
+— The Campify Team"""
+
+
+def ANNOUNCEMENT_EMAIL(name: str, title: str, message: str, cta_label: str | None = None, cta_href: str | None = None) -> str:
+    url = _app_url()
+    cta_line = ""
+    if cta_label and cta_href:
+        full_href = cta_href if cta_href.startswith("http") else f"{url}{cta_href}"
+        cta_line = f"\n{cta_label}: {full_href}\n"
+    return f"""Hi {name},
+
+{title}
+
+{message}
+{cta_line}
+— The Campify Team
+
+You're receiving this because you're a member of Campify.
+Manage notification settings: {url}/dashboard/settings"""
+
+
 def ACCOUNT_REACTIVATED_EMAIL(name: str) -> str:
     url = _app_url()
     return f"""Hi {name},

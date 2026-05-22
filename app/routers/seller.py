@@ -46,6 +46,7 @@ class ListingCreate(BaseModel):
     quantity: int | None = Field(1, ge=1, le=9999)
     is_negotiable: bool | None = Field(False)
     delivery_options: str | None = Field(None)        # "pickup", "delivery", "pickup,delivery"
+    delivery_fee: float | None = Field(None, ge=0, le=10000000)
     duration_days: int | None = Field(30)             # 7 / 14 / 30
     listing_status: str | None = Field("active")      # draft / active
     photos: list | None = Field(default_factory=list) # up to 5 Cloudinary URLs
@@ -62,6 +63,7 @@ class ListingUpdate(BaseModel):
     quantity: int | None = Field(None, ge=1, le=9999)
     is_negotiable: bool | None = None
     delivery_options: str | None = None
+    delivery_fee: float | None = Field(None, ge=0, le=10000000)
     duration_days: int | None = None
     listing_status: str | None = None
     photos: list | None = None
@@ -252,6 +254,7 @@ def _listing_dict(p: Price) -> dict:
         "quantity": p.quantity or 1,
         "is_negotiable": p.is_negotiable or False,
         "delivery_options": p.delivery_options,
+        "delivery_fee": p.delivery_fee,
         "duration_days": p.duration_days,
         "expires_at": p.expires_at.isoformat() if p.expires_at else None,
         "photos": json.loads(p.photos) if p.photos else [],
@@ -322,6 +325,7 @@ async def create_listing(
         quantity=data.quantity or 1,
         is_negotiable=data.is_negotiable or False,
         delivery_options=data.delivery_options,
+        delivery_fee=data.delivery_fee,
         duration_days=data.duration_days,
         expires_at=expires_at,
         listing_status=data.listing_status or "active",
@@ -412,6 +416,15 @@ async def update_listing(
             db.commit()
         except Exception:
             pass
+        # Also fan out to anyone whose PriceAlert just started matching after
+        # the drop — but only for approved/visible listings.
+        if listing.status == "approved":
+            try:
+                from app.services.price_alerts import notify_matching_price_alerts
+                notify_matching_price_alerts(db, listing)
+                db.commit()
+            except Exception:
+                pass
 
     # Fire restock alert if listing went back to active from sold/paused
     new_status = listing.listing_status
@@ -455,7 +468,11 @@ async def delete_listing(
         .all()
     ]
 
-    db.delete(listing)
+    # FK-aware delete: clear every child row referencing prices.id first.
+    # Plain db.delete(listing) leaves SQLAlchemy to set-null children, which
+    # crashes on NOT NULL FKs like flash_sales.price_id.
+    from app.services.listing_cleanup import delete_listing_with_children
+    delete_listing_with_children(db, listing)
     db.commit()
 
     if asset_ids:
@@ -612,7 +629,7 @@ async def get_seller_analytics(
 # ── Verification status ─────────────────────────────────────────────────
 
 @router.get("/verification")
-@limiter.limit("60/hour")
+@limiter.limit("120/minute")
 async def get_seller_verification(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -648,7 +665,9 @@ async def get_seller_verification(
 
 
 @router.post("/verification/docs")
+@limiter.limit("3/day")
 async def submit_seller_verification_docs(
+    request: Request,
     matric_number: str = Form(...),
     seller_name: str = Form(...),
     email: str = Form(...),
@@ -676,6 +695,33 @@ async def submit_seller_verification_docs(
             status_code=422,
             detail="Both ID card and portal screenshot are required.",
         )
+
+    # Block resubmission if THIS email is already tied to an approved verification
+    # under a different account. One verified seller per email — full stop.
+    email_norm = (email or current_user.email or "").strip().lower()
+    if email_norm:
+        from sqlalchemy import func as _func
+        approved_other = (
+            db.query(SellerVerification)
+            .filter(
+                _func.lower(SellerVerification.email) == email_norm,
+                SellerVerification.status == "Approved",
+                SellerVerification.user_id != current_user.id,
+            )
+            .first()
+        )
+        if approved_other:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "EMAIL_ALREADY_VERIFIED",
+                    "message": (
+                        "This email is already linked to a verified seller account. "
+                        "Each email can only be verified once. "
+                        "If you've lost access, contact support at hello@campify.ng."
+                    ),
+                },
+            )
 
     # Reuse an existing Pending/Under Review/Rejected row for the same user
     existing = (
@@ -711,7 +757,13 @@ async def submit_seller_verification_docs(
         verification = existing
     else:
         if existing and existing.status == "Approved":
-            raise HTTPException(status_code=400, detail="You are already verified.")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "USER_ALREADY_VERIFIED",
+                    "message": "Your seller account is already verified. No resubmission needed.",
+                },
+            )
         verification = SellerVerification(
             user_id=current_user.id,
             seller_name=seller_name or current_user.display_name or current_user.username,
@@ -806,6 +858,7 @@ async def duplicate_listing(
         quantity=src.quantity,
         is_negotiable=src.is_negotiable,
         delivery_options=src.delivery_options,
+        delivery_fee=src.delivery_fee,
         duration_days=src.duration_days,
         expires_at=(datetime.utcnow() + timedelta(days=src.duration_days)) if src.duration_days else None,
         listing_status="draft",

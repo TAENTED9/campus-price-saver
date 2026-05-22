@@ -7,6 +7,7 @@ import { usePolling } from "@/hooks/usePolling";
 import { adminApi, type AdminVerification } from "@/lib/api";
 import { Store, CheckCircle, XCircle, Clock, FileText, MapPin, Tag, Mail, GraduationCap, Image as ImageIcon } from "lucide-react";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 
 type Tab = "Pending" | "Approved" | "Rejected";
 const TABS: Tab[] = ["Pending", "Approved", "Rejected"];
@@ -27,6 +28,7 @@ function wat(dateStr: string) {
 
 export default function AdminSellerVerificationsPage() {
   const { token } = useAdminAuth();
+  const { showToast } = useToast();
   const [tab, setTab] = useState<Tab>("Pending");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [approveTarget, setApproveTarget] = useState<AdminVerification | null>(null);
@@ -48,7 +50,7 @@ export default function AdminSellerVerificationsPage() {
       await adminApi.approveVerification(token, approveTarget.id);
       refetch();
       setApproveTarget(null);
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed to approve"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed to approve", "error"); }
     finally { setActionLoading(false); }
   };
 
@@ -60,7 +62,7 @@ export default function AdminSellerVerificationsPage() {
       refetch();
       setRejectTarget(null);
       setRejectReason("");
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed to reject"); }
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed to reject", "error"); }
     finally { setActionLoading(false); }
   };
 

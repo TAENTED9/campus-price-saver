@@ -4,8 +4,26 @@ All sends are fire-and-forget — failures are logged but never crash the API.
 Set RESEND_API_KEY in .env to enable. Without it, emails are skipped silently.
 """
 
+import logging
 import os
 import httpx as _httpx
+
+logger = logging.getLogger("campify")
+
+
+def _mask_email(addr: str) -> str:
+    """Reduce an email address to 'a***@d***.tld' for safe logging."""
+    if not addr or "@" not in addr:
+        return "***"
+    local, _, domain = addr.partition("@")
+    local_m = (local[:1] + "***") if local else "***"
+    dom_parts = domain.split(".")
+    if not dom_parts or not dom_parts[0]:
+        return f"{local_m}@***"
+    dom_m = dom_parts[0][:1] + "***"
+    if len(dom_parts) > 1:
+        dom_m = dom_m + "." + ".".join(dom_parts[1:])
+    return f"{local_m}@{dom_m}"
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
 APP_URL = os.getenv("APP_URL", "http://localhost:3000")
@@ -30,10 +48,11 @@ def _get_config():
 async def _send(to: str, subject: str, html: str) -> bool:
     """Low-level Resend API call. Returns True on success."""
     api_key, from_addr = _get_config()
+    masked_to = _mask_email(to)
     if not api_key:
-        print(f"[email] No RESEND_API_KEY -- skipped: {subject} -> {to}")
+        logger.info(f"[email] No RESEND_API_KEY — skipped subject='{subject}' to={masked_to}")
         return False
-    print(f"[email] Sending '{subject}' to {to} from {from_addr}")
+    logger.info(f"[email] Sending subject='{subject}' to={masked_to}")
     try:
         async with _httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -45,12 +64,18 @@ async def _send(to: str, subject: str, html: str) -> bool:
                 json={"from": from_addr, "to": [to], "subject": subject, "html": html},
             )
         if resp.status_code in (200, 201):
-            print(f"[email] Sent OK: {resp.json()}")
+            # Resend returns {"id": "..."} — log the id only, not full body.
+            msg_id = None
+            try:
+                msg_id = resp.json().get("id")
+            except Exception:
+                pass
+            logger.info(f"[email] Sent OK to={masked_to} resend_id={msg_id}")
             return True
-        print(f"[email] Resend error {resp.status_code}: {resp.text}")
+        logger.error(f"[email] Resend error status={resp.status_code} to={masked_to}")
         return False
     except Exception as e:
-        print(f"[email] Failed to send to {to}: {e}")
+        logger.error(f"[email] Send failed to={masked_to} err={type(e).__name__}")
         return False
 
 

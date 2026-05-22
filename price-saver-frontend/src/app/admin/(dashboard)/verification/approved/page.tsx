@@ -5,12 +5,16 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminVerification } from "@/lib/api";
+import PromptModal from "@/components/ui/PromptModal";
+import { useToast } from "@/components/ui/Toast";
 import { CheckCircle, ShieldOff } from "lucide-react";
 
 export default function ApprovedVerificationsPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<AdminVerification | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) router.push("/admin/signin");
@@ -19,14 +23,15 @@ export default function ApprovedVerificationsPage() {
   const fetchData = useCallback(() => adminApi.getVerifications(token!, "Approved"), [token]);
   const { data, loading, error, refetch } = usePolling<{ success: boolean; data: AdminVerification[] }>(fetchData, 30000, isAuthenticated && !!token);
 
-  const handleSuspend = async (v: AdminVerification) => {
-    const reason = window.prompt(`Suspend seller "${v.seller_name}" — reason?`);
-    if (reason === null) return;
-    setActionLoading(v.id);
+  const confirmSuspend = async (reason: string) => {
+    if (!suspendTarget) return;
+    setActionLoading(suspendTarget.id);
     try {
-      await adminApi.rejectVerification(token!, v.id, reason);
+      await adminApi.rejectVerification(token!, suspendTarget.id, reason);
+      showToast("Seller suspended", "success");
       refetch();
-    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+      setSuspendTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -73,7 +78,7 @@ export default function ApprovedVerificationsPage() {
                 <td className="px-5 py-4 text-gray-600 dark:text-gray-300">{v.business_name}</td>
                 <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{v.reviewed_at ? new Date(v.reviewed_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" }) : "—"}</td>
                 <td className="px-5 py-4">
-                  <button type="button" onClick={() => handleSuspend(v)} disabled={actionLoading === v.id} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+                  <button type="button" onClick={() => setSuspendTarget(v)} disabled={actionLoading === v.id} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50">
                     <ShieldOff size={14} /> Suspend
                   </button>
                 </td>
@@ -82,6 +87,21 @@ export default function ApprovedVerificationsPage() {
           </tbody>
         </table>
       </div>
+
+      <PromptModal
+        isOpen={!!suspendTarget}
+        onClose={() => setSuspendTarget(null)}
+        onSubmit={confirmSuspend}
+        title="Suspend Seller"
+        description={`Suspend seller "${suspendTarget?.seller_name ?? ""}". Their verification will be revoked.`}
+        label="Reason"
+        placeholder="Why is this seller being suspended?"
+        confirmLabel="Suspend"
+        variant="danger"
+        required
+        multiline
+        loading={actionLoading === suspendTarget?.id}
+      />
     </div>
   );
 }

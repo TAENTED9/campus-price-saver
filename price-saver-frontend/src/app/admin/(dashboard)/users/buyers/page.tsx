@@ -5,41 +5,58 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminUser } from "@/lib/api";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import PromptModal from "@/components/ui/PromptModal";
+import { useToast } from "@/components/ui/Toast";
 import { Users, Ban, ShieldCheck, ShieldOff } from "lucide-react";
 
 export default function BuyersPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<AdminUser | null>(null);
+  const [banTarget, setBanTarget] = useState<AdminUser | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<AdminUser | null>(null);
 
   useEffect(() => { if (!authLoading && !isAuthenticated) router.push("/admin/signin"); }, [authLoading, isAuthenticated, router]);
 
   const fetchData = useCallback(() => adminApi.getUsers(token!, "user"), [token]);
   const { data, loading, error, refetch } = usePolling<{ success: boolean; total: number; data: AdminUser[] }>(fetchData, 30000, isAuthenticated && !!token);
 
-  const handleSuspend = async (u: AdminUser) => {
-    const reason = window.prompt(`Suspend "${u.username}" — reason?`);
-    if (reason === null) return;
-    setActionLoading(u.id);
-    try { await adminApi.suspendUser(token!, u.id, { reason, hours: 24 }); refetch(); }
-    catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+  const confirmSuspend = async (reason: string) => {
+    if (!suspendTarget) return;
+    setActionLoading(suspendTarget.id);
+    try {
+      await adminApi.suspendUser(token!, suspendTarget.id, { reason, hours: 24 });
+      showToast("User suspended", "success");
+      refetch();
+      setSuspendTarget(null);
+    } catch (err) { showToast(err instanceof Error ? err.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
-  const handleBan = async (u: AdminUser) => {
-    const reason = window.prompt(`Permanently ban "${u.username}" — reason?`);
-    if (!reason) return;
-    if (!window.confirm(`Are you sure you want to permanently ban "${u.username}"?`)) return;
-    setActionLoading(u.id);
-    try { await adminApi.banUser(token!, u.id, reason); refetch(); }
-    catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+  const confirmBan = async (reason: string) => {
+    if (!banTarget) return;
+    setActionLoading(banTarget.id);
+    try {
+      await adminApi.banUser(token!, banTarget.id, reason);
+      showToast("User permanently banned", "success");
+      refetch();
+      setBanTarget(null);
+    } catch (err) { showToast(err instanceof Error ? err.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
-  const handleRestore = async (u: AdminUser) => {
-    setActionLoading(u.id);
-    try { await adminApi.restoreUser(token!, u.id); refetch(); }
-    catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+  const confirmRestore = async () => {
+    if (!restoreTarget) return;
+    setActionLoading(restoreTarget.id);
+    try {
+      await adminApi.restoreUser(token!, restoreTarget.id);
+      showToast("User restored", "success");
+      refetch();
+      setRestoreTarget(null);
+    } catch (err) { showToast(err instanceof Error ? err.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -76,10 +93,10 @@ export default function BuyersPage() {
                 <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{new Date(u.created_at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" })}</td>
                 <td className="px-5 py-4"><div className="flex gap-2">
                   {(u.is_suspended || u.is_banned) ? (
-                    <button onClick={() => handleRestore(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><ShieldCheck size={14} /> Restore</button>
+                    <button onClick={() => setRestoreTarget(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-green-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"><ShieldCheck size={14} /> Restore</button>
                   ) : (<>
-                    <button onClick={() => handleSuspend(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"><ShieldOff size={14} /> Suspend</button>
-                    <button onClick={() => handleBan(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"><Ban size={14} /> Ban</button>
+                    <button onClick={() => setSuspendTarget(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"><ShieldOff size={14} /> Suspend</button>
+                    <button onClick={() => setBanTarget(u)} disabled={actionLoading === u.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"><Ban size={14} /> Ban</button>
                   </>)}
                 </div></td>
               </tr>
@@ -87,6 +104,46 @@ export default function BuyersPage() {
           </tbody>
         </table>
       </div>
+
+      <PromptModal
+        isOpen={!!suspendTarget}
+        onClose={() => setSuspendTarget(null)}
+        onSubmit={confirmSuspend}
+        title="Suspend User"
+        description={`Suspending "${suspendTarget?.username ?? suspendTarget?.display_name ?? ""}".`}
+        label="Reason"
+        placeholder="Why is this user being suspended?"
+        confirmLabel="Suspend"
+        variant="danger"
+        multiline
+        loading={actionLoading === suspendTarget?.id}
+      />
+
+      <PromptModal
+        isOpen={!!banTarget}
+        onClose={() => setBanTarget(null)}
+        onSubmit={confirmBan}
+        title="Ban User"
+        description={`Permanently ban "${banTarget?.username ?? banTarget?.display_name ?? ""}". Their email will be blacklisted from re-registering — this cannot be undone without admin restore.`}
+        label="Reason"
+        placeholder="Why is this user being banned?"
+        confirmLabel="Ban Permanently"
+        variant="danger"
+        required
+        multiline
+        loading={actionLoading === banTarget?.id}
+      />
+
+      <ConfirmModal
+        isOpen={!!restoreTarget}
+        onClose={() => setRestoreTarget(null)}
+        onConfirm={confirmRestore}
+        title="Restore User"
+        description={`Restore access for "${restoreTarget?.username ?? restoreTarget?.display_name ?? ""}"?`}
+        confirmLabel="Restore"
+        variant="primary"
+        loading={actionLoading === restoreTarget?.id}
+      />
     </div>
   );
 }

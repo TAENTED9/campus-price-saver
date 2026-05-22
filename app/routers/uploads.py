@@ -2,12 +2,16 @@
 File upload endpoints — Cloudinary-backed.
 Requires CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in .env.
 """
+import logging
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.routers.auth import get_current_user
 from app.models import User
+from app.limiter import limiter
+
+logger = logging.getLogger("campify")
 
 router = APIRouter(prefix="/upload", tags=["uploads"])
 
@@ -15,7 +19,8 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/jpg",
     "image/gif", "image/heic", "image/heif",
 }
-MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_SIZE_BYTES = 10 * 1024 * 1024            # 10 MB — general uploads
+MAX_VERIFICATION_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB — verification docs (ID card, portal screenshot)
 
 # Magic-byte signatures for allowed formats
 _MAGIC = [
@@ -42,15 +47,15 @@ def _check_magic(data: bytes) -> bool:
     return False
 
 
-async def _validate_file(file: UploadFile) -> bytes:
+async def _validate_file(file: UploadFile, max_bytes: int = MAX_SIZE_BYTES) -> bytes:
     # Read first, then sniff — many browsers send octet-stream / wrong mime for phone photos.
     data = await file.read()
     if len(data) == 0:
         raise HTTPException(status_code=400, detail="Empty file. Please choose an image.")
-    if len(data) > MAX_SIZE_BYTES:
+    if len(data) > max_bytes:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large ({len(data) // 1024 // 1024} MB). Max size is 10 MB.",
+            detail=f"File too large ({len(data) // 1024 // 1024} MB). Max size is {max_bytes // 1024 // 1024} MB.",
         )
     if not _check_magic(data):
         ct = file.content_type or "unknown"
@@ -65,18 +70,27 @@ async def _validate_file(file: UploadFile) -> bytes:
 
 
 @router.post("/seller-id")
+@limiter.limit("10/hour")
 async def upload_seller_id(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Upload a seller's student ID card photo to Cloudinary.
-    Returns { url: "https://..." } on success.
+    Stored as a PRIVATE asset (authenticated delivery) — only admin
+    endpoints can render a signed URL for viewing.
     """
-    data = await _validate_file(file)
+    data = await _validate_file(file, max_bytes=MAX_VERIFICATION_SIZE_BYTES)
     from app.services.cloudinary_service import upload_file, save_asset_record
-    result = upload_file(data, user_id=current_user.id, folder_path="verification/id_card", public_id="id_card")
+    result = upload_file(
+        data,
+        user_id=current_user.id,
+        folder_path="verification/id_card",
+        public_id="id_card",
+        is_sensitive=True,
+    )
     if not result:
         raise HTTPException(
             status_code=503,
@@ -85,23 +99,32 @@ async def upload_seller_id(
     try:
         save_asset_record(db, current_user.id, result, "id_card")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=id_card user_id={current_user.id}")
     return {"success": True, "url": result["url"]}
 
 
 @router.post("/seller-portal")
+@limiter.limit("10/hour")
 async def upload_portal_screenshot(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Upload a seller's student portal screenshot to Cloudinary.
-    Returns { url: "https://..." } on success.
+    Stored as a PRIVATE asset (authenticated delivery) — only admin
+    endpoints can render a signed URL for viewing.
     """
-    data = await _validate_file(file)
+    data = await _validate_file(file, max_bytes=MAX_VERIFICATION_SIZE_BYTES)
     from app.services.cloudinary_service import upload_file, save_asset_record
-    result = upload_file(data, user_id=current_user.id, folder_path="verification/portal_screenshot", public_id="portal_screenshot")
+    result = upload_file(
+        data,
+        user_id=current_user.id,
+        folder_path="verification/portal_screenshot",
+        public_id="portal_screenshot",
+        is_sensitive=True,
+    )
     if not result:
         raise HTTPException(
             status_code=503,
@@ -110,12 +133,14 @@ async def upload_portal_screenshot(
     try:
         save_asset_record(db, current_user.id, result, "portal_screenshot")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=portal_screenshot user_id={current_user.id}")
     return {"success": True, "url": result["url"]}
 
 
 @router.post("/listing-photo")
+@limiter.limit("60/hour")
 async def upload_listing_photo(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -134,7 +159,7 @@ async def upload_listing_photo(
     try:
         save_asset_record(db, current_user.id, result, "listing_photo")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=listing_photo user_id={current_user.id}")
     return {"success": True, "url": result["url"]}
 
 
@@ -144,7 +169,9 @@ BANNER_HEIGHT = 480
 
 
 @router.post("/banner-slide")
+@limiter.limit("20/hour")
 async def upload_banner_slide(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -191,12 +218,14 @@ async def upload_banner_slide(
     try:
         save_asset_record(db, current_user.id, result, "banner_slide")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=banner_slide user_id={current_user.id}")
     return {"success": True, "url": result["url"]}
 
 
 @router.post("/banner")
+@limiter.limit("20/hour")
 async def upload_banner(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -220,12 +249,14 @@ async def upload_banner(
     try:
         save_asset_record(db, current_user.id, result, "banner")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=banner user_id={current_user.id}")
     return {"success": True, "url": result["url"]}
 
 
 @router.post("/review-image")
+@limiter.limit("20/hour")
 async def upload_review_image(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -249,12 +280,14 @@ async def upload_review_image(
     try:
         save_asset_record(db, current_user.id, result, "review_image")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=review_image user_id={current_user.id}")
     return {"success": True, "url": result["url"]}
 
 
 @router.post("/avatar")
+@limiter.limit("20/hour")
 async def upload_avatar(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -271,5 +304,5 @@ async def upload_avatar(
     try:
         save_asset_record(db, current_user.id, result, "avatar")
     except Exception as e:
-        print(f"[uploads] Failed to save asset record: {e}")
+        logger.error(f"[uploads] Failed to save asset record: type=avatar user_id={current_user.id}")
     return {"success": True, "url": result["url"]}

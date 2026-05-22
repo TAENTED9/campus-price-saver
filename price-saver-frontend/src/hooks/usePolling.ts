@@ -36,14 +36,15 @@ export function usePolling<T>(
   useEffect(() => {
     if (!enabled) return;
 
-    // Initial fetch
+    // Refetch immediately whenever fetchFn identity changes (e.g. filter state
+    // changed upstream). Without fetchFn in this dep array, filter changes only
+    // updated the ref and the user waited up to intervalMs for fresh data.
     refetch();
 
-    // Set up polling interval
     const interval = setInterval(refetch, intervalMs);
 
     return () => clearInterval(interval);
-  }, [refetch, intervalMs, enabled]);
+  }, [refetch, intervalMs, enabled, fetchFn]);
 
   return { data, loading, error, refetch };
 }

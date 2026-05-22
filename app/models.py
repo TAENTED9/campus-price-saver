@@ -47,7 +47,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=True)  # Made nullable for backward compat
     email_verified = Column(Boolean, default=False)
     display_name = Column(String, nullable=True)
-    role = Column(String, default="student")
+    role = Column(String, default="student", index=True)
     balance = Column(Float, default=0.0)
     seller_points = Column(Integer, default=0)          # Karma/boost points
     # Extended profile
@@ -69,22 +69,22 @@ class User(Base):
     no_show_count = Column(Integer, default=0)             # Times buyer marked no-show
     # Trust tier (derived from points + ratings + sales)
     trust_tier = Column(String, default="new_seller")      # new_seller/rising/trusted/top_seller
-    is_suspended = Column(Boolean, default=False)
-    is_banned = Column(Boolean, default=False)
+    is_suspended = Column(Boolean, default=False, index=True)
+    is_banned = Column(Boolean, default=False, index=True)
     suspended_until = timestamp_col(auto=False)
     ban_reason = Column(Text, nullable=True)
     suspension_reason = Column(Text, nullable=True)
     # ── Block 4A: account lifecycle ──────────────────────────────────────────
-    is_paused   = Column(Boolean, default=False, nullable=True)
+    is_paused   = Column(Boolean, default=False, nullable=True, index=True)
     paused_at   = timestamp_col(auto=False)
     paused_by   = Column(String, nullable=True)    # "admin" | "self"
     pause_reason = Column(String, nullable=True)
     reactivation_requested_at = timestamp_col(auto=False)
     deletion_requested_at     = timestamp_col(auto=False)
     deletion_request_reason   = Column(String, nullable=True)
-    is_deleted  = Column(Boolean, default=False, nullable=True)
+    is_deleted  = Column(Boolean, default=False, nullable=True, index=True)
     deleted_at  = timestamp_col(auto=False)
-    created_at = timestamp_col()
+    created_at = timestamp_col(index=True)
     # Block 1A — link-based email verification
     email_verify_token     = Column(String, nullable=True)
     email_verify_token_exp = timestamp_col(auto=False)
@@ -228,6 +228,7 @@ class Price(Base):
     quantity = Column(Integer, default=1)
     is_negotiable = Column(Boolean, default=False)
     delivery_options = Column(String, nullable=True)       # comma-sep: "pickup,delivery"
+    delivery_fee = Column(Float, nullable=True)            # Optional fee charged when delivery is selected (₦)
     duration_days = Column(Integer, nullable=True)         # 7 / 14 / 30
     expires_at = timestamp_col(auto=False)
     listing_status = Column(String, default="active", index=True)  # draft/active/paused/sold/expired
@@ -793,6 +794,18 @@ class BlockedUser(Base):
     blocked = relationship("User", foreign_keys=[blocked_id])
 
     __table_args__ = (UniqueConstraint("blocker_id", "blocked_id", name="uq_block"),)
+
+
+class BannedEmail(Base):
+    """Email addresses permanently blocked from registering on Campify.
+    Populated when admin bans a user — preserved even if the user row is later deleted."""
+    __tablename__ = "banned_emails"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    reason = Column(Text, nullable=True)
+    banned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    original_user_id = Column(Integer, nullable=True)
+    created_at = timestamp_col()
 
 
 # ── Section 4: Orders & Leads ─────────────────────────────────────────────

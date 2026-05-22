@@ -29,6 +29,24 @@ if IS_POSTGRES:
             RuntimeWarning,
         )
 
+    # Enforce TLS for any production Postgres (Supabase, RDS, etc.). The
+    # default sslmode in libpq is 'prefer', which silently downgrades to
+    # unencrypted on a MITM. 'require' guarantees TLS.
+    _is_production_env = os.getenv("ENVIRONMENT", "development") == "production"
+    _ssl_required = (
+        _is_production_env
+        or "supabase.co" in DATABASE_URL
+        or "supabase.com" in DATABASE_URL
+        or "pooler.supabase" in DATABASE_URL
+    )
+    _connect_args = {
+        "connect_timeout": 10,
+        "application_name": "campify",
+        "options": "-c timezone=UTC",
+    }
+    if _ssl_required and "sslmode=" not in DATABASE_URL:
+        _connect_args["sslmode"] = "require"
+
     engine = create_engine(
         DATABASE_URL,
         poolclass=QueuePool,
@@ -36,11 +54,7 @@ if IS_POSTGRES:
         max_overflow=20,
         pool_pre_ping=True,
         pool_recycle=300,
-        connect_args={
-            "connect_timeout": 10,
-            "application_name": "campify",
-            "options": "-c timezone=UTC",
-        },
+        connect_args=_connect_args,
         echo=os.getenv("DATABASE_ECHO", "false").lower() == "true",
     )
 else:
@@ -109,6 +123,16 @@ def _run_postgres_migrations():
             ON users(id, role, created_at)
             WHERE is_active = TRUE AND is_deleted = FALSE
         """)
+        # Admin user-list filter indexes (role + status combos)
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_role         ON users(role)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_is_suspended ON users(is_suspended)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_is_paused    ON users(is_paused)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_is_banned    ON users(is_banned)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_is_deleted   ON users(is_deleted)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_created_at   ON users(created_at)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_users_role_lifecycle ON users(role, is_deleted, is_suspended, is_paused, is_banned)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_seller_verifs_status ON seller_verifications(status, submitted_at DESC)")
+        _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_seller_verifs_user   ON seller_verifications(user_id)")
 
         # Partial indexes — prices (local table name; listings alias added when table exists)
         _pg_try(conn, """
@@ -333,6 +357,21 @@ def _run_sqlite_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_notifs_user_read   ON notifications(user_id, is_read, created_at)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_wishlist_user      ON wishlists(user_id, listing_id)"))
 
+        # ── Admin user-list filter indexes (added so role + status filter
+        # combinations stay fast at 10k+ users) ──────────────────────────
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_role          ON users(role)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_is_suspended  ON users(is_suspended)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_is_paused     ON users(is_paused)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_is_banned     ON users(is_banned)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_is_deleted    ON users(is_deleted)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_created_at    ON users(created_at)"))
+        # Composite for the most common admin filter combo (role + lifecycle).
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_role_lifecycle ON users(role, is_deleted, is_suspended, is_paused, is_banned)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_email_lower    ON users(email)"))
+        # Seller verification status filter on admin/seller page.
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_seller_verifs_status ON seller_verifications(status, submitted_at DESC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_seller_verifs_user   ON seller_verifications(user_id)"))
+
         # ── Conversations / direct_messages tables ────────────────────────
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS conversations (
@@ -442,6 +481,8 @@ def _apply_migrations(eng) -> None:
         ("inquiries", "label",                   "TEXT"),
         # Vacation mode — track which listings were paused by vacation vs manually
         ("prices", "paused_by_vacation",         "INTEGER DEFAULT 0"),
+        # Optional delivery fee charged when delivery is among the listing's options
+        ("prices", "delivery_fee",               "FLOAT"),
         # Messages — conversation UUID + automated message flag
         ("conversations",   "uuid",              "TEXT"),
         ("direct_messages", "is_automated",      "INTEGER DEFAULT 0"),

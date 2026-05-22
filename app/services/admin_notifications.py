@@ -63,7 +63,10 @@ async def notify_admin(
             send_email.delay(to=ADMIN_EMAIL, subject=subject, body=body)
         except Exception as e:
             # Celery broker unavailable — log but never break the request
-            print(f"[admin_notifications] enqueue admin email failed: {e}")
+            import logging as _lg
+            _lg.getLogger("campify").error(
+                f"[admin_notifications] enqueue admin email failed: {type(e).__name__}"
+            )
 
     return event
 
@@ -84,7 +87,11 @@ async def send_user_email_bg(to: str, subject: str, body: str):
         send_email.delay(to=to, subject=subject, body=body)
     except Exception as e:
         # Broker down — log, don't crash the caller.
-        print(f"[admin_notifications] enqueue user email failed to {to}: {e}")
+        import logging as _lg
+        from app.services.email import _mask_email as _m
+        _lg.getLogger("campify").error(
+            f"[admin_notifications] enqueue user email failed to={_m(to)} err={type(e).__name__}"
+        )
 
 
 # ── Internal helpers ────────────────────────────────────────────────────

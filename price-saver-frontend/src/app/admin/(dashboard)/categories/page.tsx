@@ -5,15 +5,19 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, AdminCategory } from "@/lib/api";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import { useToast } from "@/components/ui/Toast";
 import { Tags, Plus, Pencil, Trash2, X } from "lucide-react";
 
 export default function CategoriesPage() {
   const { token, isAuthenticated, isLoading: authLoading } = useAdminAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: "", description: "", icon: "" });
+  const [deleteTarget, setDeleteTarget] = useState<AdminCategory | null>(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) router.push("/admin/signin");
@@ -36,7 +40,7 @@ export default function CategoriesPage() {
       }
       refetch();
       resetForm();
-    } catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+    } catch (err) { showToast(err instanceof Error ? err.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -46,10 +50,16 @@ export default function CategoriesPage() {
     setShowForm(true);
   };
 
-  const handleDelete = async (c: AdminCategory) => {
-    if (!window.confirm(`Delete category "${c.name}"? Listings in this category will become uncategorized.`)) return;
-    setActionLoading(c.id);
-    try { await adminApi.deleteCategory(token!, c.id); refetch(); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setActionLoading(id);
+    try {
+      await adminApi.deleteCategory(token!, id);
+      showToast("Category deleted", "success");
+      refetch();
+      setDeleteTarget(null);
+    } catch (e) { showToast(e instanceof Error ? e.message : "Failed", "error"); }
     finally { setActionLoading(null); }
   };
 
@@ -116,7 +126,7 @@ export default function CategoriesPage() {
                     <button type="button" onClick={() => handleEdit(c)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
                       <Pencil size={12} /> Edit
                     </button>
-                    <button type="button" onClick={() => handleDelete(c)} disabled={actionLoading === c.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50">
+                    <button type="button" onClick={() => setDeleteTarget(c)} disabled={actionLoading === c.id} className="inline-flex items-center gap-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50">
                       <Trash2 size={12} /> Delete
                     </button>
                   </div>
@@ -126,6 +136,17 @@ export default function CategoriesPage() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Delete Category"
+        description={`Delete category "${deleteTarget?.name ?? ""}"? Listings in this category will become uncategorized.`}
+        confirmLabel="Delete"
+        variant="danger"
+        loading={actionLoading === deleteTarget?.id}
+      />
     </div>
   );
 }

@@ -13,11 +13,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Badge from "@/components/ui/badge/Badge";
+import ConfirmModal from "@/components/ui/ConfirmModal";
+import PromptModal from "@/components/ui/PromptModal";
+import { useToast } from "@/components/ui/Toast";
 import { CheckCircle, XCircle, Clock, UserCheck } from "lucide-react";
 
 export default function PendingQueuePage() {
   const { token } = useAdminAuth();
+  const { showToast } = useToast();
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [approveTarget, setApproveTarget] = useState<AdminVerification | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<AdminVerification | null>(null);
 
   const { data, loading, error, refetch } = usePolling(
     () => adminApi.getVerifications(token!, "Pending"),
@@ -27,27 +33,33 @@ export default function PendingQueuePage() {
 
   const verifications: AdminVerification[] = data?.data ?? [];
 
-  const handleApprove = async (id: number, sellerName: string) => {
-    if (!window.confirm(`Approve verification for "${sellerName}"?`)) return;
+  const confirmApprove = async () => {
+    if (!approveTarget) return;
+    const id = approveTarget.id;
     setActionLoading(id);
     try {
       await adminApi.approveVerification(token!, id);
+      showToast("Verification approved", "success");
       await refetch();
+      setApproveTarget(null);
     } catch {
-      alert("Failed to approve verification. Please try again.");
+      showToast("Failed to approve verification. Please try again.", "error");
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleReject = async (id: number, sellerName: string) => {
-    if (!window.confirm(`Reject verification for "${sellerName}"?`)) return;
+  const confirmReject = async (reason: string) => {
+    if (!rejectTarget) return;
+    const id = rejectTarget.id;
     setActionLoading(id);
     try {
-      await adminApi.rejectVerification(token!, id);
+      await adminApi.rejectVerification(token!, id, reason || undefined);
+      showToast("Verification rejected", "success");
       await refetch();
+      setRejectTarget(null);
     } catch {
-      alert("Failed to reject verification. Please try again.");
+      showToast("Failed to reject verification. Please try again.", "error");
     } finally {
       setActionLoading(null);
     }
@@ -173,7 +185,7 @@ export default function PendingQueuePage() {
                         <button
                           type="button"
                           disabled={actionLoading === v.id}
-                          onClick={() => handleApprove(v.id, v.seller_name)}
+                          onClick={() => setApproveTarget(v)}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-success-50 border border-success-200 px-3 py-1.5 text-theme-xs font-medium text-success-700 hover:bg-success-100 dark:border-success-500/30 dark:bg-success-500/10 dark:text-success-400 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <CheckCircle className="h-3.5 w-3.5" />
@@ -182,7 +194,7 @@ export default function PendingQueuePage() {
                         <button
                           type="button"
                           disabled={actionLoading === v.id}
-                          onClick={() => handleReject(v.id, v.seller_name)}
+                          onClick={() => setRejectTarget(v)}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-error-50 border border-error-200 px-3 py-1.5 text-theme-xs font-medium text-error-700 hover:bg-error-100 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-400 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <XCircle className="h-3.5 w-3.5" />
@@ -197,6 +209,31 @@ export default function PendingQueuePage() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={!!approveTarget}
+        onClose={() => setApproveTarget(null)}
+        onConfirm={confirmApprove}
+        title="Approve Verification"
+        description={`Approve verification for "${approveTarget?.seller_name ?? ""}"? They will gain seller access immediately.`}
+        confirmLabel="Approve"
+        variant="primary"
+        loading={actionLoading === approveTarget?.id}
+      />
+
+      <PromptModal
+        isOpen={!!rejectTarget}
+        onClose={() => setRejectTarget(null)}
+        onSubmit={confirmReject}
+        title="Reject Verification"
+        description={`Rejecting "${rejectTarget?.seller_name ?? ""}". They can resubmit afterward.`}
+        label="Rejection reason (optional)"
+        placeholder="e.g. Document is unclear, please resubmit"
+        confirmLabel="Reject"
+        variant="danger"
+        multiline
+        loading={actionLoading === rejectTarget?.id}
+      />
     </div>
   );
 }

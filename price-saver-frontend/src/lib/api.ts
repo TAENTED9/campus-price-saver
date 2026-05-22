@@ -252,10 +252,22 @@ export const authApi = {
       method: "POST",
     }),
 
-  refresh: () =>
-    request<{ access_token: string; token_type: string; settings?: import("@/lib/settingsApi").UserSettingsData }>("/api/auth/refresh", {
-      method: "POST",
-    }),
+  // Dedupe concurrent calls. Two contexts (AuthContext + AdminAuthContext)
+  // can mount at the same time, and React StrictMode in dev runs the boot
+  // effect twice — without this mutex, the second call hits the backend
+  // after the first has already rotated/revoked the refresh token, which
+  // trips token-theft detection and wipes ALL the user's refresh tokens.
+  refresh: (() => {
+    let inFlight: Promise<{ access_token: string; token_type: string; settings?: import("@/lib/settingsApi").UserSettingsData }> | null = null;
+    return () => {
+      if (inFlight) return inFlight;
+      inFlight = request<{ access_token: string; token_type: string; settings?: import("@/lib/settingsApi").UserSettingsData }>(
+        "/api/auth/refresh",
+        { method: "POST" },
+      ).finally(() => { inFlight = null; });
+      return inFlight;
+    };
+  })(),
 
   mfaVerify: (temp_token: string, code: string) =>
     request<{ success: boolean; access_token: string; token_type: string; backup_used: boolean; remaining_backup_codes: number }>("/api/auth/mfa/verify", {
@@ -455,6 +467,7 @@ export type ListingDetail = {
   quantity: number;
   is_negotiable: boolean;
   delivery_options?: string | null;
+  delivery_fee?: number | null;
   photos: string[];
   status: string;
   listing_status: string;
@@ -908,6 +921,7 @@ export type SellerListing = {
   quantity: number;
   is_negotiable: boolean;
   delivery_options?: string | null;
+  delivery_fee?: number | null;
   duration_days?: number | null;
   expires_at?: string | null;
   photos: string[];
@@ -1274,6 +1288,7 @@ export type AdminListingDetail = AdminListing & {
   quantity: number | null;
   is_negotiable: boolean | null;
   delivery_options: string | null;
+  delivery_fee?: number | null;
   subcategory: string | null;
   photos: string[];
   listing_status: string | null;
@@ -1389,6 +1404,7 @@ export type AdminUserSummary = {
   role: string;
   avatar_url: string | null;
   is_paused: boolean;
+  is_suspended?: boolean;
   is_deleted: boolean;
   is_banned: boolean;
   created_at: string | null;
@@ -1414,7 +1430,9 @@ export type AdminUserDetail = {
   is_deleted: boolean;
   deleted_at: string | null;
   is_banned: boolean;
+  ban_reason: string | null;
   is_suspended: boolean;
+  suspension_reason: string | null;
   deletion_requested_at: string | null;
   deletion_request_reason: string | null;
   reactivation_requested_at: string | null;
@@ -1432,9 +1450,15 @@ export type AdminUserDetail = {
     status: string;
     seller_name: string;
     matric_no: string;
+    faculty: string | null;
+    business_name: string | null;
+    business_category: string | null;
+    pickup_location: string | null;
     document_url: string | null;
     portal_screenshot_url: string | null;
+    admin_notes: string | null;
     submitted_at: string | null;
+    reviewed_at: string | null;
   } | null;
   cloudinary_assets: {
     id: number;
@@ -1670,11 +1694,13 @@ export const adminApi = {
       headers: authHeaders(token),
     }),
 
-  // Verifications
+  // Verifications. Backend accepts both /verification and /verification/
+  // and both `?status` and `?status_filter`, plus a case-insensitive match.
   getVerifications: (token: string, status?: string) =>
-    request<{ success: boolean; data: AdminVerification[] }>(`/api/admin/verification${status ? `?status_filter=${status}` : ""}`, {
-      headers: authHeaders(token),
-    }),
+    request<{ success: boolean; data: AdminVerification[] }>(
+      `/api/admin/verification/${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+      { headers: authHeaders(token) },
+    ),
 
   approveVerification: (token: string, id: number) =>
     request<{ success: boolean; message: string }>(`/api/admin/verification/${id}/approve`, {
