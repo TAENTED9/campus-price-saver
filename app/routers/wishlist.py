@@ -167,6 +167,28 @@ def notify_restock(db: Session, listing: Price):
             )
 
 
+def notify_listing_sold(db: Session, listing: Price):
+    """In-app notification to everyone who wishlisted a listing that just sold.
+    Quieter than restock: no email blast, just a soft notification so buyers
+    know the item won't return to the marketplace under this listing id.
+    """
+    wishers = db.query(Wishlist).filter(Wishlist.listing_id == listing.id).all()
+    buyer_ids = [w.user_id for w in wishers]
+    if not buyer_ids:
+        return
+    buyers = {u.id: u for u in db.query(User).filter(User.id.in_(buyer_ids)).all()}
+    for w in wishers:
+        buyer = buyers.get(w.user_id)
+        if not buyer:
+            continue
+        _push_notification(
+            db, buyer.id, "listing_sold",
+            f"'{listing.name}' has been sold",
+            "A listing you saved is no longer available. We've kept it in your wishlist so you can see it was sold.",
+            related_id=listing.id, related_type="Listing",
+        )
+
+
 def notify_new_listing(db: Session, listing: Price, seller: User):
     """Send email + in-app notification to seller's followers when they post a new listing."""
     followers = db.query(Follow).filter(Follow.seller_id == seller.id).all()

@@ -7,11 +7,71 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { listingApi, storefrontApi, wishlistApi, type ListingDetail, type FollowStatus } from "@/lib/api";
 import { messageApi } from "@/lib/messageApi";
-import { optimizeImage, thumbnailImage } from "@/lib/cloudinary";
+import { optimizeImage, thumbnailImage, cloudinaryVideoSrc } from "@/lib/cloudinary";
 import { formatPrice } from "@/lib/formatPrice";
-import { Heart, Flag, Eye, MapPin, Package, Truck, ChevronRight, ArrowLeft, X, Star, ShieldCheck, MessageCircle, Award, Check, CheckCircle2 } from "lucide-react";
+import { Heart, Flag, Eye, Package, Truck, ChevronRight, ArrowLeft, X, Star, ShieldCheck, MessageCircle, Award, Check, CheckCircle2, Play, Maximize2 } from "lucide-react";
+
+// Block 5: Cloudinary video URLs can be transformed to a JPG thumbnail of the
+// first frame by swapping the extension. Used for the gallery strip so videos
+// read as recognizable thumbnails (with a play-icon overlay) rather than blank
+// black tiles.
+function cloudinaryVideoThumb(videoUrl: string): string | null {
+  if (!videoUrl || !videoUrl.includes("/video/upload/")) return null;
+  const lower = videoUrl.toLowerCase();
+  for (const ext of [".mp4", ".mov", ".webm", ".m4v"]) {
+    if (lower.endsWith(ext)) return videoUrl.slice(0, -ext.length) + ".jpg";
+  }
+  return null;
+}
+
+// Map file extension → MIME type for the <source type=...> attribute.
+// Some CDNs (and dev servers) return generic Content-Type headers for video
+// files, which can cause Chrome to drop the load. Declaring the type on
+// <source> tells the browser exactly which codec to expect, sidestepping
+// that whole class of "blank player" bugs.
+function videoMimeType(url: string): string {
+  const lower = url.toLowerCase().split("?")[0];
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov") || lower.endsWith(".m4v")) return "video/quicktime";
+  return "video/mp4"; // default — covers .mp4 and Cloudinary URLs with no extension
+}
+
+// Shared play()-with-click-fallback. If the browser blocks autoplay (e.g.
+// strict mobile policy), we attach a one-shot document click listener that
+// kicks playback off on the user's next tap — matches the user's expected
+// "tap anywhere to play" mental model without spamming the console.
+function tryAutoplayWithFallback(v: HTMLVideoElement) {
+  v.muted = true;
+  const p = v.play();
+  if (!p || typeof p.catch !== "function") return;
+  p.catch(() => {
+    const resume = () => { v.play().catch(() => {}); };
+    document.addEventListener("click", resume, { once: true });
+    document.addEventListener("touchstart", resume, { once: true, passive: true });
+  });
+}
+
+// Extension-based check used by the carousel state machine: strip query
+// params first so Cloudinary cache-bust suffixes don't fool us, then match
+// the canonical video extensions case-insensitively.
+function isVideoUrl(url?: string): boolean {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return (
+    clean.endsWith(".mp4") ||
+    clean.endsWith(".webm") ||
+    clean.endsWith(".mov") ||
+    clean.endsWith(".m4v") ||
+    clean.endsWith(".m3u8")
+  );
+}
+
+type GalleryItem =
+  | { kind: "photo"; url: string }
+  | { kind: "video"; url: string; thumbUrl: string | null };
 import { InterestButton } from "@/components/marketplace/InterestButton";
 import { ReviewsSection } from "@/components/reviews/ReviewsSection";
+import { LocationDisplay } from "@/components/locations/LocationDisplay";
 
 function Initials({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const letters = name.trim().slice(0, 2).toUpperCase();
@@ -63,7 +123,15 @@ export default function ListingDetailPage() {
   const [listing, setListing] = useState<ListingDetail | null>(null);
   const [similar, setSimilar] = useState<ListingDetail[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mainPhoto, setMainPhoto] = useState(0);
+
+  // ── Gallery state machine ──────────────────────────────────────────────
+  // Mirrors the proven carousel pattern: a master autoplay toggle, an index
+  // pointer into the unified media array, and a "video is playing" flag that
+  // hard-locks the carousel for the duration of playback. Each state has a
+  // single owner — no derived state that could drift out of sync.
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isGalleryAutoPlaying, setIsGalleryAutoPlaying] = useState(true);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   const [wishlisted, setWishlisted] = useState(false);
   const [wishlistLoading, setWishlistLoading] = useState(false);
@@ -82,6 +150,10 @@ export default function ListingDetailPage() {
   const [sendingReport, setSendingReport] = useState(false);
   const [reportSent, setReportSent] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+
+  // Video viewer (lightbox) — opens a fullscreen player with sound when
+  // the user taps the autoplaying muted preview.
+  const [videoViewerUrl, setVideoViewerUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -115,6 +187,85 @@ export default function ListingDetailPage() {
     storefrontApi.getFollowStatus(token, listing.seller.id).then(setFollowState).catch(() => {});
     wishlistApi.status(token, listing.id).then((r) => setWishlisted(r.wishlisted)).catch(() => {});
   }, [token, listing?.seller?.id, listing?.id]);
+
+  // ── Gallery autoplay interval ──────────────────────────────────────────
+  // Master gate. The interval only runs when:
+  //   • autoplay master toggle is on (paused by manual nav / video play)
+  //   • current item is NOT a video (videos own their own timeline)
+  //   • there's more than one media item (single-item gallery has no rotation)
+  //
+  // Each tick advances the index, skipping over any videos in the array so
+  // the carousel never silently auto-plays a video. The do-while bounds at
+  // `maxLoops` so an all-video media set just freezes on the first item
+  // instead of infinite-looping.
+  const galleryMediaLen =
+    (listing?.photos?.length ?? 0) + (listing?.videos?.length ?? 0);
+  const galleryMediaUrls: string[] = listing
+    ? [...(listing.photos ?? []), ...(listing.videos ?? [])]
+    : [];
+  const isCurrentMediaVideo = isVideoUrl(galleryMediaUrls[currentImageIndex]);
+
+  useEffect(() => {
+    // Gate the interval on every condition that means "do not advance":
+    // master toggle off, the current slot is a video, the video element
+    // reports it is actively playing, or there's nothing to rotate to.
+    if (
+      !isGalleryAutoPlaying ||
+      isCurrentMediaVideo ||
+      isVideoPlaying ||
+      galleryMediaLen <= 1
+    ) {
+      return;
+    }
+    const id = setInterval(() => {
+      setCurrentImageIndex((prev) => {
+        let next = prev;
+        const max = galleryMediaLen;
+        let loops = 0;
+        do {
+          next = (next + 1) % galleryMediaLen;
+          loops++;
+          if (loops >= max) break;
+        } while (isVideoUrl(galleryMediaUrls[next]) && loops < max);
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(id);
+    // Re-bind the interval whenever any of the gate inputs change so the
+    // closure can't hold a stale `galleryMediaUrls` reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGalleryAutoPlaying, isCurrentMediaVideo, isVideoPlaying, galleryMediaLen]);
+
+  // Manual thumbnail click → immediate pause; if the user landed on an
+  // image, resume autoplay 10s later. Returns a cleanup so rapid double-
+  // clicks don't leave ghost timers behind.
+  const handleManualImageChange = (newIndex: number) => {
+    setIsGalleryAutoPlaying(false);
+    setCurrentImageIndex(newIndex);
+    const targetIsVideo = isVideoUrl(galleryMediaUrls[newIndex]);
+    setIsVideoPlaying(targetIsVideo);
+    if (!targetIsVideo) {
+      const t = setTimeout(() => setIsGalleryAutoPlaying(true), 10000);
+      return () => clearTimeout(t);
+    }
+  };
+
+  // Used by video.onEnded — advance to the next media slot, then let the
+  // interval pick back up.
+  const handleNextImage = () => {
+    setCurrentImageIndex((prev) =>
+      galleryMediaLen > 0 ? (prev + 1) % galleryMediaLen : 0,
+    );
+  };
+
+  // If the underlying listing reloads (e.g. navigation between two listing
+  // pages on the same component instance) reset the carousel so we don't
+  // try to render index 7 of a 3-item gallery.
+  useEffect(() => {
+    setCurrentImageIndex(0);
+    setIsGalleryAutoPlaying(true);
+    setIsVideoPlaying(false);
+  }, [listing?.id]);
 
   async function toggleWishlist() {
     if (!token) { router.push("/signin"); return; }
@@ -218,6 +369,22 @@ export default function ListingDetailPage() {
   }
 
   const photos = listing.photos?.length ? listing.photos : [];
+  const videos = listing.videos?.length ? listing.videos : [];
+  // Block 5: unified media array — photos first (in upload order), videos
+  // after. The seller's chosen cover (photo #1) stays the default main item;
+  // listings with no photos fall back to the first video as the main item.
+  const media: GalleryItem[] = [
+    ...photos.map((url) => ({ kind: "photo" as const, url })),
+    ...videos.map((url) => ({
+      kind: "video" as const,
+      url,
+      thumbUrl: cloudinaryVideoThumb(url),
+    })),
+  ];
+  // The state machine owns `currentImageIndex`. Fall back to slot 0 if the
+  // index is somehow out of range (e.g. after a listing swap that didn't
+  // trigger the reset effect yet).
+  const activeItem = media[currentImageIndex] ?? media[0] ?? null;
   const seller = listing.seller;
   const deliveryParts = listing.delivery_options?.split(",") ?? [];
 
@@ -232,27 +399,126 @@ export default function ListingDetailPage() {
 
         {/* Main grid */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-          {/* Left — Photos + Description */}
+          {/* Left — Unified media gallery + description */}
           <div className="lg:col-span-3 space-y-4">
-            {/* Main photo */}
+            {/* Main viewer — photo OR video. Tapping a thumbnail below swaps this. */}
             <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-accent-500/10 dark:from-brand-500/10 dark:to-accent-500/5 relative flex items-center justify-center">
-              {photos.length > 0
-                ? <Image src={optimizeImage(photos[mainPhoto], 800)} alt={listing.name} fill sizes="(max-width: 768px) 100vw, 800px" className="object-cover" />
-                : <span className="text-7xl font-black text-brand-200 dark:text-brand-800">
-                    {listing.name.charAt(0).toUpperCase()}
-                  </span>
-              }
-            </div>
-            {/* Thumbnails */}
-            {photos.length > 1 && (
-              <div className="flex gap-2">
-                {photos.map((url, i) => (
-                  <button key={i} type="button" title={`Photo ${i + 1}`}
-                    onClick={() => setMainPhoto(i)}
-                    className={`w-16 h-16 rounded-xl overflow-hidden border-2 transition-colors ${mainPhoto === i ? "border-brand-500" : "border-transparent"}`}>
-                    <Image src={thumbnailImage(url, 80)} alt={`Thumbnail ${i + 1}`} width={64} height={64} className="w-full h-full object-cover" />
+              {activeItem?.kind === "photo" && (
+                <Image
+                  src={optimizeImage(activeItem.url, 800)}
+                  alt={listing.name}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 800px"
+                  className="object-cover"
+                />
+              )}
+              {activeItem?.kind === "video" && (
+                <>
+                  <video
+                    key={activeItem.url}
+                    poster={cloudinaryVideoThumb(activeItem.url) ?? undefined}
+                    autoPlay
+                    muted
+                    playsInline
+                    controls
+                    preload="auto"
+                    className="absolute inset-0 w-full h-full object-contain bg-black"
+                    onLoadedMetadata={(e) => {
+                      // React's `muted` JSX prop doesn't always reflect onto
+                      // the DOM node before the browser evaluates autoplay
+                      // policy. Force it on the actual element here.
+                      e.currentTarget.muted = true;
+                      e.currentTarget.defaultMuted = true;
+                    }}
+                    onCanPlay={(e) => tryAutoplayWithFallback(e.currentTarget)}
+                    // Video playback owns the gallery: hard-lock the carousel
+                    // while the user is watching so it doesn't slide out from
+                    // under them mid-frame.
+                    onPlay={() => {
+                      setIsVideoPlaying(true);
+                      setIsGalleryAutoPlaying(false);
+                    }}
+                    onPause={() => setIsVideoPlaying(false)}
+                    // Video finished naturally → release the lock, advance to
+                    // the next media item, resume the carousel.
+                    onEnded={() => {
+                      setIsVideoPlaying(false);
+                      handleNextImage();
+                      setIsGalleryAutoPlaying(true);
+                    }}
+                  >
+                    {/* Explicit <source> + MIME type tells the browser exactly
+                        what codec to expect, even if the CDN returns a generic
+                        Content-Type header. Eliminates the "blank player"
+                        failure mode on Chrome when MIME sniffing falls back. */}
+                    <source src={cloudinaryVideoSrc(activeItem.url)} type={videoMimeType(cloudinaryVideoSrc(activeItem.url))} />
+                    Your browser does not support inline video playback.
+                  </video>
+                  {/* Expand to fullscreen viewer — sits on top of native
+                      controls, deliberately small + top-right so it doesn't
+                      cover the control bar. */}
+                  <button
+                    type="button"
+                    title="View video fullscreen"
+                    onClick={() => setVideoViewerUrl(activeItem.url)}
+                    className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-black/55 hover:bg-black/75 flex items-center justify-center text-white transition-colors"
+                  >
+                    <Maximize2 size={16} />
                   </button>
-                ))}
+                </>
+              )}
+              {!activeItem && (
+                <span className="text-7xl font-black text-brand-200 dark:text-brand-800">
+                  {listing.name.charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+
+            {/* Unified thumbnail strip — photos + videos together, scrolls
+                horizontally on mobile, wraps on desktop. Videos show a
+                play-icon overlay so the kind is obvious before tapping. */}
+            {media.length > 1 && (
+              <div className="flex md:flex-wrap gap-2 overflow-x-auto md:overflow-visible -mx-1 px-1 pb-1">
+                {media.map((item, i) => {
+                  const isActive = currentImageIndex === i;
+                  return (
+                    <button
+                      key={`${item.kind}-${item.url}`}
+                      type="button"
+                      title={item.kind === "video" ? `Video ${i + 1}` : `Photo ${i + 1}`}
+                      onClick={() => handleManualImageChange(i)}
+                      className={`relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-colors ${isActive ? "border-brand-500" : "border-transparent"}`}
+                    >
+                      {item.kind === "photo" ? (
+                        <Image
+                          src={thumbnailImage(item.url, 80)}
+                          alt={`Thumbnail ${i + 1}`}
+                          width={64}
+                          height={64}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : item.thumbUrl ? (
+                        <Image
+                          src={item.thumbUrl}
+                          alt={`Video thumbnail ${i + 1}`}
+                          width={64}
+                          height={64}
+                          className="w-full h-full object-cover bg-black"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-black" />
+                      )}
+                      {item.kind === "video" && (
+                        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <span className="w-6 h-6 rounded-full bg-black/60 flex items-center justify-center">
+                            <Play size={10} className="fill-white text-white" />
+                          </span>
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
@@ -294,6 +560,18 @@ export default function ListingDetailPage() {
                 )}
               </div>
 
+              {/* Brand + pack info — only renders when the seller filled them in */}
+              {(listing.brand || listing.pack_size || listing.pack_unit) && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  {listing.brand && (
+                    <span><span className="text-gray-400">Brand</span> <span className="font-semibold text-gray-800 dark:text-white/90">{listing.brand}</span></span>
+                  )}
+                  {(listing.pack_size || listing.pack_unit) && (
+                    <span><span className="text-gray-400">Pack</span> <span className="font-semibold text-gray-800 dark:text-white/90">{[listing.pack_size, listing.pack_unit].filter(Boolean).join(" ")}</span></span>
+                  )}
+                </div>
+              )}
+
               {/* Meta */}
               <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
                 {listing.quantity > 1 && (
@@ -302,11 +580,12 @@ export default function ListingDetailPage() {
                     <span>{listing.quantity} available</span>
                   </div>
                 )}
-                {listing.location && (
-                  <div className="flex items-center gap-2">
-                    <MapPin size={14} className="text-gray-400" />
-                    <span>{listing.location}</span>
-                  </div>
+                {(listing.location || (listing.locations && listing.locations.length > 0)) && (
+                  <LocationDisplay
+                    primaryLocation={listing.location}
+                    locations={listing.locations}
+                    className="py-1"
+                  />
                 )}
                 {deliveryParts.length > 0 && (
                   <div className="flex items-center gap-2">
@@ -512,6 +791,31 @@ export default function ListingDetailPage() {
             </div>
           )}
         </Modal>
+      )}
+
+      {/* Fullscreen video viewer */}
+      {videoViewerUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+          onClick={() => setVideoViewerUrl(null)}
+        >
+          <button
+            type="button"
+            title="Close"
+            onClick={() => setVideoViewerUrl(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+          <video
+            src={cloudinaryVideoSrc(videoViewerUrl)}
+            autoPlay
+            controls
+            playsInline
+            className="max-w-full max-h-full rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </>
   );

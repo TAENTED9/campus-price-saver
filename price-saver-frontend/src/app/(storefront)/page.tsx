@@ -8,18 +8,19 @@ import FlashSalesSection from "@/components/storefront/FlashSalesSection";
 import FeaturedSection from "@/components/storefront/FeaturedSection";
 import TrendingSection from "@/components/storefront/TrendingSection";
 import NewArrivalsSection from "@/components/storefront/NewArrivalsSection";
-import NearbySellersSection from "@/components/storefront/NearbySellersSection";
+import FindNearbySellersSection from "@/components/storefront/FindNearbySellersSection";
 import FeaturedSellersSection from "@/components/storefront/FeaturedSellersSection";
 import RecentlyViewedSection from "@/components/storefront/RecentlyViewedSection";
 import HowItWorks from "@/components/marketplace/HowItWorks";
 import HomepageAnnouncements from "@/components/storefront/HomepageAnnouncements";
 import StickyBottomCTA from "@/components/storefront/StickyBottomCTA";
 import GuestOnlyBlock from "@/components/storefront/GuestOnlyBlock";
+import { SupportSection } from "@/components/support/SupportSection";
 
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Campify — UNILAG Campus Marketplace",
+  title: "Campify - UNILAG Campus Marketplace",
   description:
     "Buy and sell within the UNILAG community. Find phones, clothes, textbooks, food, and more from verified student sellers.",
   keywords: [
@@ -30,14 +31,14 @@ export const metadata: Metadata = {
     "Campify Nigeria",
   ],
   openGraph: {
-    title: "Campify — UNILAG Campus Marketplace",
+    title: "Campify - UNILAG Campus Marketplace",
     description:
       "Buy and sell within the UNILAG community. Verified student sellers, fair prices, fast meetups.",
-    url: "https://campify.ng",
+    url: "https://campify.digital",
     siteName: "Campify",
     images: [
       {
-        url: "https://campify.ng/og-image.png",
+        url: "https://campify.digital/og-image.png",
         width: 1200,
         height: 630,
         alt: "Campify Campus Marketplace",
@@ -48,12 +49,12 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Campify — UNILAG Campus Marketplace",
+    title: "Campify - UNILAG Campus Marketplace",
     description: "Buy and sell within the UNILAG community.",
-    images: ["https://campify.ng/og-image.png"],
+    images: ["https://campify.digital/og-image.png"],
   },
   alternates: {
-    canonical: "https://campify.ng",
+    canonical: "https://campify.digital",
   },
   robots: {
     index: true,
@@ -77,6 +78,8 @@ export default function HomePage() {
 
       {/* 1C - Category Grid */}
       <CategoriesSection />
+
+      {/* Shop by pickup zone — shortcut into /search?locations=… */}
 
       {/* 1D - Flash Sales (only shows if active) */}
       <FlashSalesSection />
@@ -115,7 +118,7 @@ export default function HomePage() {
       <FeaturedSection />
 
       {/* Nearby Sellers */}
-      <NearbySellersSection />
+      <FindNearbySellersSection />
 
       {/* 1I - Recently Viewed (auth-gated) */}
       <RecentlyViewedSection />
@@ -156,6 +159,9 @@ export default function HomePage() {
 
       {/* 1J - Sticky Bottom CTA (mobile only) */}
       <StickyBottomCTA />
+
+      {/* Support banner — sits just above the storefront Footer */}
+      <SupportSection variant="banner" />
 
       {/* Extra bottom padding on mobile so content isn't hidden behind sticky CTA */}
       <div className="h-16 md:hidden" />

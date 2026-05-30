@@ -67,7 +67,7 @@ export async function generateMetadata(
       images: photo ? [photo] : [],
     },
     alternates: listing.uuid
-      ? { canonical: `https://campify.ng/listing/${listing.uuid}` }
+      ? { canonical: `https://campify.digital/listing/${listing.uuid}` }
       : undefined,
   };
 }

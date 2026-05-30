@@ -56,16 +56,54 @@ class FlashSaleUpdateBody(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _cloudinary_video_thumb(video_url: str) -> str | None:
+    """
+    Cloudinary auto-generates a JPG thumbnail of the first frame when you
+    swap the extension. Works for any video uploaded with resource_type='video'.
+
+    e.g.  .../video/upload/v123/listings/videos/abc.mp4
+       →  .../video/upload/v123/listings/videos/abc.jpg
+    """
+    if not video_url or "/video/upload/" not in video_url:
+        return None
+    for ext in (".mp4", ".mov", ".webm", ".m4v"):
+        if video_url.lower().endswith(ext):
+            return video_url[: -len(ext)] + ".jpg"
+    return None
+
+
 def _sale_dict(sale: FlashSale) -> dict:
     """Serialize a FlashSale to a response dict including joined listing fields."""
     item = sale.price_item
-    first_photo = None
+    photos: list[str] = []
+    videos: list[str] = []
     if item and item.photos:
         try:
-            photos = _json.loads(item.photos)
-            first_photo = photos[0] if photos else None
+            parsed = _json.loads(item.photos)
+            if isinstance(parsed, list):
+                photos = [p for p in parsed if isinstance(p, str)]
         except Exception:
             pass
+    if item and item.videos:
+        try:
+            parsed = _json.loads(item.videos)
+            if isinstance(parsed, list):
+                videos = [v for v in parsed if isinstance(v, str)]
+        except Exception:
+            pass
+
+    # cover_media: prefer the first photo; fall back to a Cloudinary-generated
+    # JPG thumbnail of the first video; finally null (the card will render a
+    # branded placeholder).
+    first_photo = photos[0] if photos else None
+    cover_media = first_photo
+    cover_media_kind: str | None = "photo" if first_photo else None
+    if cover_media is None and videos:
+        thumb = _cloudinary_video_thumb(videos[0])
+        if thumb:
+            cover_media = thumb
+            cover_media_kind = "video_thumb"
+
     return {
         "id": sale.id,
         "listing_id": sale.price_id,
@@ -82,7 +120,13 @@ def _sale_dict(sale: FlashSale) -> dict:
         "item_brand": item.brand if item else None,
         "item_location": item.location if item else None,
         "item_uuid": item.uuid if item else None,
+        # Legacy fields kept so old clients don't break:
         "item_photo": first_photo,
+        # New Block 5/6A fields:
+        "item_photos": photos,
+        "item_videos": videos,
+        "cover_media": cover_media,
+        "cover_media_kind": cover_media_kind,  # "photo" | "video_thumb" | None
     }
 
 
@@ -204,6 +248,18 @@ def create_flash_sale(
         import logging
         logging.getLogger(__name__).warning(
             f"flash sale price-drop enqueue failed: {e}"
+        )
+
+    # Block 6B — platform-wide email blast to opted-in users. Runs entirely
+    # off the request path: this enqueue returns instantly, and dispatch_flash_sale_blast
+    # does the recipient query + batching inside the emails queue.
+    try:
+        from app.tasks.email_tasks import dispatch_flash_sale_blast
+        dispatch_flash_sale_blast.delay(sale_id=sale.id)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"flash sale email blast enqueue failed: {e}"
         )
 
     return {"success": True, "data": _sale_dict(sale)}

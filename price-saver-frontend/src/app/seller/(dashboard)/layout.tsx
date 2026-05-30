@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuth } from "@/context/AuthContext";
 import AppHeader from "@/layout/AppHeader";
 import SellerSidebar from "@/components/seller/SellerSidebar";
 import Backdrop from "@/layout/Backdrop";
@@ -13,9 +12,12 @@ import Link from "next/link";
 import { Store, Search } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import BottomNav from "@/components/layout/BottomNav";
+import { useRoleGuard } from "@/hooks/useRoleGuard";
 
 export default function SellerDashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  // Strict guard: only role === "seller" may render this tree. Buyers and
+  // admins get bounced to the seller signin without being logged out.
+  const { isVerifying, isAuthorized } = useRoleGuard("seller");
   const router = useRouter();
 
   /* ── Hooks must come before any early return ── */
@@ -42,13 +44,10 @@ export default function SellerDashboardLayout({ children }: { children: React.Re
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.replace("/signin");
-    }
-  }, [isAuthenticated, isLoading, router]);
-
-  if (isLoading || !isAuthenticated) {
+  // Auth/role redirect is handled inside useRoleGuard. Render the loading
+  // screen while the session is restoring OR while a redirect is in flight
+  // (unauthorized state) — never flash the seller UI to the wrong role.
+  if (isVerifying || !isAuthorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="flex flex-col items-center gap-3">
@@ -82,7 +81,7 @@ export default function SellerDashboardLayout({ children }: { children: React.Re
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-16 py-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
             />
-            <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-xs bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
+            <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-xs bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-mono"></kbd>
           </form>
 
           {/* Right actions — pushed to far right by flex */}

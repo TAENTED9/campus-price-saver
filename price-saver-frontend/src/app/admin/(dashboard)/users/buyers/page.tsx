@@ -21,7 +21,7 @@ export default function BuyersPage() {
 
   useEffect(() => { if (!authLoading && !isAuthenticated) router.push("/admin/signin"); }, [authLoading, isAuthenticated, router]);
 
-  const fetchData = useCallback(() => adminApi.getUsers(token!, "user"), [token]);
+  const fetchData = useCallback(() => adminApi.getUsers(token!, "buyer"), [token]);
   const { data, loading, error, refetch } = usePolling<{ success: boolean; total: number; data: AdminUser[] }>(fetchData, 30000, isAuthenticated && !!token);
 
   const confirmSuspend = async (reason: string) => {

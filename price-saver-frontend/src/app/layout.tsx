@@ -6,6 +6,7 @@ import { AdminAuthProvider } from "@/context/AdminAuthContext";
 import { SidebarProvider } from "@/context/SidebarContext";
 import { SettingsSyncProvider } from "@/components/providers/SettingsSyncProvider";
 import { NotificationProvider } from "@/context/NotificationContext";
+import { SupportSection } from "@/components/support/SupportSection";
 
 export const metadata: Metadata = {
   title: "Campify — Campus Marketplace",
@@ -33,6 +34,8 @@ export default function RootLayout({
                 <NotificationProvider>
                   <SettingsSyncProvider>
                     {children}
+                    {/* Floating support button — visible on every page */}
+                    <SupportSection variant="floating" />
                   </SettingsSyncProvider>
                 </NotificationProvider>
               </SidebarProvider>

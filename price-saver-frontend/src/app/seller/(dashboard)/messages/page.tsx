@@ -5,13 +5,16 @@ import { ChatProvider } from "@/context/ChatContext";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 export default function SellerMessagesPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const { markCategoryRead } = useNotifications();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Honor ?conv= so a message notification opens that exact conversation.
+  const initialConvId = searchParams.get("conv") ? Number(searchParams.get("conv")) : undefined;
 
   useEffect(() => { markCategoryRead("messages"); }, []);
 
@@ -32,7 +35,7 @@ export default function SellerMessagesPage() {
   return (
     <ChatProvider>
       <div className="rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden h-[calc(100dvh-8rem-70px)] md:h-[calc(100dvh-8rem)]">
-        <ChatLayout />
+        <ChatLayout initialConversationId={initialConvId} />
       </div>
     </ChatProvider>
   );

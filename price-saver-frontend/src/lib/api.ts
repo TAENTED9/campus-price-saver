@@ -368,9 +368,11 @@ export type Price = {
   price: number;
   price_per_unit?: number | null;
   retailer?: string | null;
-  location?: string | null;
+  location?: string | null;             // Seller's primary / specific spot (free text)
+  locations?: string[] | null;          // Canonical UNILAG pickup spots
   status: string;
   photos?: string[] | null;
+  videos?: string[] | null;
   condition?: string | null;
   is_negotiable?: boolean | null;
   submitted_at?: string | null;
@@ -396,6 +398,15 @@ export type FlashSale = {
   item_brand?: string | null;
   item_location?: string | null;
   item_retailer?: string | null;
+  item_uuid?: string | null;
+  // Legacy single-photo field (kept for older callers)
+  item_photo?: string | null;
+  // Block 5/6A — full media + a single cover_media URL that prefers a
+  // photo and falls back to a Cloudinary-generated video thumbnail.
+  item_photos?: string[];
+  item_videos?: string[];
+  cover_media?: string | null;
+  cover_media_kind?: "photo" | "video_thumb" | null;
 };
 
 export type Store = {
@@ -412,7 +423,10 @@ export type SearchFilters = {
   min_price?: number;
   max_price?: number;
   category_id?: number;
+  /** Free-text fallback that searches across location + retailer. */
   location?: string;
+  /** Canonical UNILAG pickup names — listing matches if ANY one is in this set. */
+  locations?: string[];
   condition?: string;
   sort?: "newest" | "price_asc" | "price_desc" | "most_viewed";
   skip?: number;
@@ -459,7 +473,8 @@ export type ListingDetail = {
   name: string;
   brand?: string | null;
   price: number;
-  location?: string | null;
+  location?: string | null;             // Seller's primary / specific spot
+  locations?: string[] | null;          // Canonical UNILAG pickup spots
   category_id: number;
   subcategory?: string | null;
   description?: string | null;
@@ -469,6 +484,7 @@ export type ListingDetail = {
   delivery_options?: string | null;
   delivery_fee?: number | null;
   photos: string[];
+  videos?: string[];
   status: string;
   listing_status: string;
   view_count: number;
@@ -542,6 +558,9 @@ export const itemsApi = {
     if (filters.max_price != null) params.set("max_price", String(filters.max_price));
     if (filters.category_id != null) params.set("category_id", String(filters.category_id));
     if (filters.location) params.set("location", filters.location);
+    if (filters.locations && filters.locations.length > 0) {
+      params.set("locations", filters.locations.join(","));
+    }
     if (filters.condition) params.set("condition", filters.condition);
     if (filters.sort) params.set("sort", filters.sort);
     if (filters.skip != null) params.set("skip", String(filters.skip));
@@ -566,6 +585,23 @@ export const itemsApi = {
     request<{ ok: boolean; points_awarded: number; total_points: number }>(
       `/api/items/prices/${priceId}/confirm_purchase`, { method: "POST" }
     ),
+};
+
+// ===================== LOCATIONS API =====================
+
+export type LocationGroupApi = {
+  key: string;
+  name: string;
+  children: string[];
+};
+
+export const locationsApi = {
+  /** Fetch the canonical 5-zone UNILAG pickup hierarchy. Public, no auth.
+   * Prefer the `useLocations()` hook in `@/lib/locations` for components —
+   * it caches in localStorage so you don't hit the network on every mount.
+   */
+  getAll: () =>
+    request<{ groups: LocationGroupApi[] }>("/api/locations"),
 };
 
 // ===================== FLASH SALES API =====================
@@ -867,6 +903,54 @@ export const uploadApi = {
     const data: { success: boolean; url: string } = await res.json();
     return data.url;
   },
+
+  getListingVideoQuota: async (
+    token: string,
+  ): Promise<{
+    used: number;
+    max: number;
+    remaining: number;
+    min_duration_sec: number;
+    max_duration_sec: number;
+  }> => {
+    const res = await fetch(`${API_BASE}/api/upload/listing-video/quota`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Failed to load quota" }));
+      throw new Error(err.detail || "Failed to load quota");
+    }
+    return res.json();
+  },
+
+  uploadListingVideo: async (
+    token: string,
+    file: File,
+  ): Promise<{ url: string; duration: number | null; remaining: number }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/api/upload/listing-video`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
+      throw new Error(err.detail || "Upload failed");
+    }
+    return res.json();
+  },
+
+  deleteListingVideo: async (token: string, url: string): Promise<void> => {
+    const res = await fetch(
+      `${API_BASE}/api/upload/listing-video?url=${encodeURIComponent(url)}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Delete failed" }));
+      throw new Error(err.detail || "Delete failed");
+    }
+  },
 };
 
 // ===================== SELLER DASHBOARD TYPES =====================
@@ -907,7 +991,12 @@ export type SellerListing = {
   name: string;
   brand?: string | null;
   price: number;
-  location?: string | null;
+  location?: string | null;             // Seller's primary / specific spot (free text, ≤100)
+  locations?: string[];                 // Canonical UNILAG pickup spots
+  /** True when the startup migration auto-blocked this listing because its old
+   * location matched a legacy value (Angola, Freedom Park, …). Cleared on the
+   * next save that lands both a primary spot and ≥1 canonical pick. */
+  needs_location_update?: boolean;
   category_id: number;
   status: string;
   listing_status: string;
@@ -925,6 +1014,7 @@ export type SellerListing = {
   duration_days?: number | null;
   expires_at?: string | null;
   photos: string[];
+  videos?: string[];
   pack_size?: string | null;
   pack_unit?: string | null;
 };
@@ -1030,6 +1120,15 @@ export const sellerApi = {
   duplicateListing: (token: string, listingId: number) =>
     request<{ success: boolean; id: number; message: string }>(
       `/api/seller/listings/${listingId}/duplicate`,
+      { method: "POST", headers: authHeaders(token) }
+    ),
+
+  /** Block 2: Relist a SOLD listing as a fresh draft. The original stays in 'sold'
+   * state (history is preserved); the response carries the new draft's id so
+   * the caller can route into the edit form. Returns 409 if the listing isn't sold. */
+  relistListing: (token: string, listingId: number) =>
+    request<{ success: boolean; id: number; uuid?: string | null; message: string }>(
+      `/api/seller/listings/${listingId}/relist`,
       { method: "POST", headers: authHeaders(token) }
     ),
 
@@ -1291,6 +1390,7 @@ export type AdminListingDetail = AdminListing & {
   delivery_fee?: number | null;
   subcategory: string | null;
   photos: string[];
+  videos?: string[];
   listing_status: string | null;
   pack_size: number | null;
   pack_unit: string | null;
@@ -1995,6 +2095,26 @@ export const reviewsApi = {
         method: "PATCH",
         headers: { ...authHeaders(token), "Content-Type": "application/json" },
         body: JSON.stringify({ comment, photo_url: photoUrl ?? null }),
+      }
+    ),
+};
+
+// ── Public support / contact form ───────────────────────────────────────
+// No auth required — anyone (anonymous visitor, buyer, seller) can submit.
+export const supportApi = {
+  sendMessage: (body: {
+    name: string;
+    email: string;
+    category: string;
+    subject: string;
+    message: string;
+    page_url?: string;
+  }) =>
+    request<{ message: string; email: string }>(
+      "/api/support/contact",
+      {
+        method: "POST",
+        body: JSON.stringify(body),
       }
     ),
 };

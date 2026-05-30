@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import Optional, List
 
+from app.constants.locations import LOCATION_SET
+
 _XSS_PATTERNS = ("<script", "javascript:")
 
 
@@ -50,8 +52,40 @@ class PriceBase(BaseModel):
     price: float = Field(..., gt=0, le=10000000, description="Price in ₦ (must be positive)")
     price_per_unit: Optional[float] = Field(None, gt=0, description="Price per unit if applicable")
     retailer: Optional[str] = Field(None, max_length=100, description="Retailer name")
-    location: Optional[str] = Field(None, max_length=200, description="Store location")
-    
+    location: Optional[str] = Field(None, max_length=100, description="Seller's primary / specific spot (e.g., 'Shop B7, Mariere Hall'). Required when publishing — validated at the endpoint, not in this base schema, so drafts can be saved without it.")
+    locations: List[str] = Field(default_factory=list, description="Canonical UNILAG pickup spots the seller will also meet at. Each entry must be one of the names returned by GET /api/locations.")
+
+    @validator('location')
+    def validate_primary_location(cls, v):
+        if v is None:
+            return v
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        if len(cleaned) > 100:
+            raise ValueError('Primary location must be 100 characters or fewer')
+        return _reject_xss(cleaned)
+
+    @validator('locations')
+    def validate_locations(cls, v):
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise ValueError('locations must be an array of strings')
+        seen, cleaned = set(), []
+        for raw in v:
+            if not isinstance(raw, str):
+                raise ValueError('each location must be a string')
+            name = raw.strip()
+            if not name:
+                continue
+            if name not in LOCATION_SET:
+                raise ValueError(f'Unknown location: {name!r}')
+            if name not in seen:
+                seen.add(name)
+                cleaned.append(name)
+        return cleaned
+
     @validator('name')
     def validate_name(cls, v):
         if not v or len(v.strip()) == 0:

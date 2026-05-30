@@ -8,7 +8,7 @@ import { adminApi } from "@/lib/api";
 import { useState } from "react";
 import {
   LayoutDashboard, Users, Store, Package, ShieldAlert, Bell, BarChart3,
-  Settings, ShieldCheck, LogOut,
+  BarChart2, Settings, ShieldCheck, LogOut,
 } from "lucide-react";
 
 type FlatNavItem = {
@@ -26,6 +26,7 @@ const NAV_ITEMS: FlatNavItem[] = [
   { icon: <ShieldAlert size={20} />,     name: "Reports",       path: "/admin/reports",       badgeKey: "openReports" },
   { icon: <Bell size={20} />,            name: "Announcements", path: "/admin/announcements" },
   { icon: <BarChart3 size={20} />,       name: "Analytics",     path: "/admin/analytics" },
+  { icon: <BarChart2 size={20} />,       name: "Search Analytics", path: "/admin/search-analytics" },
   { icon: <Settings size={20} />,        name: "Settings",      path: "/admin/settings" },
 ];
 

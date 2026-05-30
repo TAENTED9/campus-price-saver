@@ -13,7 +13,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { AdminAvatar, AdminErrorState } from "@/components/admin";
 
-type RoleFilter = "all" | "user" | "seller" | "admin";
+type RoleFilter = "all" | "buyer" | "seller" | "admin";
 type StatusFilter = "all" | "paused" | "banned";
 
 function userStatus(u: AdminUserSummary): string {
@@ -97,7 +97,7 @@ export default function UsersPage() {
 
   const ROLE_TABS: { label: string; value: RoleFilter }[] = [
     { label: "All", value: "all" },
-    { label: "Buyers", value: "user" },
+    { label: "Buyers", value: "buyer" },
     { label: "Sellers", value: "seller" },
     { label: "Admins", value: "admin" },
   ];
@@ -223,7 +223,7 @@ export default function UsersPage() {
                         </td>
                         <td className="px-5 py-4 text-gray-500 dark:text-gray-400">{u.email || "—"}</td>
                         <td className="px-5 py-4">
-                          <StatusBadge status={u.role === "user" ? "buyer" : u.role} />
+                          <StatusBadge status={u.role} />
                         </td>
                         <td className="px-5 py-4"><StatusBadge status={st} /></td>
                         <td className="px-5 py-4 text-xs text-gray-500 dark:text-gray-400">
@@ -355,7 +355,7 @@ export default function UsersPage() {
                     </p>
                     <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{drawer.email || "—"}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      <StatusBadge status={drawer.role === "user" ? "buyer" : drawer.role} />
+                      <StatusBadge status={drawer.role} />
                       {drawer.is_banned && <StatusBadge status="banned" />}
                       {(drawer.is_paused || drawer.is_suspended) && !drawer.is_banned && <StatusBadge status="paused" />}
                       {drawer.is_deleted && <StatusBadge status="deleted" />}

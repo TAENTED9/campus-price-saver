@@ -1,6 +1,6 @@
 /** @type {import('next-sitemap').IConfig} */
 const config = {
-  siteUrl: process.env.SITE_URL || "https://campify.ng",
+  siteUrl: process.env.SITE_URL || "https://campify.digital",
   generateRobotsTxt: true,
   changefreq: "daily",
   priority: 0.7,
@@ -17,7 +17,7 @@ const config = {
 
   // Add dynamic seller storefront pages
   additionalPaths: async (config) => {
-    const BASE = process.env.NEXT_PUBLIC_API_URL || "https://campify.ng";
+    const BASE = process.env.NEXT_PUBLIC_API_URL || "https://campify.digital";
     try {
       const res = await fetch(`${BASE}/api/storefront/slugs`);
       if (!res.ok) return [];

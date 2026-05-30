@@ -100,7 +100,7 @@ export default function WishlistPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => (
             <div key={i} className={`${CARD} animate-pulse`}>
-              <div className="aspect-square bg-gray-100 dark:bg-gray-800 rounded-t-2xl" />
+              <div className="aspect-[4/3] bg-gray-100 dark:bg-gray-800 rounded-t-2xl" />
               <div className="p-3 space-y-2">
                 <div className="h-3 w-3/4 bg-gray-100 dark:bg-gray-700 rounded" />
                 <div className="h-4 w-1/2 bg-gray-100 dark:bg-gray-700 rounded" />
@@ -135,10 +135,19 @@ export default function WishlistPage() {
           {items.map((item) => {
             const photo = item.photos?.[0];
             const priceDrop = item.saved_price != null && item.price < item.saved_price;
+            const isSold = item.listing_status === "sold";
+            // Block 2: sold listings stay in the wishlist for visibility, but are
+            // visually muted, ungated by the price-drop banner, and don't deep-link
+            // to the listing page (which now 410s for non-owners anyway).
+            const cardClass = `${CARD} relative overflow-hidden flex flex-col ${isSold ? "opacity-70 grayscale" : ""}`;
             return (
-              <div key={item.wishlist_id} className={`${CARD} relative overflow-hidden flex flex-col`}>
-                {/* Price drop banner */}
-                {priceDrop && (
+              <div key={item.wishlist_id} className={cardClass}>
+                {/* Sold badge — takes precedence over price-drop banner */}
+                {isSold ? (
+                  <div className="absolute top-0 left-0 right-0 z-10 bg-success-500 text-white text-[10px] font-bold px-2 py-1 text-center tracking-wider">
+                    SOLD
+                  </div>
+                ) : priceDrop && (
                   <div className="absolute top-0 left-0 right-0 z-10 bg-green-500 text-white text-[10px] font-bold px-2 py-1 flex items-center gap-1">
                     <TrendingDown size={10} /> Price dropped!
                   </div>
@@ -157,43 +166,59 @@ export default function WishlistPage() {
                     : <Trash2 size={12} />}
                 </button>
 
-                <Link href={`/listing/${item.uuid ?? item.listing_id}`} className="flex-1 group">
-                  <div className={`aspect-square bg-gray-100 dark:bg-gray-800 relative overflow-hidden ${priceDrop ? "mt-6" : ""}`}>
-                    {photo ? (
-                      <Image
-                        src={thumbnailImage(photo, 400)}
-                        alt={item.name}
-                        fill
-                        sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                        className="object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="text-3xl font-black text-gray-200 dark:text-gray-700">
-                          {item.name.charAt(0).toUpperCase()}
-                        </span>
+                {(() => {
+                  const mediaAndBody = (
+                    <>
+                      <div className={`aspect-[4/3] bg-gray-100 dark:bg-gray-800 relative overflow-hidden ${(isSold || priceDrop) ? "mt-6" : ""}`}>
+                        {photo ? (
+                          <Image
+                            src={thumbnailImage(photo, 400)}
+                            alt={item.name}
+                            fill
+                            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                            className={`object-cover transition-transform duration-300 ${isSold ? "" : "group-hover:scale-105"}`}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-3xl font-black text-gray-200 dark:text-gray-700">
+                              {item.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="p-3">
-                    <p className="text-sm font-semibold text-gray-800 dark:text-white line-clamp-2 leading-snug mb-1">
-                      {item.name}
-                    </p>
-                    {item.location && (
-                      <p className="text-xs text-gray-400 flex items-center gap-1 mb-1">
-                        <MapPin size={10} /> {item.location}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <p className="text-base font-black text-brand-600 dark:text-brand-400">
-                        {formatPrice(item.price)}
-                      </p>
-                      {priceDrop && item.saved_price && (
-                        <p className="text-xs line-through text-gray-400">{formatPrice(item.saved_price)}</p>
-                      )}
-                    </div>
-                  </div>
-                </Link>
+                      <div className="p-3">
+                        <p className="text-sm font-semibold text-gray-800 dark:text-white line-clamp-2 leading-snug mb-1">
+                          {item.name}
+                        </p>
+                        {item.location && (
+                          <p className="text-xs text-gray-400 flex items-center gap-1 mb-1">
+                            <MapPin size={10} /> {item.location}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <p className={`text-base font-black ${isSold ? "text-gray-400 line-through" : "text-brand-600 dark:text-brand-400"}`}>
+                            {formatPrice(item.price)}
+                          </p>
+                          {!isSold && priceDrop && item.saved_price && (
+                            <p className="text-xs line-through text-gray-400">{formatPrice(item.saved_price)}</p>
+                          )}
+                          {isSold && (
+                            <span className="ml-auto text-[10px] font-bold text-success-600 dark:text-success-400 uppercase tracking-wider">
+                              Sold
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  );
+                  return isSold ? (
+                    <div className="flex-1 cursor-not-allowed">{mediaAndBody}</div>
+                  ) : (
+                    <Link href={`/listing/${item.uuid ?? item.listing_id}`} className="flex-1 group">
+                      {mediaAndBody}
+                    </Link>
+                  );
+                })()}
               </div>
             );
           })}

@@ -12,7 +12,7 @@ from app.utils.timezone import now_wat, format_wat_iso
 from typing import Optional
 
 from app.database import get_db
-from app.models import Price, User, Category, Follow, Inquiry, Report, BlockedUser, Review, Notification, SellerVerification, Announcement
+from app.models import Price, User, Follow, Inquiry, Report, BlockedUser, Review, Notification, SellerVerification, Announcement
 from app.routers.auth import get_current_user, decode_access_token
 from sqlalchemy import func
 
@@ -105,8 +105,13 @@ def _seller_info(seller: User, db: Session) -> dict:
 
 
 def _price_to_dict(p: Price) -> dict:
-    # Resolve active flash sale from the relationship (no extra query)
-    now = now_wat()
+    # Resolve active flash sale from the relationship (no extra query).
+    # FlashSale.end_time is a *naive* UTC datetime (the flash_sales router
+    # strips tzinfo via _to_naive_utc before saving). Comparing it with
+    # now_wat() — which is tz-aware — raises TypeError and 500s the listing
+    # endpoint, which the frontend renders as "Listing not found." Use the
+    # matching naive UTC clock instead.
+    now = datetime.utcnow()
     active_sale = next(
         (
             s for s in (p.flash_sales or [])
@@ -124,13 +129,20 @@ def _price_to_dict(p: Price) -> dict:
             "discount_pct": active_sale.discount_pct,
             "end_time": active_sale.end_time.isoformat(),
         }
+    try:
+        loc_list = json.loads(p.locations) if p.locations else []
+        if not isinstance(loc_list, list):
+            loc_list = []
+    except Exception:
+        loc_list = []
     return {
         "id": p.id,
         "uuid": p.uuid,
         "name": p.name,
         "brand": p.brand,
         "price": p.price,
-        "location": p.location,
+        "location": p.location,  # deprecated — readers should prefer `locations`
+        "locations": loc_list,
         "category_id": p.category_id,
         "subcategory": p.subcategory,
         "description": p.description,
@@ -140,6 +152,7 @@ def _price_to_dict(p: Price) -> dict:
         "delivery_options": p.delivery_options,
         "delivery_fee": p.delivery_fee,
         "photos": json.loads(p.photos) if p.photos else [],
+        "videos": json.loads(p.videos) if p.videos else [],
         "status": p.status,
         "listing_status": p.listing_status or "active",
         "view_count": p.view_count,
@@ -161,6 +174,7 @@ async def get_platform_stats(db: Session = Depends(get_db)):
     Cached in Redis for 60s — see app.services.cache.TTL["platform_stats"].
     Falls back to a live query if Redis is unavailable.
     """
+    from sqlalchemy import text as _sql
     from app.services.cache import (
         cache_get, cache_set, key_platform_stats, TTL,
     )
@@ -169,20 +183,26 @@ async def get_platform_stats(db: Session = Depends(get_db)):
     if cached:
         return cached
 
-    total_users = db.query(User).filter(User.is_deleted != True).count()
-    active_listings = db.query(Price).filter(
-        Price.status == "approved", Price.listing_status == "active"
-    ).count()
-    total_sellers = db.query(User).filter(
-        User.role == "seller", User.is_deleted != True
-    ).count()
-    total_categories = db.query(Category).count()
+    # Single roundtrip: 4 COUNT subqueries beat 4 ORM round-trips, especially
+    # over SQLite where each Session.query(...).count() pays its own commit.
+    row = db.execute(_sql("""
+        SELECT
+            (SELECT COUNT(*) FROM users
+              WHERE is_deleted IS NOT 1)                        AS total_users,
+            (SELECT COUNT(*) FROM users
+              WHERE role = 'seller' AND is_deleted IS NOT 1)    AS total_sellers,
+            (SELECT COUNT(*) FROM prices
+              WHERE status = 'approved'
+                AND listing_status = 'active')                  AS active_listings,
+            (SELECT COUNT(*) FROM categories)                   AS total_categories
+    """)).first()
+
     result = {
-        "total_users": total_users,
-        "total_sellers": total_sellers,
-        "active_listings": active_listings,
-        "total_categories": total_categories,
-        "last_updated": format_wat_iso(now_wat()),
+        "total_users":      int(row.total_users or 0),
+        "total_sellers":    int(row.total_sellers or 0),
+        "active_listings":  int(row.active_listings or 0),
+        "total_categories": int(row.total_categories or 0),
+        "last_updated":     format_wat_iso(now_wat()),
     }
     await cache_set(key_platform_stats(), result, TTL["platform_stats"])
     return result

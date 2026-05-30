@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api";
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/siteConfig";
 import { Eye, EyeOff, CheckCircle, MailCheck, ShieldCheck } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -268,8 +269,8 @@ export default function SignInForm() {
           </p>
           <p className="text-xs text-amber-500 mt-1">
             Contact support:{" "}
-            <a href="mailto:hello@campify.ng" className="underline">
-              hello@campify.ng
+            <a href={SUPPORT_MAILTO} className="underline">
+              {SUPPORT_EMAIL || "support"}
             </a>
           </p>
         </div>
@@ -286,8 +287,8 @@ export default function SignInForm() {
           </p>
           <p className="text-xs text-red-500 mt-1">
             This decision is final. To appeal, email{" "}
-            <a href="mailto:hello@campify.ng" className="underline">
-              hello@campify.ng
+            <a href={SUPPORT_MAILTO} className="underline">
+              {SUPPORT_EMAIL || "support"}
             </a>{" "}
             within 14 days.
           </p>
@@ -314,8 +315,8 @@ export default function SignInForm() {
           )}
           <p className="text-xs text-orange-500 mt-1">
             To appeal, email{" "}
-            <a href="mailto:hello@campify.ng" className="underline">
-              hello@campify.ng
+            <a href={SUPPORT_MAILTO} className="underline">
+              {SUPPORT_EMAIL || "support"}
             </a>
             .
           </p>

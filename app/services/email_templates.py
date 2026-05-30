@@ -9,6 +9,17 @@ def _app_url() -> str:
     return settings.FRONTEND_URL
 
 
+def _support_email() -> str:
+    """Support address from env. Falls back to ADMIN_EMAIL, then empty string."""
+    import os
+    return (os.getenv("SUPPORT_EMAIL") or os.getenv("ADMIN_EMAIL") or "").strip()
+
+
+def _app_domain() -> str:
+    """Bare host portion of the public app URL — for footer text like 'campify.ng'."""
+    return _app_url().replace("https://", "").replace("http://", "").rstrip("/")
+
+
 def ACCOUNT_PAUSED_EMAIL(name: str, reason: str) -> str:
     url = _app_url()
     return f"""Hi {name},
@@ -25,14 +36,20 @@ or visit {url}/support.
 
 
 def ACCOUNT_DELETED_EMAIL(name: str) -> str:
+    support = _support_email()
+    contact_line = (
+        f"If this was a mistake, contact {support}\n"
+        "within 7 days — we may be able to restore your data.\n"
+        if support
+        else "If this was a mistake, reply to this email within 7 days\n"
+             "— we may be able to restore your data.\n"
+    )
     return f"""Hi {name},
 
 Your Campify account has been permanently deleted
 as requested. All your data has been removed.
 
-If this was a mistake, contact hello@campify.ng
-within 7 days — we may be able to restore your data.
-
+{contact_line}
 — The Campify Team"""
 
 
@@ -343,3 +360,172 @@ Reply now to close the deal:
 Tip: Sellers who respond within 1 hour are 3x more likely to complete a sale.
 
 — The Campify Team"""
+
+
+# ── Seller verification → Admin notification ─────────────────────────────
+import html as _html_lib
+
+
+def _esc(value) -> str:
+    """HTML-escape a value for safe injection into the verification email."""
+    if value is None:
+        return ""
+    return _html_lib.escape(str(value), quote=True)
+
+
+def SELLER_VERIFICATION_ADMIN_EMAIL(
+    seller_name:     str,
+    seller_email:    str,
+    seller_username: str,
+    matric_number:   str | None,
+    id_card_url:     str,
+    portal_url:      str,
+    submitted_at:    str,
+    admin_url:       str,
+    verif_id:        int,
+) -> str:
+    """
+    Branded HTML notification sent to the admin inbox each time a seller
+    submits verification documents. Includes clickable document links and
+    a CTA into the admin dashboard. All user-supplied values are HTML-escaped.
+    """
+    sn = _esc(seller_name)
+    se = _esc(seller_email)
+    su = _esc(seller_username)
+    mn = _esc(matric_number) if matric_number else "Not provided"
+    ic = _esc(id_card_url)
+    pu = _esc(portal_url)
+    au = _esc(admin_url.rstrip("/"))
+    vid = _esc(verif_id)
+    sa = _esc(submitted_at)
+
+    return f"""
+    <div style="font-family: -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #111827;">
+
+      <div style="background: linear-gradient(135deg, #7c3aed, #2563eb); border-radius: 16px; padding: 20px 24px; margin-bottom: 24px;">
+        <h1 style="color: white; margin: 0; font-size: 20px; font-weight: 900;">
+          New Seller Verification Request
+        </h1>
+        <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0; font-size: 14px;">
+          Submitted {sa}
+        </p>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <tr>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6; width: 140px;">
+            <span style="font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase;">
+              Name
+            </span>
+          </td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-weight: 600;">
+            {sn}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6;">
+            <span style="font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase;">
+              Email
+            </span>
+          </td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6;">
+            <a href="mailto:{se}" style="color: #2563eb;">{se}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6;">
+            <span style="font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase;">
+              Username
+            </span>
+          </td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6;">
+            @{su}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6;">
+            <span style="font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase;">
+              Matric No.
+            </span>
+          </td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-weight: 700; font-family: monospace; font-size: 15px;">
+            {mn}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6;">
+            <span style="font-size: 12px; font-weight: 700; color: #6b7280; text-transform: uppercase;">
+              Request ID
+            </span>
+          </td>
+          <td style="padding: 10px 0; border-bottom: 1px solid #f3f4f6; font-family: monospace; color: #6b7280;">
+            #{vid}
+          </td>
+        </tr>
+      </table>
+
+      <h2 style="font-size: 14px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 12px;">
+        Submitted Documents
+      </h2>
+
+      <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+        <a href="{ic}" target="_blank" style="flex: 1; min-width: 200px; display: block; padding: 16px; background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 12px; text-decoration: none; text-align: center;">
+          <p style="margin: 0 0 4px; font-weight: 700; color: #111827; font-size: 14px;">
+            Student ID Card
+          </p>
+          <p style="margin: 0; color: #2563eb; font-size: 12px;">
+            Click to view document &rarr;
+          </p>
+        </a>
+
+        <a href="{pu}" target="_blank" style="flex: 1; min-width: 200px; display: block; padding: 16px; background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 12px; text-decoration: none; text-align: center;">
+          <p style="margin: 0 0 4px; font-weight: 700; color: #111827; font-size: 14px;">
+            Student Portal Screenshot
+          </p>
+          <p style="margin: 0; color: #2563eb; font-size: 12px;">
+            Click to view document &rarr;
+          </p>
+        </a>
+      </div>
+
+      <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">
+        Review this application in the admin dashboard:
+      </p>
+
+      <a href="{au}/verifications"
+         style="display: block; background: linear-gradient(135deg, #7c3aed, #2563eb); color: white; text-align: center; padding: 14px; border-radius: 12px; font-weight: 700; font-size: 15px; text-decoration: none; margin-bottom: 24px;">
+        Review in Admin Dashboard &rarr;
+      </a>
+
+      <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+        Campify Admin &middot; {_app_domain()}/admin
+      </p>
+    </div>
+    """
+
+
+def SELLER_VERIFICATION_SUBMITTED_EMAIL(seller_name: str) -> str:
+    """Branded HTML confirmation sent to the seller after they submit docs."""
+    sn = _esc(seller_name)
+    return f"""
+    <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+      <div style="background: linear-gradient(135deg, #7c3aed, #2563eb); border-radius: 16px; padding: 20px 24px; margin-bottom: 20px;">
+        <h1 style="color: white; margin: 0; font-size: 18px; font-weight: 900;">
+          Verification Submitted
+        </h1>
+      </div>
+      <p style="color: #374151;">Hi {sn},</p>
+      <p style="color: #374151; line-height: 1.7;">
+        We received your verification documents and will review them within
+        <strong>24&ndash;48 hours</strong>. We'll send you an email once a decision
+        has been made.
+      </p>
+      <p style="color: #374151; line-height: 1.7;">
+        In the meantime, you can save listings as drafts from your
+        <a href="{_app_url()}/seller/listings" style="color: #2563eb;">seller dashboard</a>.
+      </p>
+      <p style="color: #9ca3af; font-size: 12px; text-align: center; margin-top: 24px;">
+        &copy; Campify &middot; {_app_domain()}
+      </p>
+    </div>
+    """

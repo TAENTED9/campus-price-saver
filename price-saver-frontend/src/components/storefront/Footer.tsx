@@ -3,26 +3,28 @@
 import Link from "next/link";
 import { GraduationCap, Mail, MapPin } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/siteConfig";
 
 const MARKETPLACE_LINKS = [
   { label: "Browse All",      href: "/search" },
-  { label: "Flash Sales",     href: "/search?filter=flash" },
+  { label: "Flash Sales",     href: "/deals" },
   { label: "New Arrivals",    href: "/search?sort=newest" },
-  { label: "Categories",      href: "/search" },
-  { label: "Top Deals",       href: "/search?sort=popular" },
+  { label: "Categories",      href: "/categories" },
+  { label: "Top Deals",       href: "/search?sort=most_viewed" },
 ];
 
 const SELLER_LINKS_GUEST = [
-  { label: "Start Selling",   href: "/signup?role=seller" },
+  { label: "Start Selling",   href: "/start-selling" },
   { label: "Seller Console",  href: "/seller" },
-  { label: "How It Works",    href: "/#how-it-works" },
-  { label: "Seller Docs",     href: "/help/sellers" },
+  { label: "How It Works",    href: "/how-it-works" },
+  { label: "Seller Docs",     href: "/seller-docs" },
 ];
 
 const SELLER_LINKS_AUTH = [
+  { label: "Start Selling",   href: "/start-selling" },
   { label: "Seller Console",  href: "/seller" },
-  { label: "How It Works",    href: "/#how-it-works" },
-  { label: "Seller Docs",     href: "/help/sellers" },
+  { label: "How It Works",    href: "/how-it-works" },
+  { label: "Seller Docs",     href: "/seller-docs" },
 ];
 
 const SUPPORT_LINKS = [
@@ -57,13 +59,15 @@ export default function Footer() {
                 <MapPin size={13} className="shrink-0" />
                 UNILAG Campus, Yaba, Lagos
               </p>
-              <a
-                href="mailto:hello@campify.ng"
-                className="flex items-center gap-2 text-xs text-gray-400 hover:text-blue-500 transition-colors"
-              >
-                <Mail size={13} className="shrink-0" />
-                hello@campify.ng
-              </a>
+              {SUPPORT_EMAIL && (
+                <a
+                  href={SUPPORT_MAILTO}
+                  className="flex items-center gap-2 text-xs text-gray-400 hover:text-blue-500 transition-colors"
+                >
+                  <Mail size={13} className="shrink-0" />
+                  {SUPPORT_EMAIL}
+                </a>
+              )}
             </div>
           </div>
 

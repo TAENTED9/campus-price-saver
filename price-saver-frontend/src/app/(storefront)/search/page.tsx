@@ -11,6 +11,52 @@ import ListingCard from "@/components/marketplace/ListingCard";
 import ListingCardSkeleton from "@/components/marketplace/ListingCardSkeleton";
 import { formatPrice } from "@/lib/formatPrice";
 import NumberInput from "@/components/ui/NumberInput";
+import { LocationFilter } from "@/components/locations/LocationFilter";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+// Shape returned by the new /api/items/search endpoint (Block 4). Distinct
+// from the legacy itemsApi.searchPrices() shape — mapped at the boundary
+// to the page-internal ListingPrice so the rest of the page is untouched.
+interface SearchApiItem {
+  id: number;
+  uuid: string;
+  title: string;
+  description: string;
+  price: number;
+  sale_price: number | null;
+  on_sale: boolean;
+  condition: string | null;
+  category: string | null;
+  category_id: number | null;
+  location: string | null;
+  status: string;
+  views_count: number;
+  is_negotiable: boolean;
+  is_featured: boolean;
+  photos: string[];
+  cover_photo: string | null;
+  created_at: string | null;
+  relevance_score: number;
+  seller: {
+    uuid: string | null;
+    username: string | null;
+    display_name: string | null;
+    avatar_url: string | null;
+    is_verified: boolean;
+    karma_tier: string;
+  } | null;
+}
+
+interface SearchApiResponse {
+  items: SearchApiItem[];
+  total: number;
+  skip: number;
+  limit: number;
+  has_more: boolean;
+  query: string | null;
+  engine: string;
+}
 
 // ─── extended type ─────────────────────────────────────────────────────────────
 
@@ -85,18 +131,20 @@ interface FPProps {
   conditions:          Condition[];
   minPrice:            string;
   maxPrice:            string;
+  locations:           string[];
   hasFilters:          boolean;
   onCategory:          (id?: number) => void;
   onConditionToggle:   (c: Condition) => void;
   onMinPrice:          (v: string) => void;
   onMaxPrice:          (v: string) => void;
+  onLocations:         (next: string[]) => void;
   onReset:             () => void;
 }
 
 function FilterPanel({
   categories, categoriesLoading, categoriesError, onCategoriesRetry,
-  categoryId, conditions, minPrice, maxPrice, hasFilters,
-  onCategory, onConditionToggle, onMinPrice, onMaxPrice, onReset,
+  categoryId, conditions, minPrice, maxPrice, locations, hasFilters,
+  onCategory, onConditionToggle, onMinPrice, onMaxPrice, onLocations, onReset,
 }: FPProps) {
   return (
     <div className="space-y-6">
@@ -193,6 +241,12 @@ function FilterPanel({
           ))}
         </div>
       </div>
+
+      {/* Pickup locations */}
+      <div>
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Pickup Location</p>
+        <LocationFilter value={locations} onChange={onLocations} />
+      </div>
     </div>
   );
 }
@@ -212,6 +266,10 @@ export default function SearchPage() {
   const [minPrice,    setMinPrice]    = useState(searchParams?.get("min_price") ?? "");
   const [maxPrice,    setMaxPrice]    = useState(searchParams?.get("max_price") ?? "");
   const [conditions,  setConditions]  = useState<Condition[]>([]);
+  const [locations,   setLocations]   = useState<string[]>(() => {
+    const raw = searchParams?.get("locations");
+    return raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  });
   const [drawerOpen,  setDrawerOpen]  = useState(false);
 
   // ── data state ──
@@ -251,38 +309,98 @@ export default function SearchPage() {
       if (categoryId != null) p.set("category_id", String(categoryId));
       if (minPrice)        p.set("min_price",   minPrice);
       if (maxPrice)        p.set("max_price",   maxPrice);
+      if (locations.length > 0) p.set("locations", locations.join(","));
       router.replace(`/search${p.toString() ? `?${p}` : ""}`, { scroll: false });
     }, 400);
     return () => clearTimeout(t);
-  }, [q, sort, categoryId, minPrice, maxPrice, router]);
+  }, [q, sort, categoryId, minPrice, maxPrice, locations, router]);
 
   // ── search ──
+  // Hits the new /api/items/search endpoint (Block 4) for FTS ranking
+  // + analytics logging. Response shape differs from the legacy endpoint
+  // (uses `title`, `views_count`, `created_at`) so we map at the boundary
+  // to the page-internal ListingPrice. The rest of the page is unchanged.
   const doSearch = useCallback(
     (newSkip = 0, append = false) => {
       if (append) setLoadingMore(true); else setLoading(true);
       const cond = conditions.length === 1 ? conditions[0] : undefined;
-      itemsApi
-        .searchPrices({
-          q:           q || undefined,
-          category_id: categoryId,
-          min_price:   minPrice ? Number(minPrice) : undefined,
-          max_price:   maxPrice ? Number(maxPrice) : undefined,
-          condition:   cond,
-          sort,
-          skip:        newSkip,
-          limit:       PAGE_SIZE,
-        })
-        .then((data) => {
-          const list = data as ListingPrice[];
-          if (append) setItems((prev) => [...prev, ...list]);
-          else        setItems(list);
-          setHasMore(list.length === PAGE_SIZE);
+
+      const qs = new URLSearchParams();
+      if (q) qs.set("q", q);
+      if (categoryId != null) qs.set("category", String(categoryId));
+      if (minPrice) qs.set("min_price", minPrice);
+      if (maxPrice) qs.set("max_price", maxPrice);
+      if (cond) qs.set("condition", cond);
+      if (locations.length > 0) qs.set("locations", locations.join(","));
+      // When there's a text query, default to relevance unless the user
+      // explicitly picked a different sort. The new endpoint validates
+      // sort against an allow-list, so we always send a sane value.
+      qs.set("sort", q && sort === "newest" ? "relevance" : sort);
+      qs.set("page", String(Math.floor(newSkip / PAGE_SIZE) + 1));
+      qs.set("limit", String(PAGE_SIZE));
+
+      fetch(`${API_BASE}/api/items/search?${qs}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : Promise.reject("Search failed")))
+        .then((data: SearchApiResponse) => {
+          const mapped: ListingPrice[] = data.items.map((s) => ({
+            id:             s.id,
+            uuid:           s.uuid,
+            name:           s.title,
+            price:          s.price,
+            description:    s.description,
+            condition:      s.condition,
+            category_id:    s.category_id ?? undefined,
+            photos:         s.photos,
+            location:       s.location,
+            view_count:     s.views_count,
+            submitted_at:   s.created_at,
+            listing_status: s.status ?? "active",
+            is_negotiable:  s.is_negotiable,
+            seller:         s.seller
+              ? {
+                  username:     s.seller.username ?? undefined,
+                  display_name: s.seller.display_name ?? undefined,
+                  is_verified:  s.seller.is_verified,
+                }
+              : null,
+          } as ListingPrice));
+
+          if (append) setItems((prev) => [...prev, ...mapped]);
+          else        setItems(mapped);
+          setHasMore(data.has_more);
           setSkip(newSkip);
         })
         .catch(() => { if (!append) setItems([]); })
         .finally(() => { setLoading(false); setLoadingMore(false); });
     },
-    [q, categoryId, minPrice, maxPrice, conditions, sort]
+    [q, categoryId, minPrice, maxPrice, conditions, locations, sort]
+  );
+
+  // Fire-and-forget click tracking. Only logs when there's a real text
+  // query — clicks on the no-query browse view aren't search analytics.
+  // keepalive lets the request finish even though clicking a card
+  // immediately triggers a route change.
+  const trackResultClick = useCallback(
+    (uuid: string | null, position: number) => {
+      const term = q.trim();
+      if (term.length < 2) return;
+      try {
+        void fetch(`${API_BASE}/api/items/search/click`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: term,
+            clicked_uuid: uuid,
+            position,
+          }),
+          keepalive: true,
+          cache: "no-store",
+        }).catch(() => {});
+      } catch {
+        // Analytics never affects UX.
+      }
+    },
+    [q],
   );
 
   // ── debounced re-search on filter change ──
@@ -318,10 +436,10 @@ export default function SearchPage() {
   function clearFilters() {
     setQ(""); setCategoryId(undefined);
     setMinPrice(""); setMaxPrice("");
-    setConditions([]); setSort("newest");
+    setConditions([]); setLocations([]); setSort("newest");
   }
 
-  const hasFilters = !!q || categoryId != null || !!minPrice || !!maxPrice || conditions.length > 0 || sort !== "newest";
+  const hasFilters = !!q || categoryId != null || !!minPrice || !!maxPrice || conditions.length > 0 || locations.length > 0 || sort !== "newest";
 
   const activeChips = [
     q && { key: "q",  label: `"${q}"`,  clear: () => setQ("") },
@@ -335,13 +453,19 @@ export default function SearchPage() {
     ...conditions.map((c) => ({
       key: c, label: CONDITION_LABELS[c], clear: () => toggleCondition(c),
     })),
+    ...locations.map((loc) => ({
+      key: `loc:${loc}`,
+      label: loc,
+      clear: () => setLocations((prev) => prev.filter((l) => l !== loc)),
+    })),
   ].filter(Boolean) as { key: string; label: string; clear: () => void }[];
 
   const filterPanelProps: FPProps = {
     categories, categoriesLoading, categoriesError, onCategoriesRetry: loadCategories,
-    categoryId, conditions, minPrice, maxPrice, hasFilters,
+    categoryId, conditions, minPrice, maxPrice, locations, hasFilters,
     onCategory: setCategoryId, onConditionToggle: toggleCondition,
     onMinPrice: setMinPrice,   onMaxPrice: setMaxPrice,
+    onLocations: setLocations,
     onReset: clearFilters,
   };
 
@@ -473,10 +597,18 @@ export default function SearchPage() {
             {/* Results grid */}
             {!loading && items.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4">
-                {items.map((item) => (
+                {items.map((item, idx) => (
                   /* FIX #12: namespace key — search uses paginated appends
-                     where in-flight filter changes can produce duplicate ids. */
-                  <ListingCard key={`search-${item.id}`} {...toCardProps(item)} />
+                     where in-flight filter changes can produce duplicate ids.
+                     onClick wrapper fires analytics (Block 8) BEFORE the
+                     ListingCard's <Link> navigates — keepalive lets the
+                     POST finish after the route change. */
+                  <div
+                    key={`search-${item.id}`}
+                    onClick={() => trackResultClick(item.uuid ?? null, idx + 1)}
+                  >
+                    <ListingCard {...toCardProps(item)} />
+                  </div>
                 ))}
               </div>
             )}

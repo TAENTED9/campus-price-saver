@@ -36,3 +36,27 @@ export function thumbnailImage(url: string | null | undefined, size = 200): stri
   if (!match) return url;
   return url.replace(match[1], `${match[1]}f_auto,q_auto,w_${size},h_${size},c_fill/`);
 }
+
+const CLOUDINARY_VIDEO_RE = /^(https?:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\/)/;
+
+/**
+ * Returns a browser-playable Cloudinary video URL.
+ *
+ * Source files are stored in whatever container/codec the seller uploaded —
+ * including iPhone `.mov` / HEVC, which Chrome and Firefox cannot decode. That
+ * makes BOTH the inline muted preview and the click-to-watch fullscreen player
+ * silently fail (the file loads but never paints/plays).
+ *
+ * Inserting `f_mp4,vc_h264` after `/video/upload/` tells Cloudinary to transcode
+ * to H.264/MP4 on delivery (cached after the first request), which every browser
+ * can play. We also swap the file extension to `.mp4` so the delivered container
+ * matches. Non-Cloudinary URLs are returned unchanged.
+ */
+export function cloudinaryVideoSrc(url: string | null | undefined): string {
+  if (!url) return "";
+  const match = url.match(CLOUDINARY_VIDEO_RE);
+  if (!match) return url; // local/external video — serve as-is
+  const transcoded = url.replace(match[1], `${match[1]}f_mp4,vc_h264,q_auto/`);
+  // Replace the trailing extension (preserving any ?query) with .mp4
+  return transcoded.replace(/\.(?:mov|m4v|webm|mp4|avi|mkv)(\?.*)?$/i, ".mp4$1");
+}

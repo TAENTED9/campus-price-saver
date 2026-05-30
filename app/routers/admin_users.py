@@ -329,8 +329,18 @@ async def admin_get_listing_detail(
     if price.photos:
         try:
             photos = json.loads(price.photos)
+            if not isinstance(photos, list):
+                photos = []
         except Exception:
             photos = []
+    videos = []
+    if getattr(price, "videos", None):
+        try:
+            videos = json.loads(price.videos)
+            if not isinstance(videos, list):
+                videos = []
+        except Exception:
+            videos = []
 
     return {
         "success": True,
@@ -350,6 +360,7 @@ async def admin_get_listing_detail(
             "delivery_options": getattr(price, "delivery_options", None),
             "subcategory": getattr(price, "subcategory", None),
             "photos": photos,
+            "videos": videos,
             "submitted_by": price.submitted_by,
             "seller_name": (seller.display_name or seller.username) if seller else "Unknown",
             "seller_username": seller.username if seller else None,

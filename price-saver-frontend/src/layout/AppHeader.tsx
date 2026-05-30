@@ -67,11 +67,8 @@ const AppHeader: React.FC<{ showNotifications?: boolean; notificationScope?: str
                 ref={inputRef}
                 type="text"
                 placeholder="Search listings, stores..."
-                className="h-10 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 py-2.5 pl-11 pr-14 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all"
+                className="h-10 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 py-2.5 pl-11 pr-4 text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 transition-all"
               />
-              <button title="Press ⌘K to focus search" className="absolute right-2.5 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 px-[7px] py-[4.5px] text-xs text-gray-500 dark:text-gray-400">
-                <span>⌘</span><span>K</span>
-              </button>
             </div>
           </form>
         </div>

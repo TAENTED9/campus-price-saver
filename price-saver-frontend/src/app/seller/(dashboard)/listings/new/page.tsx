@@ -6,6 +6,9 @@ import { useAuth } from "@/context/AuthContext";
 import { sellerApi, itemsApi, uploadApi, flashSalesApi, type Category } from "@/lib/api";
 import { X, Upload, ChevronLeft, UploadCloud, Star, Zap, Check } from "lucide-react";
 import NumberInput from "@/components/ui/NumberInput";
+import QuantityInput from "@/components/ui/QuantityInput";
+import ListingVideoUploader from "@/components/seller/ListingVideoUploader";
+import { LocationPicker } from "@/components/locations/LocationPicker";
 
 const CONDITIONS = ["New", "Fairly Used", "Used"] as const;
 const DURATIONS = [7, 14, 30] as const;
@@ -44,6 +47,7 @@ export default function NewListingPage() {
   const [condition, setCondition] = useState<string>("New");
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [videos, setVideos] = useState<string[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [hasPickup, setHasPickup] = useState(true);
   const [hasDelivery, setHasDelivery] = useState(false);
@@ -55,11 +59,9 @@ export default function NewListingPage() {
   const [packUnit, setPackUnit] = useState("");
 
   const [step, setStep]           = useState(1);
-  const [makeOffer, setMakeOffer]   = useState(false);
   const [flashSale, setFlashSale]   = useState(false);
   const [flashPrice, setFlashPrice] = useState<number | "">("");
   const [flashEnd, setFlashEnd]     = useState("");
-  const [autoRenew, setAutoRenew]   = useState(false);
   const [meetupSpots, setMeetupSpots] = useState<string[]>([]);
   const [dragOver, setDragOver]     = useState(false);
 
@@ -67,8 +69,6 @@ export default function NewListingPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
-
-  const MEETUP_SPOTS = ["GTBank bus stop", "Moremi Hall gate", "Faculty of Science gate", "University Senate building", "Amina Hall", "Kuti Hall", "Angola", "Nithub", "New Hall", "Freedom Park"];
 
   useEffect(() => {
     itemsApi.getCategories().then(setCategories).catch(() => {});
@@ -82,9 +82,10 @@ export default function NewListingPage() {
       .catch(() => setVerifGate("ok")); // fail open
   }, [token]);
 
+
   async function uploadFile(file: File) {
     if (!token) return;
-    if (photos.length >= 8) { setError("Maximum 8 photos allowed"); return; }
+    if (photos.length >= 4) { setError("Maximum 4 photos allowed per listing."); return; }
     setUploadingPhoto(true);
     setError("");
     try {
@@ -108,12 +109,6 @@ export default function NewListingPage() {
     setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith("image/")) uploadFile(file);
-  }
-
-  function toggleMeetupSpot(spot: string) {
-    setMeetupSpots((prev) =>
-      prev.includes(spot) ? prev.filter((s) => s !== spot) : [...prev, spot]
-    );
   }
 
   function canProceed() {
@@ -142,6 +137,19 @@ export default function NewListingPage() {
       return;
     }
 
+    // Publishing requires both the seller's primary spot and ≥1 canonical pick.
+    // Drafts can be saved with either/both empty.
+    if (listingStatus === "active") {
+      if (!location.trim()) {
+        setError("Enter your primary meetup spot before publishing.");
+        return;
+      }
+      if (meetupSpots.length === 0) {
+        setError("Pick at least one delivery / meetup location before publishing.");
+        return;
+      }
+    }
+
     if (
       listingStatus === "active" &&
       flashSale &&
@@ -161,6 +169,7 @@ export default function NewListingPage() {
         pack_size: packSize.trim() || undefined,
         pack_unit: packUnit || undefined,
         location: location.trim() || undefined,
+        locations: meetupSpots,
         description: description.trim() || undefined,
         subcategory: subcategory.trim() || undefined,
         condition,
@@ -171,6 +180,7 @@ export default function NewListingPage() {
         duration_days: duration,
         listing_status: listingStatus,
         photos,
+        videos,
       });
 
       if (listingStatus === "active" && flashSale && user?.id && res.id) {
@@ -313,6 +323,33 @@ export default function NewListingPage() {
               <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)}
                 placeholder="e.g. Rice, Frozen Foods, Dresses" className={inp} />
             </div>
+            <div>
+              <label className={lbl}>Brand</label>
+              <input type="text" value={brand} maxLength={100}
+                onChange={(e) => setBrand(e.target.value)}
+                placeholder="e.g. Peak, Samsung, Indomie" className={inp} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={lbl}>Pack size</label>
+                <input type="text" value={packSize} maxLength={50}
+                  onChange={(e) => setPackSize(e.target.value)}
+                  placeholder="e.g. 500, 1.5, 12" className={inp} />
+              </div>
+              <div>
+                <label className={lbl}>Unit</label>
+                <select value={packUnit} onChange={(e) => setPackUnit(e.target.value)}
+                  title="Pack unit" className={inp}>
+                  <option value="">—</option>
+                  <option value="g">g</option>
+                  <option value="kg">kg</option>
+                  <option value="ml">ml</option>
+                  <option value="L">L</option>
+                  <option value="pcs">pcs</option>
+                  <option value="pack">pack</option>
+                </select>
+              </div>
+            </div>
             <div className="sm:col-span-2">
               <div className="flex justify-between mb-1.5">
                 <label className={lbl.replace(" mb-1.5","")}>Description</label>
@@ -351,30 +388,24 @@ export default function NewListingPage() {
               </div>
             </div>
 
-            {[{
-              label: "Price is negotiable",
-              checked: isNegotiable, toggle: () => setIsNegotiable(!isNegotiable),
-            }, {
-              label: "Accept offers / Make Offer",
-              checked: makeOffer, toggle: () => setMakeOffer(!makeOffer),
-            }].map((t) => (
-              <div key={t.label} className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800">
-                <span className="text-sm text-gray-700 dark:text-gray-300">{t.label}</span>
-                <button type="button" role="switch" aria-label={t.label} onClick={t.toggle}
-                  className={`relative w-10 h-5.5 rounded-full transition-colors ${t.checked ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"}`}
-                  aria-checked={t.checked ? "true" : "false"}>
-                  <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${t.checked ? "translate-x-[18px]" : ""}`} />
-                </button>
-              </div>
-            ))}
+            <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800">
+              <span className="text-sm text-gray-700 dark:text-gray-300">Price is negotiable</span>
+              <button type="button" role="switch" aria-label="Price is negotiable"
+                onClick={() => setIsNegotiable(!isNegotiable)}
+                aria-checked={isNegotiable ? "true" : "false"}
+                className={`relative w-10 h-5.5 rounded-full transition-colors ${isNegotiable ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"}`}>
+                <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${isNegotiable ? "translate-x-[18px]" : ""}`} />
+              </button>
+            </div>
 
             <div>
               <label htmlFor="quantity" className={lbl}>Quantity Available</label>
-              <NumberInput
+              <QuantityInput
                 id="quantity"
                 value={quantity}
-                onValueChange={(v) => setQuantity(Math.max(1, Number(v) || 1))}
-                maxDigits={4}
+                onValueChange={setQuantity}
+                min={1}
+                max={9999}
                 className={inp}
               />
             </div>
@@ -409,9 +440,9 @@ export default function NewListingPage() {
 
       {/* ── STEP 3: Photos & Video ── */}
       {step === 3 && (
-        <SectionCard title={`Photos (${photos.length}/8)`}>
+        <SectionCard title={`Photos & Videos (${photos.length}/4 photos)`}>
           {/* Drag & Drop zone */}
-          {photos.length < 8 && (
+          {photos.length < 4 && (
             <div
               onDrop={handleDrop}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -425,7 +456,7 @@ export default function NewListingPage() {
             >
               <UploadCloud size={32} className="mx-auto mb-2 text-gray-400" />
               <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Drop photos here or click to upload</p>
-              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP · up to 8 photos</p>
+              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP · up to 4 photos</p>
               {uploadingPhoto && <p className="text-xs text-brand-500 mt-2 animate-pulse">Uploading…</p>}
             </div>
           )}
@@ -454,6 +485,13 @@ export default function NewListingPage() {
             title="Upload listing photo" aria-label="Upload listing photo"
             onChange={handlePhotoUpload} />
           <p className="text-xs text-gray-400">First photo will be used as the listing cover.</p>
+
+          <ListingVideoUploader
+            token={token}
+            videos={videos}
+            onChange={setVideos}
+            onError={setError}
+          />
         </SectionCard>
       )}
 
@@ -462,9 +500,25 @@ export default function NewListingPage() {
         <SectionCard title="Pickup & Delivery">
           <div className="space-y-5">
             <div>
-              <label className={lbl}>Pickup Location</label>
-              <input type="text" value={location} onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. Moremi Hall, Faculty of Science gate" className={inp} />
+              <div className="flex items-baseline justify-between mb-1.5">
+                <label className={lbl.replace(" mb-1.5","")}>
+                  Your primary spot <span className="text-red-500">*</span>
+                </label>
+                <span className={`text-xs font-medium ${
+                  location.length > 90 ? "text-warning-500" : "text-gray-400"
+                }`}>{location.length}/100</span>
+              </div>
+              <input
+                type="text"
+                value={location}
+                maxLength={100}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Shop B7 Mariere Hall, my hostel room 224, kiosk near gate B"
+                className={inp}
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                Required before publishing. Buyers see this first as your main meetup point.
+              </p>
             </div>
 
             <div>
@@ -503,16 +557,19 @@ export default function NewListingPage() {
             )}
 
             <div>
-              <label className={lbl}>Meetup Spots</label>
-              <div className="grid grid-cols-2 gap-2">
-                {MEETUP_SPOTS.map((spot) => (
-                  <label key={spot} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={meetupSpots.includes(spot)} onChange={() => toggleMeetupSpot(spot)}
-                      className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{spot}</span>
-                  </label>
-                ))}
+              <div className="flex items-baseline justify-between mb-1.5">
+                <label className={lbl.replace(" mb-1.5","")}>
+                  Other meetup spots you can deliver to <span className="text-red-500">*</span>
+                </label>
               </div>
+              <p className="mb-2 text-xs text-gray-400">
+                Tick every UNILAG spot you&apos;ll meet buyers at. At least one is required to publish.
+              </p>
+              <LocationPicker
+                value={meetupSpots}
+                onChange={setMeetupSpots}
+                required
+              />
             </div>
 
             <div>
@@ -524,13 +581,6 @@ export default function NewListingPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between py-3 border-t border-gray-100 dark:border-gray-800">
-              <span className="text-sm text-gray-700 dark:text-gray-300">Auto-renew listing on expiry</span>
-              <button type="button" role="switch" aria-label="Auto-renew listing" aria-checked={autoRenew ? "true" : "false"} onClick={() => setAutoRenew(!autoRenew)}
-                className={`relative w-10 h-5.5 rounded-full transition-colors ${autoRenew ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"}`}>
-                <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${autoRenew ? "translate-x-[18px]" : ""}`} />
-              </button>
-            </div>
           </div>
         </SectionCard>
       )}

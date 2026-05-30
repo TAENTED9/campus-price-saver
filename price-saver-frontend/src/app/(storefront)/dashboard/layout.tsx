@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import BottomNav from "@/components/layout/BottomNav";
 import { useTheme } from "@/context/ThemeContext";
+import { useRoleGuard } from "@/hooks/useRoleGuard";
 
 // Block 2: wishlist count comes from the server (no localStorage).
 // `wl-changed` is dispatched by the listing detail page and wishlist page
@@ -118,7 +119,10 @@ function SidebarContent({
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, user, token, logout, avatarUrl } = useAuth();
+  // Strict guard: only role === "buyer" may render this tree. Sellers and
+  // admins get bounced to the buyer signin without being logged out.
+  const { isVerifying, isAuthorized } = useRoleGuard("buyer");
+  const { user, token, logout, avatarUrl } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const pathname = usePathname();
@@ -154,9 +158,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, [token]);
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) router.push("/signin");
-  }, [isLoading, isAuthenticated, router]);
+  // Auth + role redirect handled by useRoleGuard above.
 
   // Block 2: wishlist count lives server-side. Fetch on mount, refetch
   // whenever the listing pages dispatch `wl-changed`.
@@ -186,7 +188,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // ⌘K / Ctrl+K opens search modal
+  // Ctrl+K opens search modal
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if ((ev.metaKey || ev.ctrlKey) && ev.key === "k") {
@@ -198,15 +200,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  if (isLoading) {
+  // Block rendering while session is restoring OR while a non-buyer is
+  // being bounced. Without this, the wrong-role user briefly sees the buyer
+  // UI before the redirect lands.
+  if (isVerifying || !isAuthorized) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
-
-  if (!isAuthenticated) return null;
 
   const NAV_ITEMS = [
     { href: "/dashboard",          label: "Browse Market", icon: <ShoppingBag size={18} />, count: 0 },
@@ -277,7 +280,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           >
             <Search size={15} />
             <span className="flex-1 text-left">Search listings, stores...</span>
-            <kbd className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-mono hidden sm:block">⌘K</kbd>
+            <kbd className="text-xs bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-mono hidden sm:block"></kbd>
           </button>
 
           {/* Right actions */}
@@ -337,12 +340,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       Account settings
                     </Link>
                     <Link
-                      href="/support"
+                      href="/help"
                       onClick={() => setDropdownOpen(false)}
                       className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                     >
                       <Info size={16} className="text-gray-400 flex-shrink-0" />
-                      Support
+                      Help
                     </Link>
                     <div className="border-t border-gray-200 dark:border-gray-800 my-1" />
                     <button

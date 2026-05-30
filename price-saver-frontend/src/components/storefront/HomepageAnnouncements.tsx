@@ -22,11 +22,15 @@ export default function HomepageAnnouncements() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/admin/announcements?placement=homepage&limit=3`)
+    // Use the public endpoint — the bare /admin/announcements path requires
+    // an admin token and returns 403 to unauthenticated storefront visitors.
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/admin/announcements/public`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         const list: Announcement[] = Array.isArray(data)
           ? data
+          : Array.isArray(data?.announcements)
+          ? data.announcements
           : Array.isArray(data?.items)
           ? data.items
           : [];

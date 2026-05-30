@@ -19,7 +19,7 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: "https://campify.ng/sitemap.xml",
-    host: "https://campify.ng",
+    sitemap: "https://campify.digital/sitemap.xml",
+    host: "https://campify.digital",
   };
 }

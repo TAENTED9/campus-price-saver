@@ -25,23 +25,45 @@ def _mask_email(addr: str) -> str:
         dom_m = dom_m + "." + ".".join(dom_parts[1:])
     return f"{local_m}@{dom_m}"
 
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
-APP_URL = os.getenv("APP_URL", "http://localhost:3000")
-
 BRAND_NAME = "Campify"
 BRAND_TAGLINE = "Campus Marketplace"
 BRAND_PRIMARY = "#2563eb"
 BRAND_ACCENT = "#06b6d4"
-BRAND_SUPPORT = os.getenv("SUPPORT_EMAIL", "support@campify.app")
+
+
+# Read everything env-driven through getters so updates to .env are picked up
+# without restarting workers, and so test runs can monkeypatch os.environ.
+def _admin_email() -> str:
+    return os.getenv("ADMIN_EMAIL", "").strip()
+
+
+def _app_url() -> str:
+    return os.getenv("APP_URL", "http://localhost:3000").strip()
+
+
+def _brand_support() -> str:
+    # No hardcoded fallback — if SUPPORT_EMAIL is unset we omit the address
+    # entirely. A wrong default is worse than no default (it leaks the old
+    # address into every email when someone forgets to set the var).
+    return os.getenv("SUPPORT_EMAIL", "").strip()
+
+
+# Module-level aliases kept for callers that imported the constants directly.
+# They evaluate at import time; for live updates use the getters above.
+ADMIN_EMAIL = _admin_email()
+APP_URL = _app_url()
+BRAND_SUPPORT = _brand_support()
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def _get_config():
     """Read email config fresh from env each call so dotenv order doesn't matter."""
-    api_key = os.getenv("RESEND_API_KEY", "")
-    resend_from = os.getenv("RESEND_FROM", "Campify <noreply@campify.ng>")
-    from_addr = os.getenv("EMAIL_FROM", resend_from)
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    # No hardcoded default — let Resend reject a missing From rather than
+    # silently sending from a stale address baked into the source.
+    resend_from = os.getenv("RESEND_FROM", "").strip()
+    from_addr = os.getenv("EMAIL_FROM", resend_from).strip()
     return api_key, from_addr
 
 
@@ -72,7 +94,20 @@ async def _send(to: str, subject: str, html: str) -> bool:
                 pass
             logger.info(f"[email] Sent OK to={masked_to} resend_id={msg_id}")
             return True
-        logger.error(f"[email] Resend error status={resp.status_code} to={masked_to}")
+        # Surface Resend's error body — the status code alone is useless
+        # because 403 can mean "unverified domain", "invalid API key",
+        # "sandbox/test key", or "rate limited", all of which need different
+        # operator action. Logging the body once per failure makes the cause
+        # obvious without needing to attach a debugger.
+        body_excerpt = ""
+        try:
+            body_excerpt = resp.text[:300].replace("\n", " ")
+        except Exception:
+            pass
+        logger.error(
+            f"[email] Resend error status={resp.status_code} from={from_addr!r} "
+            f"to={masked_to} body={body_excerpt!r}"
+        )
         return False
     except Exception as e:
         logger.error(f"[email] Send failed to={masked_to} err={type(e).__name__}")
@@ -116,6 +151,16 @@ def _wrap(
         if cta_label and cta_url
         else ""
     )
+    support_addr = _brand_support()
+    app_url = _app_url()
+    support_line = (
+        f'<p style="margin:0 0 6px;font-size:12px;color:#6b7280">'
+        f'Need help? Reach out to '
+        f'<a href="mailto:{support_addr}" style="color:{BRAND_PRIMARY};text-decoration:none">{support_addr}</a>.'
+        f'</p>'
+        if support_addr else ""
+    )
+    domain_label = app_url.replace('https://', '').replace('http://', '')
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -165,12 +210,10 @@ def _wrap(
           <!-- Footer -->
           <tr>
             <td style="padding:24px 32px;border-top:1px solid #e5e7eb;background:#f9fafb">
-              <p style="margin:0 0 6px;font-size:12px;color:#6b7280">
-                Need help? Reach out to <a href="mailto:{BRAND_SUPPORT}" style="color:{BRAND_PRIMARY};text-decoration:none">{BRAND_SUPPORT}</a>.
-              </p>
+              {support_line}
               <p style="margin:0;font-size:11px;color:#9ca3af">
                 &copy; {BRAND_NAME} &middot; Lagos, Nigeria &middot;
-                <a href="{APP_URL}" style="color:#9ca3af;text-decoration:none">{APP_URL.replace('https://', '').replace('http://', '')}</a>
+                <a href="{app_url}" style="color:#9ca3af;text-decoration:none">{domain_label}</a>
               </p>
             </td>
           </tr>
@@ -378,6 +421,100 @@ async def send_new_listing_alert(to: str, buyer_name: str, seller_name: str,
         cta_url=f"{APP_URL}/listing/{listing_id}",
     )
     return await _send(to, f"New listing from {seller_name}: {listing_name} — {BRAND_NAME}", html)
+
+
+async def send_flash_sale_alert(
+    to: str,
+    recipient_name: str,
+    listing_name: str,
+    listing_uuid: str | None,
+    listing_id: int,
+    original_price: float,
+    sale_price: float,
+    discount_pct: float,
+    cover_media_url: str | None,
+    end_time_iso: str,
+) -> bool:
+    """
+    Block 6B — flash sale platform-wide email.
+
+    `cover_media_url` is the listing's cover (photo or Cloudinary video thumbnail —
+    the caller resolves which). `end_time_iso` should be the sale's `end_time`
+    in ISO-8601 format; we render a "Ends in X hours/minutes" countdown copy.
+    """
+    from datetime import datetime, timezone
+
+    pct = max(0, int(round(discount_pct)))
+    listing_href = f"{APP_URL}/listing/{listing_uuid or listing_id}"
+    settings_href = f"{APP_URL}/dashboard/settings?tab=notifications"
+
+    # Countdown copy — best-effort. If the parse fails the email still ships
+    # without the line; we never block a blast on a malformed end_time.
+    countdown_line = ""
+    try:
+        end_dt = datetime.fromisoformat(end_time_iso.replace("Z", "+00:00"))
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        delta = end_dt - datetime.now(timezone.utc)
+        secs = int(delta.total_seconds())
+        if secs > 0:
+            if secs >= 3600:
+                hours = secs // 3600
+                countdown_line = f"Ends in {hours} hour{'s' if hours != 1 else ''}"
+            elif secs >= 60:
+                mins = secs // 60
+                countdown_line = f"Ends in {mins} minute{'s' if mins != 1 else ''}"
+            else:
+                countdown_line = "Ends in less than a minute"
+    except Exception:
+        countdown_line = ""
+
+    # Cover image — inline at the top of the info box. We accept any HTTPS URL
+    # the caller passes; Cloudinary photo URLs and `.jpg` video-frame URLs both
+    # work because they're regular images to the email client.
+    cover_html = ""
+    if cover_media_url:
+        cover_html = (
+            f'<img src="{cover_media_url}" alt="{listing_name}" '
+            'style="width:100%;max-height:240px;object-fit:cover;'
+            'border-radius:8px;display:block;margin-bottom:14px" />'
+        )
+
+    countdown_html = (
+        f'<p style="margin:8px 0 0;color:#6b7280;font-size:13px">{countdown_line}</p>'
+        if countdown_line else ""
+    )
+
+    body = (
+        _p(f"Hi <strong>{recipient_name}</strong>,")
+        + _p("A campus seller just kicked off a flash sale:")
+        + _info_box(
+            cover_html
+            + f'<p style="margin:0;font-weight:700;font-size:16px;color:#111827">{listing_name}</p>'
+            + f'<p style="margin:10px 0 0">'
+            + f'<span style="text-decoration:line-through;color:#9ca3af">&#8358;{int(round(original_price)):,}</span>'
+            + f'&nbsp;&rarr;&nbsp;<span style="font-size:22px;font-weight:900;color:#dc2626">&#8358;{int(round(sale_price)):,}</span>'
+            + f'&nbsp;<span style="background:#fee2e2;color:#dc2626;font-size:12px;font-weight:700;padding:2px 10px;border-radius:99px">{pct}% off</span></p>'
+            + countdown_html,
+            tone="brand",
+        )
+        + (
+            '<p style="font-size:12px;color:#9ca3af;line-height:1.5;margin:22px 0 0">'
+            f'You receive flash sale alerts because price-drop or new-listing emails are enabled on your account. '
+            f'<a href="{settings_href}" style="color:#6b7280;text-decoration:underline">Manage notification preferences</a>.'
+            '</p>'
+        )
+    )
+
+    html = _wrap(
+        preheader=f"{listing_name} — {pct}% off on Campify",
+        heading="Flash Sale on Campify!",
+        body_html=body,
+        cta_label="Shop Now",
+        cta_url=listing_href,
+        heading_color="#dc2626",
+    )
+    return await _send(to, f"Flash Sale: {listing_name} ({pct}% off) — {BRAND_NAME}", html)
 
 
 async def send_weekly_report(to: str, seller_name: str, stats: dict) -> bool:

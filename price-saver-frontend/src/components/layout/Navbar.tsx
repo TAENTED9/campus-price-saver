@@ -138,15 +138,19 @@ export default function Navbar() {
                   {/* Bell with live notifications */}
                   <NotificationDropdown />
 
-                  {/* Wishlist */}
-                  <Link href="/dashboard/wishlist" className="p-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors relative" title="Wishlist">
-                    <Heart size={20} />
-                  </Link>
+                  {/* Wishlist — buyers only; the buyer dashboard owns this surface */}
+                  {user?.role !== "seller" && (
+                    <Link href="/dashboard/wishlist" className="p-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors relative" title="Wishlist">
+                      <Heart size={20} />
+                    </Link>
+                  )}
 
-                  {/* Cart */}
-                  <Link href="/dashboard/orders" className="p-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors relative" title="Orders">
-                    <ShoppingCart size={20} />
-                  </Link>
+                  {/* Cart — buyers only; sellers manage sales from /seller */}
+                  {user?.role !== "seller" && (
+                    <Link href="/dashboard/orders" className="p-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors relative" title="Orders">
+                      <ShoppingCart size={20} />
+                    </Link>
+                  )}
 
                   {/* Avatar dropdown */}
                   <div ref={avatarRef} className="relative ml-1">
@@ -180,18 +184,28 @@ export default function Navbar() {
                         <Link href={user?.role === "seller" ? "/seller" : "/dashboard"} onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                           <User size={14} /> My Account
                         </Link>
-                        <Link href="/dashboard/orders" onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                          <Package size={14} /> Orders
-                        </Link>
-                        <Link href="/dashboard/wishlist" onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                          <Heart size={14} /> Wishlist
-                        </Link>
+                        {user?.role !== "seller" && (
+                          <Link href="/dashboard/orders" onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                            <Package size={14} /> Orders
+                          </Link>
+                        )}
+                        {/* Wishlist — buyer-only feature; hidden for sellers */}
+                        {user?.role !== "seller" && (
+                          <Link href="/dashboard/wishlist" onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                            <Heart size={14} /> Wishlist
+                          </Link>
+                        )}
                         {user?.role === "seller" && (
                           <Link href="/seller" onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                             <Store size={14} /> Seller Console
                           </Link>
                         )}
-                        <Link href="/dashboard/settings" onClick={() => setAvatarOpen(false)} className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        {/* Settings — route by role so sellers don't get bounced into the buyer dashboard */}
+                        <Link
+                          href={user?.role === "seller" ? "/seller/settings" : "/dashboard/settings"}
+                          onClick={() => setAvatarOpen(false)}
+                          className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                        >
                           <Settings size={14} /> Settings
                         </Link>
                         <div className="border-t border-gray-100 dark:border-gray-800 mt-1 pt-1">
@@ -283,13 +297,19 @@ export default function Navbar() {
                 { href: "/search",             label: "Search",            icon: Search },
                 { href: "/deals",              label: "Flash Sales",       icon: Zap },
                 ...(isAuthenticated ? [
-                  { href: "/dashboard/orders",   label: "My Orders",         icon: Package },
-                  { href: "/dashboard/wishlist", label: "Wishlist",           icon: Heart },
+                  ...(user?.role !== "seller" ? [
+                    { href: "/dashboard/orders",   label: "My Orders",         icon: Package },
+                    { href: "/dashboard/wishlist", label: "Wishlist",           icon: Heart },
+                  ] : []),
                   { href: "/dashboard/messages", label: "Messages",           icon: MessageCircle },
                   ...(user?.role === "seller" ? [
                     { href: "/seller",           label: "Seller Console",     icon: BarChart2 },
                   ] : []),
-                  { href: "/dashboard/settings", label: "Settings",           icon: Settings },
+                  {
+                    href: user?.role === "seller" ? "/seller/settings" : "/dashboard/settings",
+                    label: "Settings",
+                    icon: Settings,
+                  },
                 ] : []),
               ].map(({ href, label, icon: Icon }) => (
                 <Link

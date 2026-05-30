@@ -51,8 +51,13 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://res.cloudinary.com",
+              // <video>/<source> use media-src, NOT img-src. Without this, the
+              // Cloudinary video URL falls back to default-src 'self' and is
+              // blocked (blank player). blob: covers any future client-side
+              // object URLs.
+              "media-src 'self' blob: https://res.cloudinary.com",
               process.env.NODE_ENV === "production"
-                ? "connect-src 'self' https://campify.ng https://api.campify.ng wss://campify.ng"
+                ? "connect-src 'self' https://campify.digital https://api.campify.digital wss://campify.digital"
                 : "connect-src 'self' http://localhost:* ws://localhost:* http://192.168.0.195:* ws://192.168.0.195:*",
             ].join("; "),
           },

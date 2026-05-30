@@ -1,15 +1,17 @@
 import uuid as uuid_lib
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, CheckConstraint, UniqueConstraint, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, CheckConstraint, UniqueConstraint, JSON, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base, IS_POSTGRES
 
 if IS_POSTGRES:
-    from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP, JSONB as PG_JSONB
+    from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP, JSONB as PG_JSONB, TSVECTOR as PG_TSVECTOR
     _JsonType = PG_JSONB
+    _SearchVectorType = PG_TSVECTOR
 else:
-    PG_UUID = PG_TIMESTAMP = None
+    PG_UUID = PG_TIMESTAMP = PG_TSVECTOR = None
     _JsonType = JSON
+    _SearchVectorType = None
 
 
 def uuid_column():
@@ -47,7 +49,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=True)  # Made nullable for backward compat
     email_verified = Column(Boolean, default=False)
     display_name = Column(String, nullable=True)
-    role = Column(String, default="student", index=True)
+    role = Column(String, default="buyer", index=True)
     balance = Column(Float, default=0.0)
     seller_points = Column(Integer, default=0)          # Karma/boost points
     # Extended profile
@@ -218,7 +220,19 @@ class Price(Base):
     
     # Location & metadata
     retailer = Column(String, nullable=True)  # Store/shop name
-    location = Column(String, nullable=True)  # Location/area
+    # Seller's primary / specific meetup spot — short free text (≤100 chars).
+    # Required when publishing (enforced at the endpoint, NOT here, so drafts
+    # can still be saved without it). Displayed prominently to buyers.
+    location = Column(String, nullable=True)
+    # Canonical multi-pickup list. Stored as a JSON array of strings; each entry
+    # must appear in app.constants.locations.LOCATION_SET. Empty array = listing
+    # is blocked from publish (sellers must pick at least one spot).
+    locations = Column(Text, nullable=False, server_default="[]")
+    # Set True by the startup migration for rows whose old location matched a
+    # stale value (Angola, Freedom Park, Nithub, …). The seller dashboard
+    # shows a "Locations needed" banner driven by this flag; clearing it
+    # happens on the next successful listing save.
+    needs_location_update = Column(Boolean, nullable=False, server_default="0", default=False)
     submitted_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     submitted_at = timestamp_col()
     
@@ -234,6 +248,7 @@ class Price(Base):
     listing_status = Column(String, default="active", index=True)  # draft/active/paused/sold/expired
     paused_by_vacation = Column(Boolean, default=False, nullable=False)
     photos = Column(Text, nullable=True)                   # JSON array of Cloudinary URLs (up to 5)
+    videos = Column(Text, nullable=True)                   # JSON array of Cloudinary video URLs (up to 3 per user, account-wide)
     subcategory = Column(String, nullable=True)
 
     # Status
@@ -248,10 +263,45 @@ class Price(Base):
     uuid = Column(String, unique=True, nullable=True,
                   default=lambda: str(uuid_lib.uuid4()))
 
+    # ── Block 1: Full-Text Search columns ────────────────────────────────────
+    # PostgreSQL only: native tsvector populated by DB trigger
+    # (see _run_postgres_migrations in app/database.py). SQLite uses the
+    # prices_fts FTS5 virtual table instead — no ORM column needed there.
+    if IS_POSTGRES:
+        search_vector = Column(_SearchVectorType, nullable=True)
+
+    # Search boost priority — A (highest) … D (lowest).
+    # Featured listings should be promoted to A; default is C.
+    # Used by the ranking expression in app/services/search_service.py.
+    search_weight = Column(String(1), default="C", nullable=True)
+
     category = relationship("Category", back_populates="prices")
     store = relationship("Store", back_populates="prices")
     flash_sales = relationship("FlashSale", back_populates="price_item")
     inquiries = relationship("Inquiry", back_populates="listing")
+
+    # Composite indexes — work on both SQLite and PostgreSQL.
+    # Column names match the real Price schema (submitted_by/submitted_at,
+    # category_id, listing_status) — NOT the speculative "listings" schema.
+    __table_args__ = (
+        # Browse page: category + status + price + recency
+        Index(
+            "idx_prices_browse",
+            "category_id", "listing_status",
+            "price", "submitted_at",
+        ),
+        # Seller dashboard: my listings, filtered by status, newest first
+        Index(
+            "idx_prices_seller",
+            "submitted_by", "listing_status",
+            "submitted_at",
+        ),
+        # Condition filter (New / Fairly Used / Used) on active listings
+        Index(
+            "idx_prices_condition",
+            "condition", "listing_status",
+        ),
+    )
 
 
 class FlashSale(Base):
@@ -955,6 +1005,51 @@ class UserSettings(Base):
 
 
 # ── Block 2A: Admin event feed ────────────────────────────────────────────────
+
+class SearchEvent(Base):
+    """
+    Block 8 — Search analytics event log.
+
+    Two event types share one table:
+      • "search" — a user issued a query. Captures result_count + engine.
+      • "click"  — a user clicked a result. Captures clicked_uuid + position.
+
+    Reasons for one denormalized table over two:
+      • Identical context (query, user_id, ip_hash, created_at) for both.
+      • Click-through-rate is a single GROUP BY query, not a JOIN.
+      • Aggregations (top searches, zero-result queries, trending) are
+        filtered by event_type with a covering index.
+
+    Privacy: ip_hash is sha256(ip)[:32] — sufficient for distinct-user counts
+    without storing raw IPs. user_id is FK with ON DELETE SET NULL so events
+    survive account deletion for trend analysis.
+
+    Retention is application-level — see search_analytics.purge_old_events.
+    """
+    __tablename__ = "search_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_type = Column(String(10), nullable=False, index=True)  # "search" | "click"
+    query = Column(String(200), nullable=False)
+    result_count = Column(Integer, nullable=True)        # search only
+    engine = Column(String(30), nullable=True)           # postgresql_fts | sqlite_fts5 | fallback_like
+    clicked_uuid = Column(String, nullable=True)         # click only
+    clicked_position = Column(Integer, nullable=True)    # click only — 1-indexed rank
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    ip_hash = Column(String(64), nullable=True, index=True)
+    created_at = timestamp_col(index=True)
+
+    user = relationship("User")
+
+    __table_args__ = (
+        # Per-query trend queries: WHERE query = ? AND created_at >= ?
+        Index("idx_search_events_query_time", "query", "created_at"),
+        # Top/CTR/trending: WHERE event_type = ? AND created_at >= ? GROUP BY query
+        Index("idx_search_events_type_time", "event_type", "created_at"),
+        # Zero-result queries: filter on result_count IS NULL OR result_count = 0
+        Index("idx_search_events_results", "result_count", "created_at"),
+    )
+
 
 class AdminEvent(Base):
     """

@@ -6,14 +6,12 @@ import { useAuth } from "@/context/AuthContext";
 import { sellerApi, itemsApi, uploadApi, flashSalesApi, type Category, type SellerListing } from "@/lib/api";
 import { ChevronLeft, UploadCloud, X, Star, Zap, Check } from "lucide-react";
 import NumberInput from "@/components/ui/NumberInput";
+import QuantityInput from "@/components/ui/QuantityInput";
+import ListingVideoUploader from "@/components/seller/ListingVideoUploader";
+import { LocationPicker } from "@/components/locations/LocationPicker";
 
 const CONDITIONS = ["New", "Fairly Used", "Used"] as const;
 const DURATIONS = [7, 14, 30] as const;
-const MEETUP_SPOTS = [
-  "GTBank bus stop", "Moremi Hall gate", "Faculty of Science gate",
-  "University Senate building", "Amina Hall", "Kuti Hall",
-  "Angola", "Nithub", "New Hall", "Freedom Park",
-];
 
 const inp =
   "h-11 w-full rounded-lg border border-gray-200 bg-white py-2.5 px-4 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-gray-900 dark:[color-scheme:dark] dark:text-white/90 dark:placeholder:text-white/30";
@@ -60,13 +58,16 @@ export default function EditListingPage() {
   const [flashPrice, setFlashPrice]   = useState<number | "">("");
   const [flashEnd, setFlashEnd]       = useState("");
   const [photos, setPhotos]           = useState<string[]>([]);
+  const [videos, setVideos]           = useState<string[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [dragOver, setDragOver]       = useState(false);
   const [hasPickup, setHasPickup]     = useState(true);
   const [hasDelivery, setHasDelivery] = useState(false);
   const [location, setLocation]       = useState("");
   const [duration, setDuration]       = useState<number>(30);
-  const [autoRenew, setAutoRenew]     = useState(false);
+  const [brand, setBrand]             = useState("");
+  const [packSize, setPackSize]       = useState("");
+  const [packUnit, setPackUnit]       = useState("");
   const [meetupSpots, setMeetupSpots] = useState<string[]>([]);
 
   const [submitting, setSubmitting]   = useState(false);
@@ -95,7 +96,12 @@ export default function EditListingPage() {
         setIsNegotiable(found.is_negotiable ?? false);
         setQuantity(found.quantity ?? 1);
         setPhotos(found.photos ?? []);
+        setVideos(found.videos ?? []);
         setLocation(found.location ?? "");
+        setBrand(found.brand ?? "");
+        setPackSize(found.pack_size ?? "");
+        setPackUnit(found.pack_unit ?? "");
+        setMeetupSpots(found.locations ?? []);
         setHasPickup(found.delivery_options?.includes("pickup") ?? true);
         setHasDelivery(found.delivery_options?.includes("delivery") ?? false);
         setDuration(found.duration_days ?? 30);
@@ -106,7 +112,7 @@ export default function EditListingPage() {
 
   async function uploadFile(file: File) {
     if (!token) return;
-    if (photos.length >= 8) { setError("Maximum 8 photos allowed"); return; }
+    if (photos.length >= 4) { setError("Maximum 4 photos allowed per listing."); return; }
     setUploadingPhoto(true); setError("");
     try {
       const url = await uploadApi.uploadListingPhoto(token, file);
@@ -125,9 +131,6 @@ export default function EditListingPage() {
     if (file && file.type.startsWith("image/")) uploadFile(file);
   }
 
-  function toggleMeetupSpot(spot: string) {
-    setMeetupSpots((prev) => prev.includes(spot) ? prev.filter((s) => s !== spot) : [...prev, spot]);
-  }
 
   function canProceed() {
     if (step === 1) return name.trim().length >= 3 && categoryId !== "";
@@ -137,6 +140,20 @@ export default function EditListingPage() {
 
   async function handleSubmit() {
     if (!token || !listing) return;
+
+    // If listing was/will-be active, location + ≥1 canonical pick are required.
+    const targetActive = listing.listing_status !== "draft";
+    if (targetActive) {
+      if (!location.trim()) {
+        setError("Enter your primary meetup spot before saving.");
+        return;
+      }
+      if (meetupSpots.length === 0) {
+        setError("Pick at least one delivery / meetup location before saving.");
+        return;
+      }
+    }
+
     if (
       flashSale &&
       (flashPrice === "" || Number(flashPrice) <= 0 || Number(flashPrice) >= Number(price) || !flashEnd)
@@ -152,7 +169,11 @@ export default function EditListingPage() {
       await sellerApi.updateListing(token, listing.id, {
         name, category_id: Number(categoryId), subcategory, description,
         condition, price: Number(price), is_negotiable: isNegotiable,
-        quantity, photos, location,
+        quantity, photos, videos, location,
+        brand: brand.trim() || undefined,
+        pack_size: packSize.trim() || undefined,
+        pack_unit: packUnit || undefined,
+        locations: meetupSpots,
         delivery_options: deliveryOpts.join(","),
         duration_days: duration,
       });
@@ -278,6 +299,33 @@ export default function EditListingPage() {
               <label className={lbl}>Subcategory</label>
               <input type="text" value={subcategory} onChange={(e) => setSubcategory(e.target.value)} className={inp} />
             </div>
+            <div>
+              <label className={lbl}>Brand</label>
+              <input type="text" value={brand} maxLength={100}
+                onChange={(e) => setBrand(e.target.value)}
+                placeholder="e.g. Peak, Samsung, Indomie" className={inp} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={lbl}>Pack size</label>
+                <input type="text" value={packSize} maxLength={50}
+                  onChange={(e) => setPackSize(e.target.value)}
+                  placeholder="e.g. 500, 1.5, 12" className={inp} />
+              </div>
+              <div>
+                <label className={lbl}>Unit</label>
+                <select value={packUnit} onChange={(e) => setPackUnit(e.target.value)}
+                  title="Pack unit" className={inp}>
+                  <option value="">—</option>
+                  <option value="g">g</option>
+                  <option value="kg">kg</option>
+                  <option value="ml">ml</option>
+                  <option value="L">L</option>
+                  <option value="pcs">pcs</option>
+                  <option value="pack">pack</option>
+                </select>
+              </div>
+            </div>
             <div className="sm:col-span-2">
               <div className="flex justify-between mb-1.5">
                 <label className={lbl.replace(" mb-1.5", "")}>Description</label>
@@ -324,7 +372,14 @@ export default function EditListingPage() {
             </div>
             <div>
               <label htmlFor="qty" className={lbl}>Quantity</label>
-              <NumberInput id="qty" value={quantity} onValueChange={(v) => setQuantity(Math.max(1, Number(v) || 1))} maxDigits={4} className={inp} />
+              <QuantityInput
+                id="qty"
+                value={quantity}
+                onValueChange={setQuantity}
+                min={1}
+                max={9999}
+                className={inp}
+              />
             </div>
             <div className="sm:col-span-2 space-y-3">
               <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800">
@@ -356,8 +411,8 @@ export default function EditListingPage() {
 
       {/* ── STEP 3 ── */}
       {step === 3 && (
-        <SectionCard title={`Photos (${photos.length}/8)`}>
-          {photos.length < 8 && (
+        <SectionCard title={`Photos & Videos (${photos.length}/4 photos)`}>
+          {photos.length < 4 && (
             <div onDrop={handleDrop}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
@@ -367,7 +422,7 @@ export default function EditListingPage() {
               }`}>
               <UploadCloud size={32} className="mx-auto mb-2 text-gray-400" />
               <p className="text-sm font-semibold text-gray-600 dark:text-gray-400">Drop photos here or click to upload</p>
-              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP · up to 8 photos</p>
+              <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP · up to 4 photos</p>
               {uploadingPhoto && <p className="text-xs text-brand-500 mt-2 animate-pulse">Uploading…</p>}
             </div>
           )}
@@ -394,6 +449,13 @@ export default function EditListingPage() {
             title="Upload photo" aria-label="Upload listing photo"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }} />
           <p className="text-xs text-gray-400">First photo is the listing cover.</p>
+
+          <ListingVideoUploader
+            token={token}
+            videos={videos}
+            onChange={setVideos}
+            onError={setError}
+          />
         </SectionCard>
       )}
 
@@ -401,9 +463,33 @@ export default function EditListingPage() {
       {step === 4 && (
         <SectionCard title="Pickup & Delivery">
           <div className="space-y-5">
+            {listing?.needs_location_update && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+                This listing was auto-blocked because its old location is no
+                longer on our list. Set your primary spot and pick at least
+                one canonical spot below to put it back live.
+              </div>
+            )}
             <div>
-              <label className={lbl}>Pickup Location</label>
-              <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Moremi Hall gate" className={inp} />
+              <div className="flex items-baseline justify-between mb-1.5">
+                <label className={lbl.replace(" mb-1.5","")}>
+                  Your primary spot <span className="text-red-500">*</span>
+                </label>
+                <span className={`text-xs font-medium ${
+                  location.length > 90 ? "text-warning-500" : "text-gray-400"
+                }`}>{location.length}/100</span>
+              </div>
+              <input
+                type="text"
+                value={location}
+                maxLength={100}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="e.g. Shop B7 Mariere Hall, my hostel room 224"
+                className={inp}
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                Required before publishing. Shown to buyers as your main meetup point.
+              </p>
             </div>
             <div>
               <label className={lbl}>Delivery Options</label>
@@ -422,16 +508,19 @@ export default function EditListingPage() {
               </div>
             </div>
             <div>
-              <label className={lbl}>Meetup Spots</label>
-              <div className="grid grid-cols-2 gap-2">
-                {MEETUP_SPOTS.map((spot) => (
-                  <label key={spot} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={meetupSpots.includes(spot)} onChange={() => toggleMeetupSpot(spot)}
-                      className="rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{spot}</span>
-                  </label>
-                ))}
+              <div className="flex items-baseline justify-between mb-1.5">
+                <label className={lbl.replace(" mb-1.5","")}>
+                  Other meetup spots you can deliver to <span className="text-red-500">*</span>
+                </label>
               </div>
+              <p className="mb-2 text-xs text-gray-400">
+                Tick every UNILAG spot you&apos;ll meet buyers at. At least one is required.
+              </p>
+              <LocationPicker
+                value={meetupSpots}
+                onChange={setMeetupSpots}
+                required
+              />
             </div>
             <div>
               <label className={lbl}>Listing Duration</label>
@@ -440,14 +529,6 @@ export default function EditListingPage() {
                   <button key={d} type="button" onClick={() => setDuration(d)} className={pill(duration === d)}>{d} days</button>
                 ))}
               </div>
-            </div>
-            <div className="flex items-center justify-between py-3 border-t border-gray-100 dark:border-gray-800">
-              <span className="text-sm text-gray-700 dark:text-gray-300">Auto-renew on expiry</span>
-              <button type="button" role="switch" aria-label="Auto-renew" aria-checked={autoRenew ? "true" : "false"}
-                onClick={() => setAutoRenew(!autoRenew)}
-                className={`relative w-10 h-5.5 rounded-full transition-colors ${autoRenew ? "bg-brand-500" : "bg-gray-300 dark:bg-gray-600"}`}>
-                <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${autoRenew ? "translate-x-[18px]" : ""}`} />
-              </button>
             </div>
           </div>
         </SectionCard>

@@ -23,7 +23,9 @@ import os
 from datetime import datetime
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
-APP_URL = os.getenv("APP_URL", "https://campify.ng")
+# No production URL as default — empty string forces the deployer to set APP_URL
+# explicitly and prevents stale domains from leaking into emails on misconfig.
+APP_URL = os.getenv("APP_URL", "").rstrip("/")
 
 
 async def notify_admin(

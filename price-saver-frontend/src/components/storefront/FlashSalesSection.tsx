@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { MapPin, Zap } from "lucide-react";
+import Image from "next/image";
+import { MapPin, Zap, Play, ShoppingBag } from "lucide-react";
 import { flashSalesApi, type FlashSale } from "@/lib/api";
 import { formatPrice } from "@/lib/formatPrice";
+import { thumbnailImage } from "@/lib/cloudinary";
 
 function getTimeRemaining(endTime: string): {
   total: number;
@@ -60,64 +62,76 @@ function FlashSaleCard({
   const countdownLabel =
     remaining.total <= 0
       ? "Expired"
-      : isEndingSoon
-      ? "Ending soon!"
       : `${pad(remaining.hours)}:${pad(remaining.minutes)}:${pad(remaining.seconds)}`;
 
+  // Block 5/6A: cover_media is the new field; item_photo is the legacy fallback.
+  const coverUrl = sale.cover_media ?? sale.item_photo ?? null;
+  const isVideoThumb = sale.cover_media_kind === "video_thumb";
+  const listingHref = `/listing/${sale.item_uuid ?? sale.price_id}`;
+
   return (
-    <Link href={`/listing/${sale.price_id}`} className="block group">
-      <div className="bg-gradient-to-br from-error-500 to-error-600 rounded-xl p-4 hover:shadow-md transition-shadow duration-200 relative h-full flex flex-col min-h-[200px]">
-        {/* Discount badge */}
-        <span className="absolute top-3 right-3 text-[10px] bg-white text-red-600 px-2 py-0.5 rounded-full font-bold leading-tight whitespace-nowrap">
-          -{Math.round(sale.discount_pct)}% OFF
-        </span>
+    <Link href={listingHref} className="block group h-full">
+      <div className="rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 overflow-hidden hover:shadow-md transition-shadow h-full flex flex-col">
+        {/* Cover media */}
+        <div className="relative aspect-[4/3] w-full bg-gradient-to-br from-error-500 to-error-600 overflow-hidden">
+          {coverUrl ? (
+            <Image
+              src={isVideoThumb ? coverUrl : thumbnailImage(coverUrl, 480)}
+              alt={sale.item_name ?? sale.title ?? "Flash sale"}
+              fill
+              sizes="(max-width: 640px) 60vw, (max-width: 1024px) 33vw, 25vw"
+              className="object-cover"
+              unoptimized={isVideoThumb}
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/90">
+              <ShoppingBag size={28} strokeWidth={1.5} />
+              <span className="mt-1 text-[10px] font-semibold tracking-widest uppercase">Campify</span>
+            </div>
+          )}
 
-        {/* Item name */}
-        <p className="font-bold text-white text-sm leading-snug pr-16 truncate">
-          {sale.item_name ?? sale.title ?? "Flash Sale Item"}
-        </p>
+          {isVideoThumb && (
+            <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span className="w-9 h-9 rounded-full bg-black/55 flex items-center justify-center">
+                <Play size={14} className="fill-white text-white" />
+              </span>
+            </span>
+          )}
 
-        {/* Brand */}
-        {sale.item_brand && (
-          <p className="text-white/70 text-xs mt-0.5 truncate">{sale.item_brand}</p>
-        )}
+          <span className="absolute top-2 right-2 text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-bold shadow-md">
+            -{Math.round(sale.discount_pct)}% OFF
+          </span>
 
-        {/* Prices */}
-        <div className="mt-2">
-          <p className="text-white/80 line-through text-sm leading-tight">
-            {formatPrice(sale.original_price)}
-          </p>
-          <p className="text-white font-bold text-xl leading-tight">
-            {formatPrice(sale.sale_price)}
-          </p>
+          <span className={`absolute bottom-2 left-2 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${isEndingSoon ? "bg-yellow-400 text-black" : "bg-black/65 text-white"}`}>
+            <Zap size={9} className={isEndingSoon ? "fill-black" : "fill-white"} />
+            <span className="tabular-nums">{countdownLabel}</span>
+          </span>
         </div>
 
-        {/* Retailer */}
-        {(sale.item_retailer || sale.item_location) && (
-          <p className="text-white/70 text-xs flex items-center gap-1 mt-1 truncate">
-            <MapPin size={10} className="shrink-0" />
-            <span className="truncate">
-              {sale.item_retailer ?? sale.item_location}
-            </span>
+        {/* Body */}
+        <div className="p-3 flex-1 flex flex-col">
+          <p className="font-semibold text-sm text-gray-900 dark:text-white line-clamp-2 leading-snug min-h-[2.6em] mb-1">
+            {sale.item_name ?? sale.title ?? "Flash Sale Item"}
           </p>
-        )}
+          {sale.item_brand && (
+            <p className="text-xs text-gray-400 truncate mb-1">{sale.item_brand}</p>
+          )}
 
-        {/* Countdown */}
-        <div className="mt-auto pt-3 flex items-center justify-between">
-          <span
-            className={`text-xs font-semibold ${
-              isEndingSoon || remaining.total <= 0
-                ? "text-yellow-200"
-                : "text-white/80"
-            }`}
-          >
-            {countdownLabel}
-          </span>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-base font-black text-red-600 dark:text-red-400">
+              {formatPrice(sale.sale_price)}
+            </span>
+            <span className="text-[11px] line-through text-gray-400">
+              {formatPrice(sale.original_price)}
+            </span>
+          </div>
 
-          {/* Shop Now button */}
-          <span className="inline-flex items-center bg-white text-red-600 rounded-full text-sm font-medium px-4 py-1.5 group-hover:bg-gray-100 transition-colors shrink-0">
-            Shop Now →
-          </span>
+          {(sale.item_retailer || sale.item_location) && (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-2 truncate">
+              <MapPin size={10} className="shrink-0" />
+              <span className="truncate">{sale.item_retailer ?? sale.item_location}</span>
+            </p>
+          )}
         </div>
       </div>
     </Link>
@@ -128,17 +142,12 @@ function FlashSaleCard({
 
 function SkeletonCard() {
   return (
-    <div className="bg-gradient-to-br from-error-200 to-error-300 rounded-xl p-4 animate-pulse min-h-[200px] flex flex-col">
-      <div className="flex items-start justify-between mb-3">
-        <div className="h-4 bg-white/40 rounded w-2/3" />
-        <div className="w-14 h-5 bg-white/40 rounded-full" />
-      </div>
-      <div className="h-3 bg-white/30 rounded w-1/3 mb-4" />
-      <div className="h-4 bg-white/30 rounded w-1/4 mb-1" />
-      <div className="h-7 bg-white/40 rounded w-1/2 mb-4" />
-      <div className="mt-auto flex items-center justify-between">
-        <div className="h-3 bg-white/30 rounded w-1/4" />
-        <div className="h-8 bg-white/40 rounded-full w-24" />
+    <div className="rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 overflow-hidden h-full flex flex-col">
+      <div className="aspect-[4/3] bg-gray-200 dark:bg-gray-800 animate-pulse" />
+      <div className="p-3 flex-1 flex flex-col gap-2">
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-3/4" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-1/2" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-1/3 mt-1" />
       </div>
     </div>
   );

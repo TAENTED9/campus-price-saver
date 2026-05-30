@@ -40,11 +40,19 @@ export default function AnnouncementBanner() {
 
   useEffect(() => {
     const dismissed = readDismissedId();
-    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/admin/announcements/active`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/admin/announcements/public`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data) return;
-        const ann: ActiveAnnouncement = Array.isArray(data) ? data[0] : data;
+        // Backend shape: { announcements: [...] }. Tolerate legacy shapes too.
+        const list = Array.isArray(data)
+          ? data
+          : Array.isArray(data.announcements)
+            ? data.announcements
+            : data
+              ? [data]
+              : [];
+        const ann: ActiveAnnouncement | undefined = list[0];
         if (!ann) return;
         if (dismissed === String(ann.id)) return;
         setAnnouncement(ann);

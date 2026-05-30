@@ -12,11 +12,14 @@ from pydantic import BaseModel, Field
 import asyncio
 import hashlib
 import json
+import os
 from app.database import get_db
 from app.models import Price, User, Profile, PointsTransaction, SellerVerification, Inquiry, Notification, Review, Order, Lead, KarmaLedger, Follow
 from app.routers.auth import get_current_user, get_user_allow_paused
+from app.routers.items import invalidate_search_cache
 from app.routers.seller_orders import _order_dict
 from app.limiter import limiter
+from app.constants.locations import LOCATION_SET, validate_locations as _validate_locations
 
 router = APIRouter(prefix="/seller", tags=["Seller Dashboard"])
 
@@ -37,7 +40,10 @@ class ListingCreate(BaseModel):
     brand: str | None = Field(None, max_length=100)
     pack_size: str | None = Field(None, max_length=50)
     pack_unit: str | None = Field(None, max_length=20)
-    location: str | None = Field(None, max_length=200)
+    # Seller's primary / specific spot (free text, ≤100 chars). Required when publishing; optional for drafts.
+    location: str | None = Field(None, max_length=100)
+    # Required on publish — list of canonical UNILAG pickup spots. Empty list allowed only for drafts.
+    locations: list[str] = Field(default_factory=list)
     store_id: int | None = Field(None, gt=0)
     # New marketplace fields
     description: str | None = Field(None, max_length=2000)
@@ -50,13 +56,15 @@ class ListingCreate(BaseModel):
     duration_days: int | None = Field(30)             # 7 / 14 / 30
     listing_status: str | None = Field("active")      # draft / active
     photos: list | None = Field(default_factory=list) # up to 5 Cloudinary URLs
+    videos: list | None = Field(default_factory=list) # Cloudinary video URLs — capped at 3 per user account-wide
 
 
 class ListingUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     price: float | None = Field(None, gt=0, le=10000000)
     brand: str | None = Field(None, max_length=100)
-    location: str | None = Field(None, max_length=200)
+    location: str | None = Field(None, max_length=100)  # seller's primary / specific spot
+    locations: list[str] | None = Field(None)
     description: str | None = Field(None, max_length=2000)
     subcategory: str | None = Field(None, max_length=100)
     condition: str | None = None
@@ -67,6 +75,7 @@ class ListingUpdate(BaseModel):
     duration_days: int | None = None
     listing_status: str | None = None
     photos: list | None = None
+    videos: list | None = None
 
 
 class ProfileUpdate(BaseModel):
@@ -234,12 +243,20 @@ async def check_profile_karma(
 
 def _listing_dict(p: Price) -> dict:
     """Serialize a Price/listing to dict including all marketplace fields."""
+    try:
+        loc_list = json.loads(p.locations) if p.locations else []
+        if not isinstance(loc_list, list):
+            loc_list = []
+    except Exception:
+        loc_list = []
     return {
         "id": p.id,
         "name": p.name,
         "brand": p.brand,
         "price": p.price,
-        "location": p.location,
+        "location": p.location,            # seller's primary / specific spot
+        "locations": loc_list,             # canonical UNILAG picks
+        "needs_location_update": bool(getattr(p, "needs_location_update", False)),
         "category_id": p.category_id,
         "status": p.status,
         "listing_status": p.listing_status or "active",
@@ -258,6 +275,7 @@ def _listing_dict(p: Price) -> dict:
         "duration_days": p.duration_days,
         "expires_at": p.expires_at.isoformat() if p.expires_at else None,
         "photos": json.loads(p.photos) if p.photos else [],
+        "videos": json.loads(p.videos) if p.videos else [],
         "pack_size": p.pack_size,
         "pack_unit": p.pack_unit,
     }
@@ -307,6 +325,38 @@ async def create_listing(
         expires_at = now_wat() + timedelta(days=data.duration_days)
 
     is_draft = (data.listing_status or "active") == "draft"
+
+    # Validate canonical locations. Drafts may have an empty list; publishing requires ≥1.
+    try:
+        canonical_locations = _validate_locations(data.locations or [])
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid delivery locations: {e}")
+    if not is_draft and not canonical_locations:
+        raise HTTPException(
+            status_code=422,
+            detail="Pick at least one delivery / meetup location before publishing.",
+        )
+
+    # Seller's primary spot — required when publishing, optional on drafts.
+    primary_spot = (data.location or "").strip() or None
+    if not is_draft and not primary_spot:
+        raise HTTPException(
+            status_code=422,
+            detail="Enter your primary meetup spot before publishing.",
+        )
+
+    # Block 5: hard caps — reject (not silently truncate) when sellers exceed.
+    if data.photos and len(data.photos) > 4:
+        raise HTTPException(
+            status_code=422,
+            detail="Maximum 4 photos allowed per listing.",
+        )
+    if data.videos and len(data.videos) > 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Maximum 2 videos allowed per listing.",
+        )
+
     listing = Price(
         name=data.name,
         category_id=data.category_id,
@@ -314,7 +364,8 @@ async def create_listing(
         brand=data.brand,
         pack_size=data.pack_size,
         pack_unit=data.pack_unit,
-        location=data.location,
+        location=primary_spot,
+        locations=json.dumps(canonical_locations),
         store_id=data.store_id,
         submitted_by=current_user.id,
         status="pending",
@@ -329,7 +380,8 @@ async def create_listing(
         duration_days=data.duration_days,
         expires_at=expires_at,
         listing_status=data.listing_status or "active",
-        photos=json.dumps(data.photos[:5]) if data.photos else None,
+        photos=json.dumps(data.photos[:4]) if data.photos else None,
+        videos=json.dumps(data.videos[:2]) if data.videos else None,
     )
     db.add(listing)
     db.commit()
@@ -396,10 +448,54 @@ async def update_listing(
     update_data = data.dict(exclude_unset=True)
     old_price = listing.price
     old_status = listing.listing_status
+    old_category_id = listing.category_id  # captured for cache invalidation
 
-    # Handle photos serialization
+    # Locations: validate against canonical list. Publishing (non-draft) requires ≥1.
+    canonical_after: list[str] | None = None
+    if "locations" in update_data:
+        try:
+            canonical_after = _validate_locations(update_data["locations"] or [])
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Invalid delivery locations: {e}")
+        target_status = update_data.get("listing_status", listing.listing_status)
+        if target_status != "draft" and not canonical_after:
+            raise HTTPException(
+                status_code=422,
+                detail="Pick at least one delivery / meetup location before publishing.",
+            )
+        update_data["locations"] = json.dumps(canonical_after)
+
+    # Primary spot (free text) — required when publishing (or staying published).
+    if "location" in update_data:
+        primary_after = (update_data.get("location") or "").strip() or None
+        target_status = update_data.get("listing_status", listing.listing_status)
+        if target_status != "draft" and not primary_after:
+            raise HTTPException(
+                status_code=422,
+                detail="Enter your primary meetup spot before publishing.",
+            )
+        update_data["location"] = primary_after
+
+    # If this save provides a real primary spot AND a non-empty canonical list,
+    # the migration prompt has been resolved — clear the flag automatically.
+    final_primary = update_data.get("location", listing.location)
+    final_canonical = (
+        canonical_after if canonical_after is not None
+        else (json.loads(listing.locations) if listing.locations else [])
+    )
+    if final_primary and final_canonical:
+        update_data["needs_location_update"] = False
+
+    # Handle photos / videos serialization. Block 5: reject explicit overcounts
+    # rather than silently truncating — callers should know they sent too many.
     if "photos" in update_data and update_data["photos"] is not None:
-        update_data["photos"] = json.dumps(update_data["photos"][:5])
+        if len(update_data["photos"]) > 4:
+            raise HTTPException(status_code=422, detail="Maximum 4 photos allowed per listing.")
+        update_data["photos"] = json.dumps(update_data["photos"][:4])
+    if "videos" in update_data and update_data["videos"] is not None:
+        if len(update_data["videos"]) > 2:
+            raise HTTPException(status_code=422, detail="Maximum 2 videos allowed per listing.")
+        update_data["videos"] = json.dumps(update_data["videos"][:2])
     # Recompute expires_at if duration_days changed
     if "duration_days" in update_data and update_data["duration_days"]:
         update_data["expires_at"] = datetime.utcnow() + timedelta(days=update_data["duration_days"])
@@ -426,13 +522,38 @@ async def update_listing(
             except Exception:
                 pass
 
-    # Fire restock alert if listing went back to active from sold/paused
+    # Fire restock alert if listing went back to active from paused/expired.
+    # Block 2: a sold listing can NEVER be revived via a status flip — sellers
+    # must use the Relist endpoint, which creates a fresh draft.
     new_status = listing.listing_status
-    if "listing_status" in update_data and new_status == "active" and old_status in ("sold", "paused", "expired"):
+    if "listing_status" in update_data and new_status == "active" and old_status in ("paused", "expired"):
         try:
             from app.routers.wishlist import notify_restock
             notify_restock(db, listing)
             db.commit()
+        except Exception:
+            pass
+
+    # Notify wishlist owners if the listing was just marked sold.
+    if "listing_status" in update_data and new_status == "sold" and old_status != "sold":
+        try:
+            from app.routers.wishlist import notify_listing_sold
+            notify_listing_sold(db, listing)
+            db.commit()
+        except Exception:
+            pass
+
+    # Bust search caches whenever an already-approved (visible) listing is
+    # edited, so name/price/photo/status changes appear within seconds
+    # instead of waiting for the 60s search-cache TTL. Surgical: only the
+    # affected category's bucket + the no-filter bucket. If the seller
+    # changed category, bust both old and new.
+    if listing.status == "approved":
+        try:
+            await invalidate_search_cache(old_category_id)
+            new_category_id = listing.category_id
+            if new_category_id and new_category_id != old_category_id:
+                await invalidate_search_cache(new_category_id)
         except Exception:
             pass
 
@@ -467,6 +588,7 @@ async def delete_listing(
         .filter(CloudinaryAsset.listing_id == listing.id)
         .all()
     ]
+    deleted_category_id = listing.category_id  # captured before cascade
 
     # FK-aware delete: clear every child row referencing prices.id first.
     # Plain db.delete(listing) leaves SQLAlchemy to set-null children, which
@@ -483,6 +605,12 @@ async def delete_listing(
             # Broker down: log and continue. The DB rows are already gone;
             # orphans can be reconciled with a periodic sweep.
             print(f"[seller] Cloudinary cleanup enqueue failed: {e}")
+
+    # Deleted listing must vanish from search results immediately.
+    try:
+        await invalidate_search_cache(deleted_category_id)
+    except Exception:
+        pass
 
     return {"success": True, "message": "Listing deleted"}
 
@@ -711,6 +839,12 @@ async def submit_seller_verification_docs(
             .first()
         )
         if approved_other:
+            support_addr = (os.getenv("SUPPORT_EMAIL") or os.getenv("ADMIN_EMAIL") or "").strip()
+            contact_clause = (
+                f"If you've lost access, contact support at {support_addr}."
+                if support_addr
+                else "If you've lost access, please contact support."
+            )
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -718,7 +852,7 @@ async def submit_seller_verification_docs(
                     "message": (
                         "This email is already linked to a verified seller account. "
                         "Each email can only be verified once. "
-                        "If you've lost access, contact support at hello@campify.ng."
+                        f"{contact_clause}"
                     ),
                 },
             )
@@ -794,6 +928,80 @@ async def submit_seller_verification_docs(
     except Exception:
         pass
 
+    # ── Admin email + seller confirmation email (best-effort) ──────────────
+    # Sent on every submission (new + resubmit) so admins always see the
+    # latest documents — even when admins aren't logged in.
+    try:
+        from app.services.email_templates import (
+            SELLER_VERIFICATION_ADMIN_EMAIL,
+            SELLER_VERIFICATION_SUBMITTED_EMAIL,
+        )
+        from app.tasks.email_tasks import send_email
+        from app.config import settings as _settings
+
+        now_str = datetime.utcnow().strftime("%d %b %Y at %H:%M UTC")
+        display_seller_name = (
+            verification.seller_name
+            or current_user.display_name
+            or current_user.username
+        )
+        matric_value = matric_number or verification.matric_no
+
+        # Build the admin URL purely from APP_URL so a domain change only
+        # needs an env update — no production-only hardcoded host.
+        admin_url = (_settings.APP_URL or "").rstrip("/")
+        if admin_url and not admin_url.endswith("/admin"):
+            admin_url = f"{admin_url}/admin"
+
+        admin_to = _settings.ADMIN_EMAIL
+        if admin_to:
+            send_email.delay(
+                to=admin_to,
+                subject=(
+                    f"[Action Required] New Seller Verification "
+                    f"— @{current_user.username} ({display_seller_name})"
+                ),
+                body=(
+                    f"New seller verification request from "
+                    f"{display_seller_name} (@{current_user.username})\n"
+                    f"Email: {current_user.email}\n"
+                    f"Matric: {matric_value or 'Not provided'}\n"
+                    f"ID Card: {id_card_url}\n"
+                    f"Portal: {portal_url}\n"
+                    f"Submitted: {now_str}\n\n"
+                    f"Review at: {admin_url}/verifications"
+                ),
+                html=SELLER_VERIFICATION_ADMIN_EMAIL(
+                    seller_name=display_seller_name,
+                    seller_email=current_user.email or "",
+                    seller_username=current_user.username,
+                    matric_number=matric_value,
+                    id_card_url=id_card_url,
+                    portal_url=portal_url,
+                    submitted_at=now_str,
+                    admin_url=admin_url,
+                    verif_id=verification.id,
+                ),
+            )
+
+        # Confirmation to the seller
+        if current_user.email:
+            send_email.delay(
+                to=current_user.email,
+                subject="Verification submitted — Campify",
+                body=(
+                    f"Hi {display_seller_name},\n\n"
+                    f"We received your verification documents and will review "
+                    f"them within 24-48 hours.\n\n"
+                    f"We'll notify you by email once reviewed.\n\n"
+                    f"— Campify Team"
+                ),
+                html=SELLER_VERIFICATION_SUBMITTED_EMAIL(display_seller_name),
+            )
+    except Exception:
+        # Emails are best-effort; never fail the submission because of them.
+        pass
+
     return {
         "success": True,
         "message": "Verification documents submitted. An admin will review shortly.",
@@ -815,7 +1023,13 @@ async def set_listing_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Set the listing_status of a seller's listing."""
+    """Set the listing_status of a seller's listing.
+
+    Block 2: sold listings are terminal — they can be edited and viewed in the
+    seller dashboard, but the only path back to the marketplace is the Relist
+    endpoint (which creates a fresh draft copy). Trying to flip sold→anything-
+    else returns 409.
+    """
     allowed = {"draft", "active", "paused", "sold", "expired"}
     if data.listing_status not in allowed:
         raise HTTPException(status_code=400, detail=f"Invalid status. Choose from: {allowed}")
@@ -824,33 +1038,58 @@ async def set_listing_status(
     ).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
+
+    old_status = listing.listing_status
+    if old_status == "sold" and data.listing_status != "sold":
+        raise HTTPException(
+            status_code=409,
+            detail="This listing is marked sold. Use Relist to put it back on the marketplace as a fresh listing.",
+        )
+
     listing.listing_status = data.listing_status
     db.commit()
+
+    # Notify wishlist owners on the sold transition.
+    if data.listing_status == "sold" and old_status != "sold":
+        try:
+            from app.routers.wishlist import notify_listing_sold
+            notify_listing_sold(db, listing)
+            db.commit()
+        except Exception:
+            pass
+
+    # Status flips on an approved listing directly change its visibility in
+    # search results — bust caches so the change is immediate.
+    if listing.status == "approved":
+        try:
+            await invalidate_search_cache(listing.category_id)
+        except Exception:
+            pass
     return {"success": True, "listing_status": data.listing_status}
 
 
-@router.post("/listings/{listing_id}/duplicate", status_code=201)
-async def duplicate_listing(
-    listing_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Clone an existing listing as a new draft."""
-    src = db.query(Price).filter(
-        Price.id == listing_id, Price.submitted_by == current_user.id
-    ).first()
-    if not src:
-        raise HTTPException(status_code=404, detail="Listing not found")
-    clone = Price(
-        name=f"{src.name} (Copy)",
+def _clone_as_draft(src: Price, current_user_id: int, *, name_suffix: str = " (Copy)") -> Price:
+    """Build (don't persist) a fresh draft clone of `src`.
+
+    Copies: listing identity (name+suffix, brand, pack info, category, condition,
+    description), commercial terms (price, delivery options/fee, duration_days,
+    is_negotiable, quantity), media (photos, videos), and locations (free-text
+    primary spot + canonical array).
+
+    Resets: status=pending (re-approval required), listing_status=draft,
+    view_count=0, is_featured=False, featured_until=None, paused_by_vacation=False.
+    """
+    return Price(
+        name=f"{src.name}{name_suffix}",
         category_id=src.category_id,
         price=src.price,
         brand=src.brand,
         pack_size=src.pack_size,
         pack_unit=src.pack_unit,
         location=src.location,
+        locations=src.locations or "[]",
         store_id=src.store_id,
-        submitted_by=current_user.id,
+        submitted_by=current_user_id,
         status="pending",
         description=src.description,
         subcategory=src.subcategory,
@@ -862,13 +1101,67 @@ async def duplicate_listing(
         duration_days=src.duration_days,
         expires_at=(datetime.utcnow() + timedelta(days=src.duration_days)) if src.duration_days else None,
         listing_status="draft",
+        paused_by_vacation=False,
         photos=src.photos,
+        videos=src.videos,
         view_count=0,
+        is_featured=False,
+        featured_until=None,
     )
+
+
+@router.post("/listings/{listing_id}/duplicate", status_code=201)
+async def duplicate_listing(
+    listing_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Clone an existing listing as a new draft. Source may be any status."""
+    src = db.query(Price).filter(
+        Price.id == listing_id, Price.submitted_by == current_user.id
+    ).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    clone = _clone_as_draft(src, current_user.id)
     db.add(clone)
     db.commit()
     db.refresh(clone)
     return {"success": True, "id": clone.id, "message": "Listing duplicated as draft"}
+
+
+@router.post("/listings/{listing_id}/relist", status_code=201)
+async def relist_listing(
+    listing_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Relist a SOLD listing as a fresh draft.
+
+    Block 2: sold listings are terminal — this is the only sanctioned path
+    back onto the marketplace. The source listing stays in 'sold' state so the
+    seller's history is preserved; the response carries the new draft's id so
+    the UI can route the seller into edit mode for the fresh copy.
+    """
+    src = db.query(Price).filter(
+        Price.id == listing_id, Price.submitted_by == current_user.id
+    ).first()
+    if not src:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if src.listing_status != "sold":
+        raise HTTPException(
+            status_code=409,
+            detail="Only sold listings can be relisted. To copy any other listing, use Duplicate.",
+        )
+    clone = _clone_as_draft(src, current_user.id, name_suffix="")
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+    return {
+        "success": True,
+        "id": clone.id,
+        "uuid": str(clone.uuid) if clone.uuid else None,
+        "message": "Relisted as a fresh draft — review and publish when ready.",
+    }
 
 
 @router.post("/vacation")
@@ -897,6 +1190,11 @@ async def toggle_vacation_mode(
         )
 
     db.commit()
+    # Vacation toggles flip many listings at once — always bust caches.
+    try:
+        await invalidate_search_cache()
+    except Exception:
+        pass
     return {"success": True, "vacation_mode": new_mode}
 
 

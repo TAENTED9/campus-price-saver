@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 const API  = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const BASE = "https://campify.ng";
+const BASE = "https://campify.digital";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();

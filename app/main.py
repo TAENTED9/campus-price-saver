@@ -24,11 +24,14 @@ from app.routers import (
     admin_items, auth, google_maps, compare, admin_stats,
     flash_sales, seller, seller_orders, admin_users, uploads, storefront,
     reviews, wishlist, notifications, listings, messages,
+    admin_search_analytics, locations,
 )
 from app.routers.settings import router as settings_router
-from app.database import init_db, SessionLocal
+from app.routers.support import router as support_router
+from app.database import init_db, SessionLocal, engine as _db_engine
 from app.models import Category, User
 from app.routers.auth import decode_access_token
+from app.migrations.runner import run_all_migrations
 
 load_dotenv()
 
@@ -88,7 +91,15 @@ price_updater = PriceUpdater()
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # Single, idempotent migration pass — creates tables, runs dialect-specific
+    # bulk migrations (FTS / GIN / indexes), adds any missing columns from the
+    # canonical list in app/migrations/runner.py, and runs data sweeps. The
+    # celery worker calls the same entry point on its own boot, so neither
+    # process ever queries a column that hasn't been created yet.
+    try:
+        run_all_migrations(_db_engine)
+    except Exception as exc:  # noqa: BLE001 — never block app startup
+        logger.exception("Startup migrations failed: %s", exc)
     messages.ensure_message_tables()
     db = SessionLocal()
     if db.query(Category).count() == 0:
@@ -197,21 +208,22 @@ async def log_requests(request: Request, call_next):
 
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Production:  ALLOWED_ORIGINS=https://campify.ng,https://www.campify.ng
-# Development: localhost + dev LAN IP are added automatically.
+# ALLOWED_ORIGINS env is the single source of truth.
+# Production: set to a comma-separated list of HTTPS origins.
+# Development fallback: localhost only — never bake LAN IPs or prod domains
+# into source (committing a developer's IP / a domain that may change later).
 # Security: never allow "*", and never allow localhost (regex or literal) in production.
-_PROD_ORIGINS = ["https://campify.ng", "https://www.campify.ng"]
-_DEV_ORIGINS  = _PROD_ORIGINS + [
+_DEV_FALLBACK_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://192.168.0.195:3000",
 ]
 
 _env_origins = os.getenv("ALLOWED_ORIGINS")
 if _env_origins:
     ALLOWED_ORIGINS = [o.strip() for o in _env_origins.split(",") if o.strip()]
 else:
-    ALLOWED_ORIGINS = _PROD_ORIGINS if _app_settings.IS_PRODUCTION else _DEV_ORIGINS
+    # No env → only localhost is allowed. Production setups MUST set the env.
+    ALLOWED_ORIGINS = [] if _app_settings.IS_PRODUCTION else _DEV_FALLBACK_ORIGINS
 
 # Hard guard: refuse to start in production with a wildcard or empty origins list.
 if _app_settings.IS_PRODUCTION:
@@ -263,7 +275,10 @@ app.include_router(wishlist.router,          prefix="/api")
 app.include_router(notifications.router,     prefix="/api")
 app.include_router(listings.router,          prefix="/api")
 app.include_router(messages.router,          prefix="/api")
+app.include_router(admin_search_analytics.router, prefix="/api")
+app.include_router(locations.router,         prefix="/api")
 app.include_router(settings_router)
+app.include_router(support_router, prefix="/api/support", tags=["support"])
 
 
 # ── Block 14C: Health check ───────────────────────────────────────────────────

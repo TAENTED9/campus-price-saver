@@ -28,7 +28,7 @@ function formatWithCommas(raw: string, allowDecimal: boolean): string {
 }
 
 const NumberInput = forwardRef<HTMLInputElement, Props>(function NumberInput(
-  { value, onValueChange, allowDecimal = false, maxDigits = 12, onBlur, ...rest },
+  { value, onValueChange, allowDecimal = false, maxDigits = 12, onBlur, onFocus, ...rest },
   ref,
 ) {
   const display = useMemo(() => {
@@ -65,6 +65,14 @@ const NumberInput = forwardRef<HTMLInputElement, Props>(function NumberInput(
     onValueChange(num);
   }
 
+  // Block 3: select existing value on focus so typing a digit REPLACES it
+  // instead of appending. Fixes the "cursor lands mid-string, user types a
+  // number, gets '15' instead of '5'" pain across every consumer of this input.
+  function handleFocus(e: React.FocusEvent<HTMLInputElement>) {
+    e.currentTarget.select();
+    if (onFocus) onFocus(e);
+  }
+
   return (
     <input
       ref={ref}
@@ -73,6 +81,7 @@ const NumberInput = forwardRef<HTMLInputElement, Props>(function NumberInput(
       autoComplete="off"
       value={display}
       onChange={handleChange}
+      onFocus={handleFocus}
       onBlur={onBlur}
       {...rest}
     />

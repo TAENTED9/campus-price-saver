@@ -76,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // /me failed transiently — decode minimal user from JWT so session survives
         try {
           const payload = JSON.parse(atob(accessToken.split(".")[1]));
-          setUser({ id: payload.uid, username: payload.sub ?? "", role: payload.role ?? "user" } as UserInfo);
+          setUser({ id: payload.uid, username: payload.sub ?? "", role: payload.role ?? "buyer" } as UserInfo);
         } catch { /* JWT decode failed — user stays null but token is valid */ }
       } finally {
         setIsLoading(false);

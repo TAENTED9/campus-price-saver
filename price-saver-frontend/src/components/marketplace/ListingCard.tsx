@@ -96,11 +96,14 @@ export default function ListingCard({
   }
 
   return (
-    <Link href={`/listing/${uuid ?? id}`} className="block">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg hover:shadow-blue-100/50 dark:hover:shadow-blue-950/30 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group">
+    <Link href={`/listing/${uuid ?? id}`} className="block h-full">
+      {/* Block 4: card is a flex column with h-full so it stretches to the
+          grid cell height, equalizing every card in the row. Image uses
+          aspect-[4/3] for a fixed shape regardless of upload aspect. */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl overflow-hidden shadow-sm hover:shadow-lg hover:shadow-blue-100/50 dark:hover:shadow-blue-950/30 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group h-full flex flex-col">
 
-        {/* Image area */}
-        <div className="relative h-44 w-full overflow-hidden bg-gray-100 dark:bg-gray-800">
+        {/* Image area — fixed 4:3 ratio, object-cover so portrait/landscape uploads center-crop */}
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-gray-100 dark:bg-gray-800 flex-shrink-0">
           {thumb ? (
             <Image
               src={thumb}
@@ -151,14 +154,18 @@ export default function ListingCard({
           </button>
         </div>
 
-        {/* Card body */}
-        <div className="p-4">
-          <h3 className="font-semibold text-sm text-gray-900 dark:text-white line-clamp-2 mb-1.5 leading-snug">
+        {/* Card body — flex-1 so it absorbs any extra height the grid gives us;
+            the bottom row sticks to the card foot via mt-auto so multi-card
+            rows have aligned dates/views regardless of title length. */}
+        <div className="p-4 flex-1 flex flex-col">
+          {/* Title — reserve 2 lines of height so 1-line and 2-line titles
+              both produce the same overall card height. */}
+          <h3 className="font-semibold text-sm text-gray-900 dark:text-white line-clamp-2 leading-snug min-h-[2.6em] mb-1.5">
             {title}
           </h3>
 
           {isNegotiable && (
-            <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 mb-1.5">
+            <span className="inline-block self-start text-xs font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400 mb-1.5">
               NEGOTIABLE
             </span>
           )}
@@ -190,8 +197,8 @@ export default function ListingCard({
             )}
           </div>
 
-          {/* Bottom row */}
-          <div className="flex items-center justify-between mt-2">
+          {/* Bottom row — anchored to the card foot */}
+          <div className="flex items-center justify-between mt-auto pt-2">
             <span className="text-[11px] text-gray-400">{timeAgo(createdAt)}</span>
             {viewsCount != null && viewsCount > 0 && (
               <span className="flex items-center gap-1 text-[11px] text-gray-400">

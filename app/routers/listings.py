@@ -7,7 +7,7 @@ from starlette.responses import Response
 from app.database import get_db
 from app.limiter import limiter
 from app.models import Price, Lead, Report, User
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, get_current_user_optional
 
 router = APIRouter(prefix="/listings", tags=["Listings"])
 
@@ -18,11 +18,24 @@ def get_listing(
     request: Request,
     listing_uuid: str = Path(..., min_length=1),
     db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    """Return a single listing by its UUID (public-facing product page, no auth required)."""
+    """Return a single listing by its UUID (public-facing product page).
+
+    Block 2: sold listings are hidden from buyers — the owner still sees their
+    own sold listing (so they can land on it from the seller dashboard and
+    Relist it), but everyone else gets a 410 Gone with a clear message.
+    """
     listing = db.query(Price).filter(Price.uuid == listing_uuid).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
+
+    is_owner = bool(current_user and current_user.id == listing.submitted_by)
+    if listing.listing_status == "sold" and not is_owner:
+        raise HTTPException(
+            status_code=410,
+            detail="This listing has been sold and is no longer available.",
+        )
 
     from app.routers.storefront import _price_to_dict, _seller_info
     seller = db.query(User).filter(User.id == listing.submitted_by).first()

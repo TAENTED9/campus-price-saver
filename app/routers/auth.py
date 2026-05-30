@@ -196,6 +196,41 @@ def decode_access_token(token: str) -> dict:
 
 # ── Auth dependencies ─────────────────────────────────────────────────────────
 
+async def get_current_user_optional(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Resolve the current user from the Authorization header IF present.
+
+    Returns None when the header is missing or invalid — never raises. Used by
+    endpoints that are public-by-default but want to vary their response for
+    signed-in users (e.g. owner of a sold listing still sees it).
+    """
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        return None
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        return None
+    user_id = payload.get("uid")
+    if user_id is None:
+        raw = payload.get("sub")
+        try:
+            user_id = int(raw)
+        except (ValueError, TypeError):
+            return None
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        return None
+    if getattr(user, "is_deleted", False) or getattr(user, "is_banned", False):
+        return None
+    return user
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -218,13 +253,15 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="This account no longer exists.")
     if getattr(user, "is_paused", False):
+        support_addr = (os.getenv("SUPPORT_EMAIL") or os.getenv("ADMIN_EMAIL") or "").strip()
+        support_clause = f"contact support at {support_addr}" if support_addr else "contact support"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "code": "ACCOUNT_PAUSED",
                 "message": (
-                    "Your account is currently inactive. "
-                    "To reactivate, contact support at hello@campify.ng "
+                    f"Your account is currently inactive. "
+                    f"To reactivate, {support_clause} "
                     "or submit a reactivation request."
                 ),
                 "paused_by": getattr(user, "paused_by", None),
@@ -302,7 +339,7 @@ class UserRegisterRequest(BaseModel):
     username: str
     password: str
     email: Optional[str] = None
-    role: Optional[str] = "user"
+    role: Optional[str] = "buyer"
 
     @field_validator("username")
     @classmethod
@@ -325,7 +362,7 @@ class UserRegisterRequest(BaseModel):
     @field_validator("role")
     @classmethod
     def role_validator(cls, v: Optional[str]) -> str:
-        allowed = {"user", "seller"}
+        allowed = {"buyer", "seller"}
         if v not in allowed:
             raise ValueError(f"role must be one of: {', '.join(allowed)}")
         return v
@@ -561,7 +598,7 @@ async def register_user(
 
         # If no email supplied, mark immediately verified (settings-page OTP can verify later)
         no_email = not body.email
-        initial_role = body.role or "user"
+        initial_role = body.role or "buyer"
         new_user = User(
             username=body.username,
             password_hash=password_hash,
@@ -630,7 +667,7 @@ async def register_user(
             from app.services.admin_notifications import notify_admin
             await notify_admin(
                 db, "new_user", new_user.id,
-                new_user.email or "", "user",
+                new_user.email or "", "buyer",
                 {"username": new_user.username,
                  "registered_at": new_user.created_at.isoformat()},
             )

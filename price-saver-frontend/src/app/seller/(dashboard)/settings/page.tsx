@@ -661,7 +661,7 @@ export default function SellerSettingsPage() {
                     {slugStatus === "taken" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 font-bold">✕</span>}
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">
-                    {slugStatus === "taken" ? <span className="text-red-500">URL already taken</span> : `campify.ng/store/${slug || "your-store"}`}
+                    {slugStatus === "taken" ? <span className="text-red-500">URL already taken</span> : `campify.digital/store/${slug || "your-store"}`}
                   </p>
                 </div>
               </div>

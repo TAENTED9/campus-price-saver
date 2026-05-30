@@ -35,7 +35,7 @@ function NotifIcon({ type }: { type: string }) {
 }
 
 export default function NotificationDropdown({ scope }: { scope?: string }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { counts, markCategoryRead, refresh: refreshCounts } = useNotifications();
   const router    = _useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -147,15 +147,18 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
             // action_url comes from the API notification object
             const actionUrl = (n as AppNotification & { action_url?: string }).action_url;
 
-            // For new_message notifications, always direct to the inbox.
-            // Use action_url if it already includes conv param, otherwise
-            // build one from related_id (conversation ID).
+            // For new_message notifications, direct to the inbox that matches
+            // the CURRENT USER'S ROLE — not a hardcoded buyer route. A seller
+            // (or a seller sitting on the public homepage) must land on
+            // /seller/messages; sending them to /dashboard/messages trips the
+            // buyer role guard and bounces them to the signin page.
             const navUrl = (() => {
               if (n.type === "new_message") {
+                const inboxBase = user?.role === "seller" ? "/seller/messages" : "/dashboard/messages";
                 if (n.related_id && n.related_type === "Conversation") {
-                  return `/dashboard/messages?conv=${n.related_id}`;
+                  return `${inboxBase}?conv=${n.related_id}`;
                 }
-                return "/dashboard/messages";
+                return inboxBase;
               }
               return actionUrl ?? null;
             })();

@@ -2,11 +2,13 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, itemsApi, type SellerListing, type Category } from "@/lib/api";
 import { formatPrice } from "@/lib/formatPrice";
 import { useToast } from "@/components/ui/Toast";
-import { Plus, Eye, Trash2, PencilLine, Copy, CheckCircle, Pause, Play, Moon, Search, Camera, MapPin, ChevronDown, X, AlertTriangle } from "lucide-react";
+import { Plus, Eye, Trash2, PencilLine, Copy, CheckCircle, Pause, Play, Moon, Search, Camera, MapPin, ChevronDown, X, AlertTriangle, RotateCcw } from "lucide-react";
+import { LocationsNeededBanner } from "@/components/locations/LocationsNeededBanner";
 
 type ListingStatusTab = "all" | "draft" | "active" | "paused" | "sold" | "expired";
 
@@ -63,6 +65,7 @@ function SkeletonCard() {
 export default function SellerListingsPage() {
   const { token } = useAuth();
   const { showToast } = useToast();
+  const router = useRouter();
   const [listings, setListings]     = useState<SellerListing[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeTab, setActiveTab]   = useState<ListingStatusTab>("all");
@@ -77,6 +80,8 @@ export default function SellerListingsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen]     = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [soldConfirm, setSoldConfirm] = useState<number | null>(null);
+  const [relisting, setRelisting] = useState<number | null>(null);
 
   const categoryMap = React.useMemo(() => {
     const m: Record<number, string> = {};
@@ -173,6 +178,37 @@ export default function SellerListingsPage() {
     }
   };
 
+  const handleConfirmSold = async () => {
+    if (!token || soldConfirm === null) return;
+    const id = soldConfirm;
+    setSoldConfirm(null);
+    setActioning(id);
+    try {
+      await sellerApi.setListingStatus(token, id, "sold");
+      setListings((prev) => prev.map((l) => l.id === id ? { ...l, listing_status: "sold" } : l));
+      showToast("Listing marked as sold. Buyers who saved it have been notified.", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not mark as sold", "error");
+    } finally {
+      setActioning(null);
+    }
+  };
+
+  const handleRelist = async (id: number) => {
+    if (!token) return;
+    setRelisting(id);
+    try {
+      const res = await sellerApi.relistListing(token, id);
+      showToast("Relisted as a fresh draft. Review and publish when ready.", "success");
+      // Land the seller directly on the new draft's edit form.
+      router.push(`/seller/listings/${res.uuid ?? res.id}/edit`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Relist failed", "error");
+    } finally {
+      setRelisting(null);
+    }
+  };
+
   const handleVacationToggle = async () => {
     if (!token) return;
     setTogglingVacation(true);
@@ -194,8 +230,14 @@ export default function SellerListingsPage() {
     ? tabFiltered.filter((l) => l.name.toLowerCase().includes(searchQ.toLowerCase()))
     : tabFiltered;
 
+  const needsLocationUpdateCount = listings.filter((l) => l.needs_location_update).length;
+
   return (
     <div className="space-y-5">
+      {/* Locations migration banner — visible when one or more listings were
+          auto-blocked by the startup migration for carrying legacy values. */}
+      <LocationsNeededBanner affectedCount={needsLocationUpdateCount} />
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -410,13 +452,26 @@ export default function SellerListingsPage() {
                   </button>
                 </div>
 
-                {/* Mark as Sold */}
+                {/* Mark as Sold — opens confirmation modal */}
                 {lstatus !== "sold" && (
                   <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
                     <button type="button" title="Mark as Sold" disabled={isActioning}
-                      onClick={() => handleSetStatus(l.id, "sold")}
+                      onClick={() => setSoldConfirm(l.id)}
                       className="w-8 h-8 rounded-lg border border-brand-200 dark:border-brand-500/30 bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 hover:bg-brand-100 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
                       <CheckCircle size={14} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Relist — appears only for sold listings; creates a fresh draft */}
+                {lstatus === "sold" && (
+                  <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
+                    <button type="button" title="Relist as new draft" disabled={relisting === l.id}
+                      onClick={() => handleRelist(l.id)}
+                      className="w-8 h-8 rounded-lg border border-brand-200 dark:border-brand-500/30 bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center text-brand-500 hover:bg-brand-100 transition-colors disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1">
+                      {relisting === l.id
+                        ? <svg className="size-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        : <RotateCcw size={14} />}
                     </button>
                   </div>
                 )}
@@ -490,6 +545,34 @@ export default function SellerListingsPage() {
               <button type="button" onClick={() => handleDelete(deleteConfirm)}
                 className="flex-1 py-2.5 rounded-xl bg-error-500 text-white text-sm font-bold hover:bg-error-600 transition-colors">
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mark as Sold — confirmation modal (Block 2) */}
+      {soldConfirm !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSoldConfirm(null)} />
+          <div className="relative z-10 w-full max-w-sm bg-white dark:bg-gray-900 rounded-2xl shadow-2xl p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle size={24} className="text-brand-500" />
+            </div>
+            <h3 className="font-bold text-gray-800 dark:text-white mb-2">Mark this listing as sold?</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              It will be hidden from the public marketplace immediately. Only you
+              can see it. To put it back on sale later you&apos;ll need to use
+              Relist, which creates a fresh draft.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setSoldConfirm(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-sm font-semibold text-gray-600 dark:text-gray-400">
+                Cancel
+              </button>
+              <button type="button" onClick={handleConfirmSold}
+                className="flex-1 py-2.5 rounded-xl bg-brand-500 text-white text-sm font-bold hover:bg-brand-600 transition-colors">
+                Mark Sold
               </button>
             </div>
           </div>

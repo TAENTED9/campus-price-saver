@@ -1,6 +1,11 @@
+import logging
+import os
+
 from celery import Celery
 from celery.schedules import crontab
-import os
+from celery.signals import worker_init
+
+logger = logging.getLogger("campify.celery")
 
 BROKER_URL = os.getenv(
     "CELERY_BROKER_URL", "redis://localhost:6379/1"
@@ -18,6 +23,7 @@ celery = Celery(
         "app.tasks.notification_tasks",
         "app.tasks.media_tasks",
         "app.tasks.scheduled_tasks",
+        "app.tasks.analytics_tasks",
     ],
 )
 
@@ -37,6 +43,7 @@ celery.conf.update(
         "app.tasks.notification_tasks.*": {"queue": "notifications"},
         "app.tasks.media_tasks.*":        {"queue": "media"},
         "app.tasks.scheduled_tasks.*":    {"queue": "default"},
+        "app.tasks.analytics_tasks.*":    {"queue": "default"},
     },
 
     # Retry policy
@@ -71,5 +78,30 @@ celery.conf.update(
             "task": "app.tasks.scheduled_tasks.expire_flash_sales",
             "schedule": crontab(minute="*/5"),
         },
+        # Purge search analytics older than 90 days — Sunday 3am WAT
+        # (off-peak, lets us measure full-week trends before trimming).
+        "purge-search-events": {
+            "task": "app.tasks.analytics_tasks.purge_search_events",
+            "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),
+        },
     },
 )
+
+
+@worker_init.connect
+def _run_migrations_on_worker_boot(**_):
+    """
+    Run the full migration pass before this worker accepts any task.
+
+    Celery beat fires due tasks the moment its scheduler comes up — which
+    on a cold ``docker compose up`` happens *before* the FastAPI lifespan
+    has finished migrating the schema. That race is what surfaces as
+    ``OperationalError: no such column: prices.<x>``. Running the same
+    idempotent pass here guarantees the worker observes a fully-migrated
+    schema regardless of which process won the boot race.
+    """
+    try:
+        from app.migrations.runner import run_all_migrations
+        run_all_migrations()
+    except Exception as exc:  # noqa: BLE001 — never block worker startup
+        logger.exception("Celery worker startup migrations failed: %s", exc)

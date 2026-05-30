@@ -5,7 +5,40 @@ import Image from "next/image";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, type AdminListing, type AdminListingDetail } from "@/lib/api";
-import { Package, Flag, CheckCircle, Trash2, Search, Star, StarOff, RefreshCw, Eye, X, MapPin, Tag, Store, Calendar } from "lucide-react";
+import { Package, Flag, CheckCircle, Trash2, Search, Star, StarOff, RefreshCw, Eye, X, MapPin, Tag, Store, Calendar, Camera, Film, Maximize2 } from "lucide-react";
+
+// Cloudinary auto-generates a JPG thumbnail of the first frame when the video
+// extension is swapped for .jpg — works for any video uploaded with
+// resource_type='video'. Used as a <video> poster so the tile shows a frame
+// instantly even before metadata loads.
+function cloudinaryVideoThumb(videoUrl: string): string | null {
+  if (!videoUrl || !videoUrl.includes("/video/upload/")) return null;
+  const lower = videoUrl.toLowerCase();
+  for (const ext of [".mp4", ".mov", ".webm", ".m4v"]) {
+    if (lower.endsWith(ext)) return videoUrl.slice(0, -ext.length) + ".jpg";
+  }
+  return null;
+}
+
+// Explicit MIME for the <source> tag — avoids the Chrome "blank player" bug
+// triggered when CDN headers don't disambiguate the codec.
+function videoMimeType(url: string): string {
+  const lower = url.toLowerCase().split("?")[0];
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov") || lower.endsWith(".m4v")) return "video/quicktime";
+  return "video/mp4";
+}
+
+function tryAutoplayWithFallback(v: HTMLVideoElement) {
+  v.muted = true;
+  const p = v.play();
+  if (!p || typeof p.catch !== "function") return;
+  p.catch(() => {
+    const resume = () => { v.play().catch(() => {}); };
+    document.addEventListener("click", resume, { once: true });
+    document.addEventListener("touchstart", resume, { once: true, passive: true });
+  });
+}
 import StatusBadge from "@/components/ui/StatusBadge";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
@@ -45,6 +78,8 @@ export default function ListingsPage() {
   const [confirmTarget, setConfirmTarget] = useState<{ item: AdminListing; action: ActionType } | null>(null);
   const [detailTarget, setDetailTarget] = useState<AdminListingDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Fullscreen video viewer for the detail-modal media grid.
+  const [videoViewerUrl, setVideoViewerUrl] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openDetail = async (id: number) => {
@@ -312,15 +347,65 @@ export default function ListingsPage() {
             </div>
 
             <div className="p-6 space-y-6">
-              {detailTarget.photos && detailTarget.photos.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {detailTarget.photos.map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                      title={`Photo ${i + 1}`} aria-label={`Open photo ${i + 1} in new tab`}
-                      className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800">
-                      <Image src={url} alt={`Photo ${i + 1}`} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-cover" />
-                    </a>
-                  ))}
+              {/* Block 5D: media section — photos AND videos, with an accurate count badge */}
+              {((detailTarget.photos && detailTarget.photos.length > 0) ||
+                (detailTarget.videos && detailTarget.videos.length > 0)) && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    <span>Media</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                      <Camera size={11} />
+                      {detailTarget.photos?.length ?? 0} photo{(detailTarget.photos?.length ?? 0) === 1 ? "" : "s"}
+                    </span>
+                    {detailTarget.videos && detailTarget.videos.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                        <Film size={11} />
+                        {detailTarget.videos.length} video{detailTarget.videos.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {detailTarget.photos?.map((url, i) => (
+                      <a key={`photo-${i}`} href={url} target="_blank" rel="noopener noreferrer"
+                        title={`Photo ${i + 1}`} aria-label={`Open photo ${i + 1} in new tab`}
+                        className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800">
+                        <Image src={url} alt={`Photo ${i + 1}`} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-cover" />
+                      </a>
+                    ))}
+                    {detailTarget.videos?.map((url, i) => (
+                      <div key={`video-${i}`} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800 bg-black">
+                        <video
+                          poster={cloudinaryVideoThumb(url) ?? undefined}
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          controls
+                          preload="auto"
+                          className="absolute inset-0 w-full h-full object-contain"
+                          onLoadedMetadata={(e) => {
+                            e.currentTarget.muted = true;
+                            e.currentTarget.defaultMuted = true;
+                          }}
+                          onCanPlay={(e) => tryAutoplayWithFallback(e.currentTarget)}
+                        >
+                          <source src={url} type={videoMimeType(url)} />
+                          Your browser does not support inline video playback.
+                        </video>
+                        <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/65 text-white text-[10px] font-bold">
+                          <Film size={9} /> Video {i + 1}
+                        </span>
+                        <button
+                          type="button"
+                          title="View video fullscreen"
+                          onClick={() => setVideoViewerUrl(url)}
+                          className="absolute top-1.5 right-1.5 z-10 w-7 h-7 rounded-full bg-black/65 hover:bg-black/85 flex items-center justify-center text-white transition-colors"
+                        >
+                          <Maximize2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -354,6 +439,31 @@ export default function ListingsPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Fullscreen video viewer */}
+      {videoViewerUrl && (
+        <div
+          className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+          onClick={() => setVideoViewerUrl(null)}
+        >
+          <button
+            type="button"
+            title="Close"
+            onClick={() => setVideoViewerUrl(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+          <video
+            src={videoViewerUrl}
+            autoPlay
+            controls
+            playsInline
+            className="max-w-full max-h-full rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
 

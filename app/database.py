@@ -116,6 +116,11 @@ def _run_postgres_migrations():
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
         conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        # unaccent: strip diacritics for accent-insensitive search
+        # (e.g. "café" matches "cafe"). Wrapped in _pg_try because
+        # some managed Postgres providers restrict CREATE EXTENSION
+        # without superuser; FTS still works without it.
+        _pg_try(conn, "CREATE EXTENSION IF NOT EXISTS unaccent")
 
         # Partial indexes — users
         _pg_try(conn, """
@@ -210,6 +215,118 @@ def _run_postgres_migrations():
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_prices_name_trgm ON prices USING GIN (name gin_trgm_ops)")
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_listings_title_trgm ON listings USING GIN (title gin_trgm_ops)")
 
+        # ── Block 2: Stored FTS — weighted tsvector + trigger ────────────────
+        # Adds a stored, indexed search_vector column on the prices table,
+        # populated by a BEFORE INSERT/UPDATE trigger. Weighted:
+        #   A = name (title), B = brand/category/subcategory/condition,
+        #   C = description, D = location.
+        # Category name is resolved via JOIN to the categories table inside
+        # the trigger function (no denormalized text column on prices).
+
+        # 1. Stored column for the weighted tsvector
+        _pg_try(conn, """
+            ALTER TABLE prices
+            ADD COLUMN IF NOT EXISTS search_vector TSVECTOR
+        """)
+
+        # 2. Search boost priority column (A/B/C/D) — populated by app code
+        _pg_try(conn, """
+            ALTER TABLE prices
+            ADD COLUMN IF NOT EXISTS search_weight VARCHAR(1) DEFAULT 'C'
+        """)
+
+        # 3. Trigger function — recomputes search_vector before write
+        _pg_try(conn, """
+            CREATE OR REPLACE FUNCTION update_price_search_vector()
+            RETURNS TRIGGER AS $$
+            DECLARE
+                v_category_name TEXT;
+            BEGIN
+                SELECT name INTO v_category_name
+                FROM categories
+                WHERE id = NEW.category_id;
+
+                NEW.search_vector :=
+                    setweight(to_tsvector('english',
+                        coalesce(NEW.name, '')), 'A') ||
+                    setweight(to_tsvector('english',
+                        coalesce(NEW.brand, '')), 'B') ||
+                    setweight(to_tsvector('english',
+                        coalesce(v_category_name, '')), 'B') ||
+                    setweight(to_tsvector('english',
+                        coalesce(NEW.subcategory, '')), 'B') ||
+                    setweight(to_tsvector('english',
+                        coalesce(NEW.condition, '')), 'B') ||
+                    setweight(to_tsvector('english',
+                        coalesce(NEW.description, '')), 'C') ||
+                    setweight(to_tsvector('english',
+                        coalesce(NEW.location, '')), 'D');
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+        """)
+
+        # 4. Attach trigger — fires BEFORE INSERT or UPDATE of indexed columns
+        _pg_try(conn, "DROP TRIGGER IF EXISTS trig_price_search_vector ON prices")
+        _pg_try(conn, """
+            CREATE TRIGGER trig_price_search_vector
+            BEFORE INSERT OR UPDATE OF
+                name, brand, description, category_id,
+                subcategory, condition, location
+            ON prices
+            FOR EACH ROW
+            EXECUTE FUNCTION update_price_search_vector()
+        """)
+
+        # 5. Backfill existing rows whose search_vector is still NULL
+        _pg_try(conn, """
+            UPDATE prices p SET search_vector =
+                setweight(to_tsvector('english',
+                    coalesce(p.name, '')), 'A') ||
+                setweight(to_tsvector('english',
+                    coalesce(p.brand, '')), 'B') ||
+                setweight(to_tsvector('english', coalesce(
+                    (SELECT c.name FROM categories c
+                     WHERE c.id = p.category_id), ''
+                )), 'B') ||
+                setweight(to_tsvector('english',
+                    coalesce(p.subcategory, '')), 'B') ||
+                setweight(to_tsvector('english',
+                    coalesce(p.condition, '')), 'B') ||
+                setweight(to_tsvector('english',
+                    coalesce(p.description, '')), 'C') ||
+                setweight(to_tsvector('english',
+                    coalesce(p.location, '')), 'D')
+            WHERE p.search_vector IS NULL
+        """)
+
+        # 6. GIN index on the stored vector — this is what powers
+        #    sub-millisecond search at scale
+        _pg_try(conn, """
+            CREATE INDEX IF NOT EXISTS idx_prices_search_gin
+            ON prices USING GIN (search_vector)
+        """)
+
+        # 7. Extra trigram index on description for typo tolerance on
+        #    longer search queries (name already has one above)
+        _pg_try(conn, """
+            CREATE INDEX IF NOT EXISTS idx_prices_desc_trgm
+            ON prices USING GIN (description gin_trgm_ops)
+        """)
+
+        # 8. Corrected partial browse index — uses listing_status (the real
+        #    visibility column), not status (which is moderation only).
+        #    The existing idx_active_prices_browse above filters on
+        #    status='active' which never matches (status ∈ pending/approved/
+        #    rejected) — left in place to avoid touching unrelated code,
+        #    but this new index is the one buyer-facing browse queries hit.
+        _pg_try(conn, """
+            CREATE INDEX IF NOT EXISTS idx_active_prices_listing_browse
+            ON prices (category_id, price, submitted_at DESC, submitted_by)
+            WHERE listing_status = 'active'
+        """)
+        # ── End Block 2 ──────────────────────────────────────────────────────
+
         # Composite indexes
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_prices_category_price ON prices(category_id, price, status) WHERE status = 'active'")
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_prices_seller_status ON prices(submitted_by, status, submitted_at DESC)")
@@ -267,9 +384,43 @@ def _run_postgres_migrations():
         # Block 5 — Leads anonymous tracking
         _pg_try(conn, "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ip_hash TEXT")
 
+        # Product videos column (account-wide limit of 3 per user)
+        _pg_try(conn, "ALTER TABLE prices ADD COLUMN IF NOT EXISTS videos TEXT")
+
+        # Structured-locations rollout — JSON array of canonical pickup
+        # spots + flag for legacy-location rows that need a fresh location.
+        # Also enforced by app/migrations/runner.py for both dialects; kept
+        # here too as a belt-and-suspenders so any direct call to
+        # _run_postgres_migrations() (tests, scripts) leaves the schema
+        # complete.
+        _pg_try(conn, "ALTER TABLE prices ADD COLUMN IF NOT EXISTS locations TEXT NOT NULL DEFAULT '[]'")
+        _pg_try(conn, "ALTER TABLE prices ADD COLUMN IF NOT EXISTS needs_location_update BOOLEAN NOT NULL DEFAULT FALSE")
+
         # Block 5 — Review performance indexes
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_reviews_listing_id ON reviews(listing_id)")
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_reviews_seller_id ON reviews(seller_id)")
+
+        # ── Block 8: Search analytics — partial index on zero-result queries ──
+        # The composite (result_count, created_at) index from __table_args__
+        # works for both DBs, but a partial index on Postgres is ~10× smaller
+        # and faster for the "zero-result queries" admin view.
+        _pg_try(conn, """
+            CREATE INDEX IF NOT EXISTS idx_search_events_zero_results_partial
+            ON search_events (created_at DESC, query)
+            WHERE event_type = 'search' AND result_count = 0
+        """)
+        # Composite for top-searches admin query
+        _pg_try(conn, """
+            CREATE INDEX IF NOT EXISTS idx_search_events_search_partial
+            ON search_events (created_at DESC, query)
+            WHERE event_type = 'search'
+        """)
+        # Composite for click-through-rate per query
+        _pg_try(conn, """
+            CREATE INDEX IF NOT EXISTS idx_search_events_click_partial
+            ON search_events (created_at DESC, query)
+            WHERE event_type = 'click'
+        """)
 
         # updated_at trigger function
         conn.execute(text("""
@@ -315,37 +466,100 @@ def _run_sqlite_migrations():
         conn.execute(text("PRAGMA journal_mode=WAL"))
         conn.execute(text("PRAGMA synchronous=NORMAL"))
 
-        # ── FTS5 virtual table (full-text search on prices) ──────────────
-        conn.execute(text("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS prices_fts
-            USING fts5(
-                name, description, retailer, location,
-                content='prices', content_rowid='id'
-            )
-        """))
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS prices_fts_insert
-            AFTER INSERT ON prices BEGIN
-                INSERT INTO prices_fts(rowid, name, description, retailer, location)
-                VALUES (new.id, new.name, new.description, new.retailer, new.location);
-            END
-        """))
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS prices_fts_update
-            AFTER UPDATE ON prices BEGIN
-                INSERT INTO prices_fts(prices_fts, rowid, name, description, retailer, location)
-                VALUES ('delete', old.id, old.name, old.description, old.retailer, old.location);
-                INSERT INTO prices_fts(rowid, name, description, retailer, location)
-                VALUES (new.id, new.name, new.description, new.retailer, new.location);
-            END
-        """))
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS prices_fts_delete
-            AFTER DELETE ON prices BEGIN
-                INSERT INTO prices_fts(prices_fts, rowid, name, description, retailer, location)
-                VALUES ('delete', old.id, old.name, old.description, old.retailer, old.location);
-            END
-        """))
+        # ── Block 3: FTS5 virtual table — porter stemmer + all searchable cols ──
+        # The pre-existing prices_fts had only (name, description, retailer,
+        # location) with no tokenizer. We upgrade to include brand, subcategory,
+        # and condition, and add the porter+unicode61 tokenizer so queries like
+        # "running" match "ran" and "café" matches "cafe". FTS5 virtual tables
+        # cannot be ALTER'd, so we check the stored CREATE SQL via sqlite_master
+        # and rebuild only when the schema is stale — keeps startup fast on the
+        # already-migrated case.
+        existing = conn.execute(text("""
+            SELECT sql FROM sqlite_master
+            WHERE type = 'table' AND name = 'prices_fts'
+        """)).fetchone()
+
+        stale = (
+            existing is None
+            or "condition" not in (existing[0] or "").lower()
+            or "porter" not in (existing[0] or "").lower()
+        )
+
+        if stale:
+            # Old triggers reference the legacy column list — drop them too.
+            conn.execute(text("DROP TRIGGER IF EXISTS prices_fts_insert"))
+            conn.execute(text("DROP TRIGGER IF EXISTS prices_fts_update"))
+            conn.execute(text("DROP TRIGGER IF EXISTS prices_fts_delete"))
+            conn.execute(text("DROP TABLE IF EXISTS prices_fts"))
+
+            conn.execute(text("""
+                CREATE VIRTUAL TABLE prices_fts USING fts5(
+                    name, description, brand, subcategory,
+                    condition, retailer, location,
+                    content='prices', content_rowid='id',
+                    tokenize='porter unicode61'
+                )
+            """))
+
+            conn.execute(text("""
+                CREATE TRIGGER prices_fts_insert
+                AFTER INSERT ON prices BEGIN
+                    INSERT INTO prices_fts(
+                        rowid, name, description, brand, subcategory,
+                        condition, retailer, location
+                    ) VALUES (
+                        new.id, new.name, new.description,
+                        new.brand, new.subcategory,
+                        new.condition, new.retailer, new.location
+                    );
+                END
+            """))
+            conn.execute(text("""
+                CREATE TRIGGER prices_fts_update
+                AFTER UPDATE ON prices BEGIN
+                    INSERT INTO prices_fts(
+                        prices_fts, rowid, name, description, brand,
+                        subcategory, condition, retailer, location
+                    ) VALUES (
+                        'delete', old.id, old.name, old.description,
+                        old.brand, old.subcategory, old.condition,
+                        old.retailer, old.location
+                    );
+                    INSERT INTO prices_fts(
+                        rowid, name, description, brand, subcategory,
+                        condition, retailer, location
+                    ) VALUES (
+                        new.id, new.name, new.description,
+                        new.brand, new.subcategory,
+                        new.condition, new.retailer, new.location
+                    );
+                END
+            """))
+            conn.execute(text("""
+                CREATE TRIGGER prices_fts_delete
+                AFTER DELETE ON prices BEGIN
+                    INSERT INTO prices_fts(
+                        prices_fts, rowid, name, description, brand,
+                        subcategory, condition, retailer, location
+                    ) VALUES (
+                        'delete', old.id, old.name, old.description,
+                        old.brand, old.subcategory, old.condition,
+                        old.retailer, old.location
+                    );
+                END
+            """))
+
+            # Backfill existing rows into the freshly-built FTS index.
+            conn.execute(text("""
+                INSERT INTO prices_fts(
+                    rowid, name, description, brand, subcategory,
+                    condition, retailer, location
+                )
+                SELECT id, name, description, brand, subcategory,
+                       condition, retailer, location
+                FROM prices
+            """))
+        # ── End Block 3 ───────────────────────────────────────────────────────
 
         # ── Query performance indexes ─────────────────────────────────────
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_prices_category   ON prices(category_id)"))
@@ -433,75 +647,11 @@ def _run_sqlite_migrations():
 
 def _apply_migrations(eng) -> None:
     """
-    Safe ALTER TABLE / CREATE TABLE migrations using IF NOT EXISTS guards.
-    Called once at startup — idempotent; safe to re-run on every boot.
+    Idempotent SQLite-specific table creations, indexes, and one-shot data
+    backfills. Column additions live in ``app/migrations/runner.py`` — that
+    is the canonical place to register a new column for *both* dialects.
     """
-    # Each entry: (table, column, sqlite_type_and_default)
-    _new_columns = [
-        # Block 1 — UUID for all public entities
-        ("users",   "uuid", "TEXT"),
-        ("prices",  "uuid", "TEXT"),
-        ("orders",  "uuid", "TEXT"),
-        ("reviews", "uuid", "TEXT"),
-        # Block 4A — user lifecycle
-        ("users", "is_paused",                   "INTEGER DEFAULT 0"),
-        ("users", "paused_at",                   "TEXT"),
-        ("users", "paused_by",                   "TEXT"),
-        ("users", "pause_reason",                "TEXT"),
-        ("users", "reactivation_requested_at",   "TEXT"),
-        ("users", "deletion_requested_at",       "TEXT"),
-        ("users", "deletion_request_reason",     "TEXT"),
-        ("users", "is_deleted",                  "INTEGER DEFAULT 0"),
-        ("users", "deleted_at",                  "TEXT"),
-        # Block 1A — link-based email verification
-        ("users", "email_verify_token",          "TEXT"),
-        ("users", "email_verify_token_exp",      "TEXT"),
-        ("users", "email_verified_at",           "TEXT"),
-        # Password reset
-        ("users", "password_reset_token",        "TEXT"),
-        ("users", "password_reset_token_exp",    "TEXT"),
-        # Block 10 — TOTP / MFA
-        ("users", "mfa_enabled",                 "INTEGER NOT NULL DEFAULT 0"),
-        ("users", "mfa_secret",                  "TEXT"),
-        ("users", "mfa_backup_codes",            "TEXT"),
-        # Block 3B — notification deep link
-        ("notifications", "action_url",          "TEXT"),
-        # Block 6 — profile & cover photos
-        ("users", "banner_url",                  "TEXT"),
-        ("users", "bio",                         "TEXT"),
-        ("users", "faculty",                     "TEXT"),
-        ("users", "karma_tier",                  "TEXT DEFAULT 'Bronze'"),
-        # Announcement banner slide fields
-        ("announcements", "banner_url",          "TEXT"),
-        ("announcements", "cta_label",           "TEXT"),
-        ("announcements", "cta_href",            "TEXT"),
-        # Inquiry reply thread fields
-        ("inquiries", "seller_reply",            "TEXT"),
-        ("inquiries", "replied_at",              "TEXT"),
-        ("inquiries", "label",                   "TEXT"),
-        # Vacation mode — track which listings were paused by vacation vs manually
-        ("prices", "paused_by_vacation",         "INTEGER DEFAULT 0"),
-        # Optional delivery fee charged when delivery is among the listing's options
-        ("prices", "delivery_fee",               "FLOAT"),
-        # Messages — conversation UUID + automated message flag
-        ("conversations",   "uuid",              "TEXT"),
-        ("direct_messages", "is_automated",      "INTEGER DEFAULT 0"),
-        # Block 5 — Reviews new fields
-        ("reviews", "is_verified_purchase",      "INTEGER DEFAULT 0"),
-        # Block 5 — Conversation listing context
-        ("conversations", "listing_id",          "INTEGER"),
-        # Block 5 — Leads anonymous tracking
-        ("leads", "ip_hash",                     "TEXT"),
-    ]
-
     with eng.connect() as conn:
-        # ── Add missing columns (SQLite has no IF NOT EXISTS for ADD COLUMN) ──
-        for table, col, col_def in _new_columns:
-            rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
-            existing = {r[1] for r in rows}  # r[1] is column name
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}"))
-
         # ── New tables (CREATE TABLE IF NOT EXISTS is safe to re-run) ──────────
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS cloudinary_assets (
@@ -552,27 +702,12 @@ def _apply_migrations(eng) -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_cloudinary_user ON cloudinary_assets(user_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_listings_views ON prices(view_count DESC)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_role_active ON users(role, is_deleted)"))
-
-        # ── UUID backfill for existing rows ───────────────────────────────
-        conn.execute(text("UPDATE users  SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL"))
-        conn.execute(text("UPDATE prices SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL"))
-        conn.execute(text("UPDATE orders SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL"))
-        conn.execute(text("UPDATE reviews SET uuid = lower(hex(randomblob(16))) WHERE uuid IS NULL"))
-
-        # ── UUID unique indexes ───────────────────────────────────────────
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_uuid   ON users(uuid)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_prices_uuid  ON prices(uuid)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_uuid  ON orders(uuid)"))
-        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_uuid ON reviews(uuid)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_reviews_listing_id ON reviews(listing_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_reviews_seller_id ON reviews(seller_id)"))
 
-        # Mark all existing users as already email-verified so they aren't locked out.
-        # New users registered after this migration must verify normally.
-        conn.execute(text("""
-            UPDATE users SET email_verified = 1
-            WHERE email_verified IS NULL OR email_verified = 0
-        """))
+        # UUID column creation + UNIQUE indexes + the UUID/email_verified
+        # backfills moved to app/migrations/runner.py — they must run *after*
+        # the cross-dialect ADD COLUMN pass.
 
         conn.commit()
 

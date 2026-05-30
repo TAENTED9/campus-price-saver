@@ -11,6 +11,7 @@ from datetime import datetime
 from pydantic import BaseModel, field_validator
 import asyncio
 import json
+import os
 import time
 
 from app.dependencies import get_db
@@ -509,6 +510,12 @@ async def submit_verification(
         .first()
     )
     if approved_email:
+        support_addr = (os.getenv("SUPPORT_EMAIL") or os.getenv("ADMIN_EMAIL") or "").strip()
+        contact_clause = (
+            f"If you've lost access, contact support at {support_addr}."
+            if support_addr
+            else "If you've lost access, please contact support."
+        )
         raise HTTPException(
             status_code=400,
             detail={
@@ -516,7 +523,7 @@ async def submit_verification(
                 "message": (
                     "This email is already linked to a verified seller account. "
                     "Each email can only be verified once. "
-                    "If you've lost access, contact support at hello@campify.ng."
+                    f"{contact_clause}"
                 ),
             },
         )
@@ -713,14 +720,10 @@ async def list_users(
 ):
     """Paginated user list with optional role/status filters.
 
-    Role normalization: 'user' (legacy buyer role) and 'buyer' are treated as
-    equivalent so the Buyers tab catches every buyer regardless of which
-    registration era they belong to.
+    Roles are canonical: 'buyer', 'seller', 'admin'.
     """
     q = db.query(User)
-    if role == "user" or role == "buyer":
-        q = q.filter(User.role.in_(["user", "buyer", "student"]))
-    elif role:
+    if role:
         q = q.filter(User.role == role)
 
     if status == "active":
@@ -1070,11 +1073,10 @@ async def get_analytics(
     if time.time() < _analytics_cache["expires_at"] and _analytics_cache["data"]:
         return _analytics_cache["data"]
 
-    # Platform totals — buyer role has shifted over time (legacy "student"
-    # → "user" → "buyer"), so count every non-seller / non-admin row.
+    # Platform totals.
     total_users    = db.query(User).filter(User.is_deleted != True).count()
     total_buyers   = db.query(User).filter(
-        User.role.in_(["user", "buyer", "student"]),
+        User.role == "buyer",
         User.is_deleted != True,
     ).count()
     total_sellers  = db.query(User).filter(User.role == "seller", User.is_deleted != True).count()
@@ -1549,8 +1551,7 @@ async def broadcast_announcement(
 ):
     """Push the announcement to its audience as BOTH an in-app notification
     and an email — so users stay informed even when they're not actively on
-    the app. Buyers are identified by role in ('user','buyer','student')
-    because the registration role has shifted over time."""
+    the app."""
     from app.models import Notification
     ann = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not ann:
@@ -1562,7 +1563,7 @@ async def broadcast_announcement(
     if aud == "sellers":
         q = q.filter(User.role == "seller")
     elif aud == "buyers":
-        q = q.filter(User.role.in_(["user", "buyer", "student"]))
+        q = q.filter(User.role == "buyer")
 
     users = q.all()
 
