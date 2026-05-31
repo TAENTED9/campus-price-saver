@@ -8,7 +8,7 @@ import { formatPrice } from "@/lib/formatPrice";
 import {
   Eye,
   MessageCircle,
-  CheckCircle,
+  // CheckCircle, — re-enable with the "Confirmed Sales" stat once payments are supported
   ChevronUp,
   Plus,
   Star,
@@ -158,11 +158,12 @@ export default function SellerOverviewPage() {
       </div>
 
       {/* ── Stats grid ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           { label: "Store Views",     value: fmt(stats.totalViews),               icon: <Eye size={16} />,           iconBg: "bg-brand-500/10",   iconColor: "text-brand-500" },
           { label: "Inquiries",       value: fmt(stats.totalInquiries ?? 0),       icon: <MessageCircle size={16} />, iconBg: "bg-accent-500/10",  iconColor: "text-accent-500" },
-          { label: "Confirmed Sales", value: fmt(stats.confirmedSales),            icon: <CheckCircle size={16} />,   iconBg: "bg-success-500/10", iconColor: "text-success-500" },
+          /* Confirmed Sales — hidden until payments/order confirmation is supported on the backend.
+          { label: "Confirmed Sales", value: fmt(stats.confirmedSales),            icon: <CheckCircle size={16} />,   iconBg: "bg-success-500/10", iconColor: "text-success-500" }, */
           { label: "Seller Points",   value: fmt(stats.sellerPoints),              icon: <Star size={16} />,          iconBg: "bg-warning-500/10", iconColor: "text-warning-500" },
           { label: "Active Listings", value: fmt(stats.activeListings),            icon: <PackageIcon size={16} />,   iconBg: "bg-brand-500/10",   iconColor: "text-brand-400" },
           { label: "Followers",       value: fmt(stats.followersCount ?? 0),       icon: <Users size={16} />,         iconBg: "bg-accent-500/10",  iconColor: "text-accent-400" },
