@@ -37,6 +37,14 @@ def _plain_to_html(body: str) -> str:
     return f"<div style='font-family:sans-serif;line-height:1.5'>{safe}</div>"
 
 
+def _looks_like_html(body: str) -> bool:
+    """True if the body is already a full HTML document/fragment, so we send it
+    as-is instead of escaping it. Lets template functions return branded HTML
+    via the normal `body=` path without every caller passing `html=`."""
+    s = (body or "").lstrip().lower()
+    return s.startswith(("<!doctype", "<html", "<div", "<table", "<body"))
+
+
 # ── Generic email task ────────────────────────────────────────────────────
 @celery.task(
     name="app.tasks.email_tasks.send_email",
@@ -53,7 +61,7 @@ def send_email(
     html: str | None = None,
 ):
     try:
-        payload = html if html else _plain_to_html(body)
+        payload = html if html else (body if _looks_like_html(body) else _plain_to_html(body))
         ok = _run_async(_send(to, subject, payload))
         if not ok:
             # _send returns False on HTTP errors (e.g. Resend 403) instead of
@@ -76,11 +84,12 @@ def send_email(
     queue="emails",
 )
 def send_verification_email(to: str, name: str, link: str):
-    from app.services.email_templates import EMAIL_VERIFY_TEMPLATE
+    from app.services.email_templates import EMAIL_VERIFY_TEMPLATE, EMAIL_VERIFY_HTML
     send_email.delay(
         to=to,
         subject="Verify your Campify email",
-        body=EMAIL_VERIFY_TEMPLATE(name, link),
+        body=EMAIL_VERIFY_TEMPLATE(name, link),      # plain-text fallback
+        html=EMAIL_VERIFY_HTML(name, link),          # branded HTML
     )
 
 
@@ -147,9 +156,11 @@ def send_login_alert_email(
     ip: str,
     when: str,
 ):
+    html = None
     try:
-        from app.services.email_templates import NEW_LOGIN_EMAIL
+        from app.services.email_templates import NEW_LOGIN_EMAIL, NEW_LOGIN_HTML
         body = NEW_LOGIN_EMAIL(name, device, ip, when)
+        html = NEW_LOGIN_HTML(name, device, ip, when)
     except Exception:
         body = (
             f"Hi {name},\n\nA new sign-in to your Campify account "
@@ -160,6 +171,7 @@ def send_login_alert_email(
         to=to,
         subject="New login to your Campify account",
         body=body,
+        html=html,
     )
 
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { User, Lock, Bell, Eye, Palette, AlertTriangle, type LucideIcon } from "lucide-react";
+import { User, Lock, Bell, Eye, Palette, AlertTriangle, Check, X, Upload, Monitor, Globe, GraduationCap, Sun, Moon, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { authApi, uploadApi, userApi } from "@/lib/api";
 import { settingsApi } from "@/lib/settingsApi";
@@ -34,7 +34,7 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
   useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
   return (
     <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-white text-sm font-semibold transition-all ${type === "success" ? "bg-green-500" : "bg-red-500"}`}>
-      <span>{type === "success" ? "✓" : "✕"}</span>
+      {type === "success" ? <Check size={16} /> : <X size={16} />}
       {message}
       <button onClick={onClose} title="Dismiss notification" className="ml-2 opacity-70 hover:opacity-100">×</button>
     </div>
@@ -55,7 +55,7 @@ function SaveButton({ loading, onClick }: { loading: boolean; onClick: () => voi
   return (
     <button onClick={onClick} disabled={loading}
       className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-bold rounded-xl hover:opacity-90 disabled:opacity-60 transition-all">
-      {loading ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : "✓"}
+      {loading ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
       {loading ? "Saving..." : "Save Changes"}
     </button>
   );
@@ -568,7 +568,7 @@ export default function BuyerSettingsPage() {
                     <input ref={fileRef} type="file" accept="image/*" aria-label="Upload avatar photo" className="hidden" onChange={onAvatarChange} />
                     <button onClick={() => fileRef.current?.click()}
                       className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-bold rounded-xl hover:opacity-90 transition-all">
-                      ↑ Upload New Photo
+                      <Upload size={15} /> Upload New Photo
                     </button>
                     <p className="text-xs text-gray-400 mt-1.5">JPG or PNG · Max 2MB</p>
                   </div>
@@ -651,7 +651,7 @@ export default function BuyerSettingsPage() {
                   <p className="text-sm text-gray-400 py-2">No additional sessions found</p>
                 ) : sessions.map((s, i) => (
                   <div key={s.id} className="flex items-center gap-3 py-3.5">
-                    <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 text-lg flex-shrink-0">💻</div>
+                    <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 flex-shrink-0"><Monitor size={18} /></div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{s.device}</span>
@@ -712,14 +712,15 @@ export default function BuyerSettingsPage() {
                 <FieldLabel>Who can see your profile?</FieldLabel>
                 <div className="space-y-2">
                   {([
-                    ["public", "🌍 Everyone (Public)", "Visible to anyone"],
-                    ["unilag", "🎓 UNILAG Students Only", "Only verified accounts"],
-                    ["private", "🔒 Private", "Only people you message"],
-                  ] as const).map(([val, label, sub]) => (
+                    { val: "public",  Icon: Globe,         label: "Everyone (Public)",    sub: "Visible to anyone" },
+                    { val: "unilag",  Icon: GraduationCap, label: "UNILAG Students Only", sub: "Only verified accounts" },
+                    { val: "private", Icon: Lock,          label: "Private",              sub: "Only people you message" },
+                  ] as const).map(({ val, Icon, label, sub }) => (
                     <label key={val} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${privacy.profile_visibility === val ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-800 hover:border-gray-300"}`}>
                       <input type="radio" value={val} checked={privacy.profile_visibility === val}
                         onChange={() => setPrivacy(p => ({ ...p, profile_visibility: val }))}
                         className="accent-blue-600" />
+                      <Icon size={18} className="text-gray-500 dark:text-gray-400 flex-shrink-0" />
                       <div>
                         <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{label}</p>
                         <p className="text-xs text-gray-400">{sub}</p>
@@ -750,12 +751,12 @@ export default function BuyerSettingsPage() {
             <Card title="Theme" subtitle="Personalise how the platform looks for you">
               <div className="grid grid-cols-2 gap-3">
                 {([
-                  ["light", "☀️", "Light Mode", "Clean white & blue interface"],
-                  ["dark", "🌙", "Dark Mode", "Easy on the eyes at night"],
-                ] as const).map(([val, icon, label, sub]) => (
+                  { val: "light", Icon: Sun,  label: "Light Mode", sub: "Clean white & blue interface" },
+                  { val: "dark",  Icon: Moon, label: "Dark Mode",  sub: "Easy on the eyes at night" },
+                ] as const).map(({ val, Icon, label, sub }) => (
                   <div key={val} onClick={() => toggleDarkMode(val === "dark")}
                     className={`flex flex-col items-center gap-2 p-5 rounded-2xl border-2 cursor-pointer transition-all ${(val === "dark") === darkMode ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-800 hover:border-gray-300"}`}>
-                    <span className="text-3xl">{icon}</span>
+                    <Icon className="w-7 h-7 text-gray-700 dark:text-gray-300" />
                     <p className="font-bold text-sm text-gray-800 dark:text-gray-200">{label}</p>
                     <p className="text-xs text-gray-400 text-center">{sub}</p>
                   </div>
@@ -768,7 +769,7 @@ export default function BuyerSettingsPage() {
           {active === "danger" && (
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden mb-5">
               <div className="px-6 py-4 flex items-center gap-2">
-                <span className="text-red-500">⚠️</span>
+                <AlertTriangle size={16} className="text-red-500" />
                 <h3 className="font-bold text-gray-900 dark:text-white text-[15px]">Delete Account Permanently</h3>
               </div>
               <div className="px-6 pb-5">

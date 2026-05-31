@@ -39,14 +39,19 @@ function approvalStyle(s: string) {
   return "bg-gray-100 text-gray-500";
 }
 
+// Listing health: a 0–100 completeness score so sellers know which listings
+// need work. Kept in sync with the seller overview page.
 function healthScore(l: SellerListing) {
   let score = 0;
-  if (l.description && l.description.length >= 20) score += 25;
-  if (l.photos && l.photos.length > 0) score += 35;
-  if (l.location) score += 20;
-  if (l.category_id) score += 20;
+  if (l.description && l.description.length >= 20) score += 25;            // a real description
+  if (l.photos && l.photos.length > 0) score += 35;                       // at least one photo
+  if (l.location || (l.locations && l.locations.length > 0)) score += 20; // a pickup spot
+  if (l.category_id) score += 20;                                         // categorised
   return score;
 }
+
+const HEALTH_HINT =
+  "Listing health = how complete this listing is (0–100). Points: photo +35, description (20+ chars) +25, pickup location +20, category +20.";
 
 function SkeletonCard() {
   return (
@@ -415,7 +420,7 @@ export default function SellerListingsPage() {
                   <span className="flex items-center gap-1"><Eye size={11} /> {l.view_count.toLocaleString()}</span>
                   {categoryMap[l.category_id] && <span>{categoryMap[l.category_id]}</span>}
                   {l.location && <span className="flex items-center gap-1"><MapPin size={10} /> {l.location}</span>}
-                  <span>Health: <strong className={score >= 80 ? "text-success-500" : score >= 50 ? "text-warning-500" : "text-error-500"}>{score}/100</strong></span>
+                  <span title={HEALTH_HINT} className="cursor-help">Health: <strong className={score >= 80 ? "text-success-500" : score >= 50 ? "text-warning-500" : "text-error-500"}>{score}/100</strong></span>
                 </div>
 
                 <div className="relative h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full w-36 overflow-hidden">

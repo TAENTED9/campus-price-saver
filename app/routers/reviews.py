@@ -91,21 +91,10 @@ async def submit_review(
     if seller_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot review your own listing")
 
-    # BUG-006: check DirectMessage count between buyer and seller (not Inquiry)
-    from app.routers.messages import Conversation, DirectMessage as _DM
-    _lo, _hi = min(current_user.id, seller_id), max(current_user.id, seller_id)
-    _conv = db.query(Conversation).filter(
-        Conversation.user_a_id == _lo,
-        Conversation.user_b_id == _hi,
-    ).first()
-    msg_count = 0
-    if _conv:
-        msg_count = db.query(_DM).filter(_DM.conversation_id == _conv.id).count()
-    if msg_count < 3:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only review after at least 3 messages have been exchanged",
-        )
+    # Any logged-in buyer may review (one review per listing — enforced below).
+    # The prior "3 messages exchanged" gate was removed; reviews where the buyer
+    # actually completed an inquiry are still flagged via is_verified_interaction
+    # so genuine purchases can be surfaced/badged separately.
 
     existing = db.query(Review).filter(
         Review.reviewer_id == current_user.id,

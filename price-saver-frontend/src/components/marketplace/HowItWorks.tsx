@@ -30,7 +30,7 @@ const STEPS = [
 export default function HowItWorks() {
   return (
     <section className="py-16 bg-white dark:bg-gray-900 mt-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 xl:px-0">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0">
         <h2 className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white tracking-tight text-center">
           How Campify Works
         </h2>

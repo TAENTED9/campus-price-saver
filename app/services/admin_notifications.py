@@ -85,8 +85,14 @@ async def send_user_email_bg(to: str, subject: str, body: str):
     if not to:
         return
     try:
-        from app.tasks.email_tasks import send_email
-        send_email.delay(to=to, subject=subject, body=body)
+        from app.tasks.email_tasks import send_email, _looks_like_html
+        # Templates now return branded HTML. Pass it as `html=` explicitly (not
+        # just `body=`) so delivery is correct even if the Celery worker is
+        # running older code without HTML auto-detection.
+        if _looks_like_html(body):
+            send_email.delay(to=to, subject=subject, body=body, html=body)
+        else:
+            send_email.delay(to=to, subject=subject, body=body)
     except Exception as e:
         # Broker down — log, don't crash the caller.
         import logging as _lg

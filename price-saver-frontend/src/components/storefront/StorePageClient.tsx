@@ -129,6 +129,11 @@ export default function StorePageClient({
   const [followCount, setFollowCount] = useState(seller.follower_count);
   const [followLoading, setFollowLoading] = useState(false);
   const [followLoaded, setFollowLoaded] = useState(false);
+  // Live header stats. Initialized from the (possibly ISR-cached up to 60s)
+  // server props, then refreshed from the backend on mount so a reload always
+  // reflects the latest persisted reviews — see the refresh effect below.
+  const [avgRating, setAvgRating] = useState<number | null>(seller.avg_rating ?? null);
+  const [reviewCount, setReviewCount] = useState<number>(seller.review_count ?? 0);
   const [reviews, setReviews] = useState<ReviewSummary | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [msgOpen, setMsgOpen] = useState(false);
@@ -153,6 +158,23 @@ export default function StorePageClient({
       .catch(() => {})
       .finally(() => setFollowLoaded(true));
   }, [token, seller.id]);
+
+  // Public, token-free refresh of follower/review stats on every mount. The
+  // storefront page is ISR-cached (revalidate=60), so the `seller` props can
+  // lag the DB by up to a minute; this guarantees a reload shows the latest
+  // persisted reviews and follower count to everyone, signed-in or not.
+  useEffect(() => {
+    let cancelled = false;
+    storefrontApi.getSellerPage(seller.username)
+      .then((fresh) => {
+        if (cancelled) return;
+        setFollowCount(fresh.seller.follower_count);
+        setAvgRating(fresh.seller.avg_rating ?? null);
+        setReviewCount(fresh.seller.review_count ?? 0);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [seller.username]);
 
   useEffect(() => {
     if (activeTab !== "reviews" || reviews !== null || reviewsLoading) return;
@@ -358,10 +380,10 @@ export default function StorePageClient({
                     <GraduationCap size={11} /> {seller.faculty ?? seller.department}
                   </span>
                 )}
-                {seller.avg_rating != null && (
+                {avgRating != null && (
                   <span className="flex items-center gap-1 text-xs text-yellow-500 font-semibold">
                     <Star size={11} className="fill-yellow-400" />
-                    {seller.avg_rating} ({seller.review_count ?? 0} reviews)
+                    {avgRating} ({reviewCount} reviews)
                   </span>
                 )}
               </div>

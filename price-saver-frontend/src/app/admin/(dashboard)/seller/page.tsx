@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from "react";
 import Image from "next/image";
 import { useAdminAuth } from "@/context/AdminAuthContext";
+import { formatDateTimeWAT } from "@/utils/date";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, type AdminVerification } from "@/lib/api";
 import { Store, CheckCircle, XCircle, Clock, FileText, MapPin, Tag, Mail, GraduationCap, Image as ImageIcon } from "lucide-react";
@@ -18,12 +19,10 @@ const TAB_COLORS: Record<Tab, string> = {
   Rejected: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400",
 };
 
+// Shared WAT formatter — normalizes naive-UTC timestamps so times aren't an
+// hour behind.
 function wat(dateStr: string) {
-  return new Date(dateStr).toLocaleString("en-NG", {
-    timeZone: "Africa/Lagos",
-    day: "numeric", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  return formatDateTimeWAT(dateStr);
 }
 
 export default function AdminSellerVerificationsPage() {

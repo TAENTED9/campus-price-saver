@@ -189,8 +189,15 @@ async def upload_listing_photo(
 
 
 # ── Banner slide constants ─────────────────────────────────────────────────────
-BANNER_WIDTH  = 1280
-BANNER_HEIGHT = 480
+# Recommended hero-banner size. The slide is ~2.3:1 and only 2/3 of the page
+# width, so a wide image looks best. We accept anything that meets the minimum
+# resolution and is landscape — object-cover crops to fit — instead of demanding
+# an exact size (which broke whenever the homepage layout width changed).
+BANNER_WIDTH      = 1600   # recommended
+BANNER_HEIGHT     = 700
+BANNER_MIN_WIDTH  = 1000
+BANNER_MIN_HEIGHT = 440
+BANNER_MIN_RATIO  = 1.8    # must be a wide landscape image
 
 
 @router.post("/banner-slide")
@@ -203,22 +210,34 @@ async def upload_banner_slide(
 ):
     """
     Upload a homepage hero banner slide image to Cloudinary.
-    Image MUST be exactly 1280 × 480 pixels (JPEG / PNG / WebP, max 5 MB).
+
+    Accepts any wide landscape image at least {BANNER_MIN_WIDTH}×{BANNER_MIN_HEIGHT}
+    px (JPEG / PNG / WebP, max 5 MB). ~{BANNER_WIDTH}×{BANNER_HEIGHT} px is ideal;
+    the hero renders it with object-cover, cropping the edges to fit.
     """
     data = await _validate_file(file)
 
-    # Dimension check using Pillow
+    # Dimension check using Pillow — minimum resolution + landscape aspect.
     try:
         from PIL import Image as PILImage
         import io
         img = PILImage.open(io.BytesIO(data))
         w, h = img.size
-        if w != BANNER_WIDTH or h != BANNER_HEIGHT:
+        if w < BANNER_MIN_WIDTH or h < BANNER_MIN_HEIGHT:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Banner must be exactly {BANNER_WIDTH}×{BANNER_HEIGHT} px. "
-                    f"Your image is {w}×{h} px."
+                    f"Banner is too small ({w}×{h} px). Use at least "
+                    f"{BANNER_MIN_WIDTH}×{BANNER_MIN_HEIGHT} px "
+                    f"(~{BANNER_WIDTH}×{BANNER_HEIGHT} recommended)."
+                ),
+            )
+        if h == 0 or (w / h) < BANNER_MIN_RATIO:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Banner must be a wide landscape image "
+                    f"(about {BANNER_WIDTH}×{BANNER_HEIGHT}). Yours is {w}×{h} px."
                 ),
             )
     except HTTPException:

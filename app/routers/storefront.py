@@ -312,8 +312,24 @@ async def get_seller_storefront(
     limit: int = 20,
     db: Session = Depends(get_db),
 ):
-    """Seller's public storefront page — user info + active listings (paginated)."""
-    seller = db.query(User).filter(User.username == username).first()
+    """Seller's public storefront page — user info + active listings (paginated).
+
+    Resolves the {username} path segment flexibly so every storefront link works
+    and survives the lowercase-username migration:
+      1. username, case-insensitive (canonical)
+      2. the seller's chosen storefront slug (Profile.slug) — what settings shows
+      3. numeric user id (legacy fallback used by some cards)
+    """
+    from app.models import Profile
+    ident = (username or "").strip()
+    ident_l = ident.lower()
+    seller = db.query(User).filter(func.lower(User.username) == ident_l).first()
+    if not seller:
+        prof = db.query(Profile).filter(func.lower(Profile.slug) == ident_l).first()
+        if prof:
+            seller = db.query(User).filter(User.id == prof.user_id).first()
+    if not seller and ident.isdigit():
+        seller = db.query(User).filter(User.id == int(ident)).first()
     if not seller:
         raise HTTPException(status_code=404, detail="Seller not found")
 

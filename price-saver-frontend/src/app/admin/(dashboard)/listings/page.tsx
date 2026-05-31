@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import Image from "next/image";
 import { useAdminAuth } from "@/context/AdminAuthContext";
+import { formatDateTimeWAT } from "@/utils/date";
 import { usePolling } from "@/hooks/usePolling";
 import { adminApi, type AdminListing, type AdminListingDetail } from "@/lib/api";
 import { Package, Flag, CheckCircle, Trash2, Search, Star, StarOff, RefreshCw, Eye, X, MapPin, Tag, Store, Calendar, Camera, Film, Maximize2 } from "lucide-react";
@@ -46,11 +47,8 @@ import { formatPrice } from "@/lib/formatPrice";
 
 function wat(iso: string | null) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-NG", {
-    timeZone: "Africa/Lagos",
-    day: "numeric", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  // Shared WAT formatter — normalizes naive-UTC timestamps (no hour-behind bug).
+  return formatDateTimeWAT(iso);
 }
 
 type FilterType = "all" | "flagged" | "featured" | "pending" | "approved" | "rejected";

@@ -148,7 +148,7 @@ export default function CategoriesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {CATEGORY_DEFS.map((def) => {
             const id = findBackendId(backendCats, def);
-            const href = id != null ? `/search?category_id=${id}` : `/search?category=${def.slug}`;
+            const href = id != null ? `/search?category_id=${id}` : `/search?q=${encodeURIComponent(def.name)}`;
             const Icon = def.Icon;
             return (
               <Link

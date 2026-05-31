@@ -31,7 +31,7 @@ export default function NewArrivalsSection() {
   if (!loading && items.length === 0) {
     return (
       <section className="py-6 xl:py-8">
-        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
+        <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
               New Arrivals
@@ -51,7 +51,7 @@ export default function NewArrivalsSection() {
 
   return (
     <section className="py-6 xl:py-8">
-      <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
+      <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
             New Arrivals

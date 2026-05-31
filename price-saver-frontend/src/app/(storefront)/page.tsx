@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import HeroCarousel from "@/components/storefront/HeroCarousel";
-import StatsStrip from "@/components/storefront/StatsStrip";
 import AnnouncementBanner from "@/components/storefront/AnnouncementBanner";
 import CategoriesSection from "@/components/storefront/CategoriesSection";
 import FlashSalesSection from "@/components/storefront/FlashSalesSection";
@@ -66,15 +65,12 @@ export default function HomePage() {
   return (
     <>
       {/* Hero carousel — admin-controlled banner slides + side cards */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 lg:px-8 pt-6 pb-2">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0 pt-6 pb-2">
         <HeroCarousel />
       </div>
 
       {/* Admin announcement banner (dismissible, client-side fetch) */}
       <AnnouncementBanner />
-
-      {/* Live Stats Bar */}
-      <StatsStrip />
 
       {/* 1C - Category Grid */}
       <CategoriesSection />

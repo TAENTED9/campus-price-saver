@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { UtensilsCrossed, Shirt, Monitor, ChevronRight } from "lucide-react";
+import { itemsApi, type Category } from "@/lib/api";
+import { categoryHref } from "@/lib/categoryLinks";
 
 // ─── Static fallback slides (used when no admin banners exist) ────────────────
 
@@ -11,7 +13,7 @@ const STATIC_SLIDES = [
     tag: "Campus Essentials",
     title: "Food & Drinks",
     subtitle: "Compare prices across all campus cafeterias, hostels, and vendors in real time.",
-    cta: { label: "Explore Food", href: "/categories/food" },
+    cta: { label: "Explore Food", href: "/search", slug: "food" },
     bg: "from-brand-600 to-brand-800",
     icon: <UtensilsCrossed size={120} className="opacity-90 text-white/40" />,
     image: null as string | null,
@@ -20,7 +22,7 @@ const STATIC_SLIDES = [
     tag: "Student Fashion",
     title: "Fashion & Beauty",
     subtitle: "Discover the best fashion deals from campus vendors and verified student sellers.",
-    cta: { label: "Shop Fashion", href: "/categories/fashion" },
+    cta: { label: "Shop Fashion", href: "/search", slug: "fashion" },
     bg: "from-brand-600 to-brand-800",
     icon: <Shirt size={120} className="opacity-90 text-white/40" />,
     image: null as string | null,
@@ -29,7 +31,7 @@ const STATIC_SLIDES = [
     tag: "Tech & Gadgets",
     title: "Electronics",
     subtitle: "Get the best prices on phones, laptops, accessories from trusted campus stores.",
-    cta: { label: "Browse Tech", href: "/categories/tech" },
+    cta: { label: "Browse Tech", href: "/search", slug: "tech" },
     bg: "from-success-600 to-success-800",
     icon: <Monitor size={120} className="opacity-90 text-white/40" />,
     image: null as string | null,
@@ -66,7 +68,7 @@ type Slide = {
   tag: string;
   title: string;
   subtitle: string;
-  cta: { label: string; href: string };
+  cta: { label: string; href: string; slug?: string };
   bg: string;
   icon: React.ReactNode | null;
   image: string | null;
@@ -82,11 +84,37 @@ const GRADIENTS = [
   "from-accent-500 to-brand-700",
 ];
 
+// Vibrant hero gradients, shuffled per page load so the banner feels fresh.
+const HERO_PALETTE = [
+  "from-blue-600 to-indigo-800",
+  "from-orange-500 to-rose-600",
+  "from-violet-600 to-indigo-800",
+  "from-emerald-600 to-teal-800",
+  "from-amber-500 to-orange-700",
+  "from-cyan-600 to-blue-800",
+];
+// Fashion & Beauty is always pink/purple ("for the girls"), never shuffled.
+const FASHION_BEAUTY_BG = "from-pink-500 to-fuchsia-700";
+const isFashionBeauty = (title: string) => /fashion|beauty/i.test(title);
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function HeroCarousel() {
   const [slides, setSlides] = useState<Slide[]>(STATIC_SLIDES);
   const [active, setActive] = useState(0);
+  // Shuffle the gradient palette client-side after mount (SSR-safe: first paint
+  // uses the deterministic order, then reshuffles so each reload looks fresh).
+  const [palette, setPalette] = useState(HERO_PALETTE);
+  const [cats, setCats] = useState<Category[]>([]);
+  useEffect(() => {
+    setPalette([...HERO_PALETTE].sort(() => Math.random() - 0.5));
+  }, []);
+
+  // Resolve static-slide category slugs → real backend ids so the default CTAs
+  // link to /search?category_id=… instead of a dead /categories/<word> route.
+  useEffect(() => {
+    itemsApi.getCategories().then(setCats).catch(() => setCats([]));
+  }, []);
 
   // Fetch admin-controlled banner slides
   useEffect(() => {
@@ -120,6 +148,16 @@ export default function HeroCarousel() {
   }, [slides.length, active]);
 
   const slide = slides[active];
+  // Per-slide gradient: Fashion/Beauty locked pink-purple, others from the
+  // shuffled palette.
+  const slideBg = isFashionBeauty(slide.title)
+    ? FASHION_BEAUTY_BG
+    : palette[active % palette.length];
+  // Static slides carry a category slug → resolve to a real index. Dynamic
+  // admin banners keep their admin-set href.
+  const ctaHref = slide.cta.slug
+    ? categoryHref(cats, slide.cta.slug, slide.title)
+    : slide.cta.href;
 
   return (
     <div className="flex flex-col lg:flex-row gap-5">
@@ -140,7 +178,7 @@ export default function HeroCarousel() {
             </>
           ) : (
             <>
-              <div className={`absolute inset-0 bg-gradient-to-br ${slide.bg} transition-all duration-700`} />
+              <div className={`absolute inset-0 bg-gradient-to-br ${slideBg} transition-all duration-700`} />
               <div className="absolute inset-0 opacity-10 dot-pattern" />
             </>
           )}
@@ -158,7 +196,7 @@ export default function HeroCarousel() {
                 {slide.subtitle}
               </p>
               <Link
-                href={slide.cta.href}
+                href={ctaHref}
                 className="inline-flex font-medium text-white text-sm rounded-full bg-white/20 backdrop-blur-sm border border-white/30 py-3 px-8 ease-out duration-200 hover:bg-white hover:text-gray-900"
               >
                 {slide.cta.label}
@@ -192,13 +230,14 @@ export default function HeroCarousel() {
         </div>
       </div>
 
-      {/* ── Side cards ── */}
-      <div className="lg:w-1/3 w-full flex flex-col justify-between sm:flex-row lg:flex-col gap-5">
+      {/* ── Side cards — flex-1 so the two cards stretch to fill the hero
+           height instead of leaving a big gap between them ── */}
+      <div className="lg:w-1/3 w-full flex flex-col sm:flex-row lg:flex-col gap-5">
         {sideCards.map((card) => (
           <Link
             key={card.href}
             href={card.href}
-            className={`group w-full relative rounded-[10px] p-6 ${card.bg} flex items-center justify-between gap-4 hover:shadow-md transition-shadow duration-200`}
+            className={`group w-full flex-1 min-h-[120px] relative rounded-[10px] p-6 ${card.bg} flex items-center justify-between gap-4 hover:shadow-md transition-shadow duration-200`}
           >
             <div>
               <h2 className="font-semibold text-gray-800 text-[20px] xl:text-2xl mb-1 group-hover:text-brand-600 transition-colors">

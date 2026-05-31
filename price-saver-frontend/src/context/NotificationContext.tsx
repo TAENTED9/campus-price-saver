@@ -96,15 +96,46 @@ export const NotificationProvider: React.FC<{
     fetchCounts();
   }, [fetchCounts]);
 
-  // Fetch on mount and every 30 s
+  // Near-realtime counts without a manual refresh:
+  //  • poll every 15 s while the tab is active
+  //  • refetch immediately whenever the tab regains focus / becomes visible,
+  //    so a notification raised while the user was away shows the instant they
+  //    come back
+  //  • pause polling while the tab is hidden to avoid wasted background calls
   useEffect(() => {
     if (!token) {
       setCounts(ZERO);
       return;
     }
     fetchCounts();
-    const id = setInterval(fetchCounts, 30_000);
-    return () => clearInterval(id);
+
+    let id: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (id == null) id = setInterval(fetchCounts, 15_000);
+    };
+    const stopPolling = () => {
+      if (id != null) { clearInterval(id); id = null; }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchCounts();      // catch up immediately
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+    const onFocus = () => fetchCounts();
+
+    startPolling();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [token, fetchCounts]);
 
   return (

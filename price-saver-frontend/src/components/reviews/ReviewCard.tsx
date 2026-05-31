@@ -1,10 +1,11 @@
 "use client";
 
-import { Star, MessageSquare, Pencil } from "lucide-react";
+import { Star, MessageSquare, Pencil, X } from "lucide-react";
 import Image from "next/image";
 import { useState, useEffect } from "react";
 import { formatRelativeTime, minutesAgo } from "@/utils/date";
 import { reviewsApi } from "@/lib/api";
+import { thumbnailImage, optimizeImage } from "@/lib/cloudinary";
 import { useAuth } from "@/context/AuthContext";
 
 const EDIT_WINDOW_MINUTES = 30;
@@ -48,6 +49,7 @@ export function ReviewCard({ review, showListingTitle, canReply, onReply, onEdit
   const [editText, setEditText] = useState(review.text || review.comment || "");
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   const isOwner = !!user && (
     user.id === review.reviewer_id ||
@@ -195,10 +197,47 @@ export function ReviewCard({ review, showListingTitle, canReply, onReply, onEdit
         </div>
       )}
 
-      {/* Review photo */}
+      {/* Review photo — compact square thumbnail, click to view full size */}
       {review.photo_url && (
-        <div className="relative h-32 w-full rounded-xl overflow-hidden mb-3">
-          <Image src={review.photo_url} alt="Review photo" fill sizes="(max-width: 768px) 100vw, 600px" className="object-cover" />
+        <button
+          type="button"
+          onClick={() => setPhotoOpen(true)}
+          aria-label="View review photo"
+          className="relative h-28 w-28 rounded-xl overflow-hidden mb-3 border border-gray-200 dark:border-gray-700 hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <Image
+            src={thumbnailImage(review.photo_url, 224)}
+            alt="Review photo"
+            fill
+            sizes="112px"
+            className="object-cover"
+          />
+        </button>
+      )}
+
+      {/* Lightbox — full-size view on demand */}
+      {photoOpen && review.photo_url && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+          onClick={() => setPhotoOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            aria-label="Close photo"
+            onClick={() => setPhotoOpen(false)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={optimizeImage(review.photo_url, 1000)}
+            alt="Review photo"
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl"
+          />
         </div>
       )}
 

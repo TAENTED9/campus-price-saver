@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Conversation } from "@/lib/messageApi";
 import { useChat } from "@/context/ChatContext";
+import { formatRelativeTime } from "@/utils/date";
 
 interface ConversationListProps {
   onSelectConversation: (conversation: Conversation) => void;
@@ -24,22 +25,12 @@ export const ConversationList: React.FC<ConversationListProps> = ({
       .includes(searchQuery.toLowerCase())
   );
 
+  // Use the shared WAT-aware formatter. The previous inline `new Date(str)`
+  // parsed naive-UTC timestamps as local time, making every relative time an
+  // hour off — the messaging "1h late" bug.
   const formatTime = (dateString: string | null) => {
     if (!dateString) return "No messages";
-
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return "Now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return formatRelativeTime(dateString);
   };
 
   return (

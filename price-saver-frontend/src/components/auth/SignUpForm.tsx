@@ -1,11 +1,92 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { authApi } from "@/lib/api";
-import { Eye, EyeOff, ChevronLeft, ShoppingBag, Store, Check, MailCheck } from "lucide-react";
+import { Eye, EyeOff, ChevronLeft, ShoppingBag, Store, Check, X, Loader2, MailCheck } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// ─── Username rule (must mirror the backend validator) ────────────────────────
+const USERNAME_RULE = "lowercase letters, numbers, and underscore (_) only";
+type UStatus = "idle" | "checking" | "available" | "taken" | "invalid";
+
+/**
+ * Username input with hard charset enforcement (lowercase a–z, 0–9, _) and a
+ * debounced live availability check. Surfaces status both visually and to the
+ * parent via onStatusChange so the form can block submit on taken/invalid.
+ */
+function UsernameField({
+  id, value, onChange, onStatusChange, label, hint,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  onStatusChange?: (s: UStatus) => void;
+  label: string;
+  hint: string;
+}) {
+  const [status, setStatus] = useState<UStatus>("idle");
+  const set = (s: UStatus) => { setStatus(s); onStatusChange?.(s); };
+
+  useEffect(() => {
+    const v = value.trim();
+    if (v.length === 0) { set("idle"); return; }
+    if (v.length < 3 || !/^[a-z0-9_]+$/.test(v)) { set("invalid"); return; }
+    let cancelled = false;
+    set("checking");
+    const t = setTimeout(async () => {
+      try {
+        const res = await authApi.checkUsername(v);
+        if (cancelled) return;
+        set(!res.valid ? "invalid" : res.available ? "available" : "taken");
+      } catch { if (!cancelled) set("idle"); }
+    }, 450);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const msg =
+    status === "available" ? "Username is available" :
+    status === "taken"     ? "Username is already taken" :
+    status === "invalid"   ? `Use 3–30 ${USERNAME_RULE}` :
+    hint;
+  const msgCls =
+    status === "available" ? "text-green-600 dark:text-green-400" :
+    (status === "taken" || status === "invalid") ? "text-red-500" :
+    "text-gray-400";
+
+  return (
+    <div className="mb-5">
+      <label htmlFor={id} className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
+        {label} <span className="text-red-500">*</span>
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          name="username"
+          type="text"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="e.g. campus_deals"
+          value={value}
+          // Hard-enforce the charset as the user types: force lowercase and drop
+          // anything that isn't a–z, 0–9, or underscore.
+          onChange={(e) => onChange(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 30))}
+          required
+          className={inputCls(status === "taken" || status === "invalid")}
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2">
+          {status === "checking" && <Loader2 size={18} className="animate-spin text-gray-400" />}
+          {status === "available" && <Check size={18} className="text-green-500" />}
+          {(status === "taken" || status === "invalid") && <X size={18} className="text-red-500" />}
+        </span>
+      </div>
+      <p className={`mt-1 text-xs ${msgCls}`}>{msg}</p>
+    </div>
+  );
+}
 
 // ─── Shared input style ───────────────────────────────────────────────────────
 
@@ -125,6 +206,7 @@ function RoleSelector({ onSelect }: { onSelect: (role: Role) => void }) {
 function BuyerForm({ onBack }: { onBack: () => void }) {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState<UStatus>("idle");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -143,6 +225,8 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
     setError(null);
     if (!email.trim()) { setError("Email address is required."); return; }
     if (!username.trim() || username.length < 3) { setError("Username must be at least 3 characters."); return; }
+    if (usernameStatus === "invalid") { setError(`Username can use ${USERNAME_RULE}.`); return; }
+    if (usernameStatus === "taken") { setError("That username is already taken."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (!agreedToTerms) { setError("Please agree to the terms and conditions."); return; }
 
@@ -250,22 +334,14 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
           />
         </div>
 
-        <div className="mb-5">
-          <label htmlFor="buyer-username" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-            Username <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="buyer-username"
-            name="username"
-            type="text"
-            placeholder="Choose a username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            className={inputCls()}
-          />
-          <p className="mt-1 text-xs text-gray-400">Min. 3 characters. This is how others will see you.</p>
-        </div>
+        <UsernameField
+          id="buyer-username"
+          value={username}
+          onChange={setUsername}
+          onStatusChange={setUsernameStatus}
+          label="Username"
+          hint={`Min. 3 characters — ${USERNAME_RULE}. This is your unique handle.`}
+        />
 
         <div className="mb-5">
           <label htmlFor="buyer-password" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -318,7 +394,7 @@ function BuyerForm({ onBack }: { onBack: () => void }) {
 
         <button
           type="submit"
-          disabled={isLoading || !agreedToTerms}
+          disabled={isLoading || !agreedToTerms || usernameStatus === "taken" || usernameStatus === "invalid" || usernameStatus === "checking"}
           className="w-full flex justify-center items-center font-medium text-white bg-gray-900 py-3 px-6 rounded-full ease-out duration-200 hover:bg-brand-500 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-gray-700 dark:hover:bg-brand-500"
         >
           {isLoading ? "Creating account..." : "Create Buyer Account"}
@@ -341,6 +417,7 @@ function SellerForm({ onBack }: { onBack: () => void }) {
   const [matric, setMatric] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
+  const [usernameStatus, setUsernameStatus] = useState<UStatus>("idle");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -365,7 +442,9 @@ function SellerForm({ onBack }: { onBack: () => void }) {
     const mErr = validateMatric(matric);
     if (mErr) { setMatricError(mErr); return; }
     if (!email.trim()) { setError("Email address is required."); return; }
-    if (!username.trim() || username.length < 3) { setError("Store name must be at least 3 characters."); return; }
+    if (!username.trim() || username.length < 3) { setError("Store username must be at least 3 characters."); return; }
+    if (usernameStatus === "invalid") { setError(`Store username can use ${USERNAME_RULE}.`); return; }
+    if (usernameStatus === "taken") { setError("That store username is already taken."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (!agreedToTerms) { setError("Please agree to the terms and conditions."); return; }
 
@@ -503,23 +582,15 @@ function SellerForm({ onBack }: { onBack: () => void }) {
           />
         </div>
 
-        {/* Store name */}
-        <div className="mb-5">
-          <label htmlFor="seller-username" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-            Store / Brand Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="seller-username"
-            name="username"
-            type="text"
-            placeholder="Your store or brand name"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            className={inputCls()}
-          />
-          <p className="mt-1 text-xs text-gray-400">Min. 3 characters. This is your public store name.</p>
-        </div>
+        {/* Store username — becomes the public store URL /store/<username> */}
+        <UsernameField
+          id="seller-username"
+          value={username}
+          onChange={setUsername}
+          onStatusChange={setUsernameStatus}
+          label="Username"
+          hint={`Your login handle and default store link (/store/${username || "your-store"}) — you can set a custom store URL later in settings. ${USERNAME_RULE}.`}
+        />
 
         {/* Password */}
         <div className="mb-5">
@@ -571,7 +642,7 @@ function SellerForm({ onBack }: { onBack: () => void }) {
 
         <button
           type="submit"
-          disabled={isLoading || !agreedToTerms}
+          disabled={isLoading || !agreedToTerms || usernameStatus === "taken" || usernameStatus === "invalid" || usernameStatus === "checking"}
           className="w-full flex justify-center items-center font-medium text-white bg-gray-900 py-3 px-6 rounded-full ease-out duration-200 hover:bg-brand-500 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-gray-700 dark:hover:bg-brand-500"
         >
           {isLoading ? "Creating account..." : "Continue →"}

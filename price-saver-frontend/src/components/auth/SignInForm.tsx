@@ -62,7 +62,7 @@ export default function SignInForm() {
     setUnverifiedEmail(null);
 
     if (!username.trim()) {
-      setError("Please enter your username or email.");
+      setError("Please enter your email or username.");
       return;
     }
     if (!password) {
@@ -348,13 +348,17 @@ export default function SignInForm() {
         {/* Username */}
         <div className="mb-5">
           <label htmlFor="username" className="block mb-2.5 text-sm font-medium text-gray-700 dark:text-gray-300">
-            Username / Email
+            Email or Username
           </label>
           <input
             id="username"
             name="username"
             type="text"
-            placeholder="Enter your username or email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoComplete="username"
+            placeholder="Enter your email or username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required

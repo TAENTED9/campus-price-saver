@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Store, Shield, FileText, MapPin, List, Lock, Bell, AlertTriangle, type LucideIcon } from "lucide-react";
+import { Store, Shield, FileText, MapPin, List, Lock, Bell, AlertTriangle, Check, X, Clock, Upload, Monitor, Palmtree, Pause, ArrowDownCircle, Circle, Loader2, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, authApi, userApi, uploadApi } from "@/lib/api";
 import { VerificationSubmitForm } from "@/components/seller/VerificationForm";
@@ -38,7 +38,7 @@ function Toast({ message, type, onClose }: { message: string; type: "success" | 
   useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
   return (
     <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-white text-sm font-semibold ${type === "success" ? "bg-green-500" : "bg-red-500"}`}>
-      <span>{type === "success" ? "✓" : "✕"}</span>
+      {type === "success" ? <Check size={16} /> : <X size={16} />}
       {message}
       <button onClick={onClose} title="Dismiss notification" className="ml-2 opacity-70 hover:opacity-100">×</button>
     </div>
@@ -59,7 +59,7 @@ function SaveButton({ loading, onClick }: { loading: boolean; onClick: () => voi
   return (
     <button onClick={onClick} disabled={loading}
       className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-sm font-bold rounded-xl hover:opacity-90 disabled:opacity-60 transition-all">
-      {loading ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : "✓"}
+      {loading ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
       {loading ? "Saving..." : "Save Changes"}
     </button>
   );
@@ -528,7 +528,7 @@ export default function SellerSettingsPage() {
       {showVacationConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl">
-            <div className="text-3xl mb-3">🏖️</div>
+            <div className="mb-3"><Palmtree className="w-8 h-8 text-blue-500" /></div>
             <h3 className="font-black text-lg text-gray-900 dark:text-white mb-2">Enable Vacation Mode?</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               All your active listings will be <strong>hidden from buyers</strong> until you return. Existing conversations won&apos;t be affected.
@@ -578,7 +578,7 @@ export default function SellerSettingsPage() {
               <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{bizName || user?.display_name}</p>
               <div className="flex items-center justify-center gap-1 mt-1">
                 <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full">
-                  {user?.role === "seller" ? "✓ SELLER" : "PENDING"}
+                  {user?.role === "seller" ? <span className="inline-flex items-center gap-0.5"><Check size={11} /> SELLER</span> : "PENDING"}
                 </span>
               </div>
             </div>
@@ -628,7 +628,7 @@ export default function SellerSettingsPage() {
                   className="h-24 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-800 flex items-center justify-center cursor-pointer hover:border-blue-400 transition-colors overflow-hidden relative">
                   {bannerPreview
                     ? <Image src={bannerPreview} alt="banner" fill sizes="100vw" className="object-cover" />
-                    : <span className="text-sm text-gray-400">↑ Upload Banner (1200×300 recommended)</span>}
+                    : <span className="text-sm text-gray-400 flex items-center gap-1"><Upload size={14} /> Upload Banner (1200×300 recommended)</span>}
                 </div>
                 <input ref={bannerRef} type="file" title="Upload store banner" accept="image/*" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) setBannerPreview(URL.createObjectURL(f)); }} />
@@ -656,12 +656,18 @@ export default function SellerSettingsPage() {
                     <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                       placeholder="your-store-name"
                       className="w-full bg-transparent border border-gray-200 dark:border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 transition-colors pr-8" />
-                    {slugStatus === "checking" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">...</span>}
-                    {slugStatus === "ok" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500 font-bold">✓</span>}
-                    {slugStatus === "taken" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 font-bold">✕</span>}
+                    {slugStatus === "checking" && <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />}
+                    {slugStatus === "ok" && <Check size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500" />}
+                    {slugStatus === "taken" && <X size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500" />}
                   </div>
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    {slugStatus === "taken" ? <span className="text-red-500">URL already taken</span> : `campify.digital/store/${slug || "your-store"}`}
+                  <p className="text-[11px] mt-1">
+                    {slugStatus === "ok" ? (
+                      <span className="text-green-600 dark:text-green-400">Available — campify.digital/store/{slug}</span>
+                    ) : slugStatus === "taken" ? (
+                      <span className="text-red-500">That store URL is already taken</span>
+                    ) : (
+                      <span className="text-gray-400">campify.digital/store/{slug || "your-store"} · lowercase letters, numbers &amp; hyphen</span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -711,7 +717,7 @@ export default function SellerSettingsPage() {
                     verifStatus.status === "verified" ? "bg-green-500" :
                     verifStatus.status === "pending" ? "bg-yellow-500" : "bg-red-500"
                   }`}>
-                    {verifStatus.status === "verified" ? "✓" : verifStatus.status === "pending" ? "⏳" : "✕"}
+                    {verifStatus.status === "verified" ? <Check size={20} /> : verifStatus.status === "pending" ? <Clock size={20} /> : <X size={20} />}
                   </div>
                   <div>
                     <p className={`font-bold text-sm ${verifStatus.status === "verified" ? "text-green-700 dark:text-green-400" : verifStatus.status === "pending" ? "text-yellow-700 dark:text-yellow-400" : "text-red-700 dark:text-red-400"}`}>
@@ -772,7 +778,7 @@ export default function SellerSettingsPage() {
                   {(["open", "limited", "closed"] as const).map(val => (
                     <div key={val} onClick={() => setStoreStatus(val)}
                       className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 cursor-pointer transition-all ${storeStatus === val ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30" : "border-gray-200 dark:border-gray-800 hover:border-gray-300"}`}>
-                      <span className="text-2xl">{val === "open" ? "🟢" : val === "limited" ? "🟡" : "🔴"}</span>
+                      <Circle size={22} className={val === "open" ? "fill-green-500 text-green-500" : val === "limited" ? "fill-yellow-500 text-yellow-500" : "fill-red-500 text-red-500"} />
                       <span className="text-sm font-bold text-gray-700 dark:text-gray-300 capitalize">{val}</span>
                     </div>
                   ))}
@@ -849,7 +855,7 @@ export default function SellerSettingsPage() {
                   <p className="text-sm text-gray-400 py-2">No session data available</p>
                 ) : sessions.map((s, i) => (
                   <div key={s.id} className="flex items-center gap-3 py-3.5">
-                    <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 flex-shrink-0">💻</div>
+                    <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 flex-shrink-0"><Monitor size={18} /></div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{s.device}</span>
@@ -909,7 +915,7 @@ export default function SellerSettingsPage() {
           {active === "danger" && (
             <div className="space-y-4">
               <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6">
-                <h3 className="font-bold text-gray-900 dark:text-white mb-1">⏸️ Pause All Listings</h3>
+                <h3 className="font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2"><Pause size={16} /> Pause All Listings</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Temporarily hide all active listings. Reactivate anytime from your listings page.</p>
                 <button onClick={async () => {
                   setLoad("pauseAll", true);
@@ -924,7 +930,7 @@ export default function SellerSettingsPage() {
               </div>
 
               <div className="bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-900 rounded-2xl p-6">
-                <h3 className="font-bold text-amber-700 dark:text-amber-400 mb-1">⬇️ Downgrade to Buyer Account</h3>
+                <h3 className="font-bold text-amber-700 dark:text-amber-400 mb-1 flex items-center gap-2"><ArrowDownCircle size={16} /> Downgrade to Buyer Account</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                   Removes your Verified Seller badge and deactivates all listings. Your buyer account and order history are preserved.
                   Re-verification required to sell again.
@@ -938,7 +944,7 @@ export default function SellerSettingsPage() {
 
               <div className="bg-white dark:bg-gray-900 border-2 border-red-200 dark:border-red-900 rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-red-500">⚠️</span>
+                  <AlertTriangle size={16} className="text-red-500" />
                   <h3 className="font-bold text-red-600 dark:text-red-400">Delete Account Permanently</h3>
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   MessageCircle,
   X,
@@ -66,6 +66,35 @@ export function SupportSection({ variant = "banner" }: SupportSectionProps) {
   }
 
   const [open, setOpen] = useState(false);
+  // Floating-button behavior: collapse to a circle while scrolling down, and
+  // hide entirely while a text field is focused (so it never fights the mobile
+  // keyboard or covers a form). Only wired up for the floating variant.
+  const [collapsed, setCollapsed] = useState(false);
+  const [hiddenByInput, setHiddenByInput] = useState(false);
+
+  useEffect(() => {
+    if (variant !== "floating") return;
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      setCollapsed(y > lastY && y > 120);
+      lastY = y;
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) setHiddenByInput(true);
+    };
+    const onFocusOut = () => setHiddenByInput(false);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, [variant]);
+
   const [step, setStep] = useState<"form" | "success">("form");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -366,15 +395,24 @@ export function SupportSection({ variant = "banner" }: SupportSectionProps) {
     return (
       <>
         {modal}
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label="Contact support"
-          className="fixed bottom-20 right-4 md:bottom-24 md:right-6 z-40 flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold text-sm rounded-2xl shadow-lg shadow-blue-500/25 hover:opacity-90 hover:scale-105 active:scale-95 transition-all min-h-[44px]"
-        >
-          <MessageCircle size={18} />
-          <span className="hidden sm:inline">Need help?</span>
-        </button>
+        {/* Non-blocking layer: pointer-events-none lets clicks pass straight
+            through the empty area to whatever is underneath; only the button
+            itself is interactive. */}
+        <div className="fixed bottom-20 right-4 md:bottom-24 md:right-6 z-40 pointer-events-none">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label="Contact support"
+            className={`pointer-events-auto flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold text-sm rounded-2xl shadow-lg shadow-blue-500/25 hover:scale-105 active:scale-95 transition-all duration-200 min-h-[44px] ${
+              hiddenByInput
+                ? "opacity-0 translate-y-6 pointer-events-none"
+                : "opacity-90 hover:opacity-100"
+            } ${collapsed ? "w-12 h-12 p-0" : "px-4 py-3"}`}
+          >
+            <MessageCircle size={18} className="shrink-0" />
+            {!collapsed && <span className="hidden sm:inline">Need help?</span>}
+          </button>
+        </div>
       </>
     );
   }

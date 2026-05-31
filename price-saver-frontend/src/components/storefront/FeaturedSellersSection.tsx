@@ -42,7 +42,7 @@ export default function FeaturedSellersSection() {
 
   return (
     <section className="py-10 xl:py-14">
-      <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
+      <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
             Top Sellers This Month

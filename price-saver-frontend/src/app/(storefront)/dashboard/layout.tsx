@@ -431,14 +431,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
 
-      {/* Floating "Browse Marketplace" CTA */}
-      <Link
-        href="/"
-        className="hidden md:flex fixed bottom-6 right-6 z-[20] items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm px-4 py-3 rounded-xl shadow-lg transition-colors"
-      >
-        <Store size={16} />
-        Browse Marketplace
-      </Link>
+      {/* Floating "Browse Marketplace" CTA — non-blocking layer so only the
+          button footprint is clickable, not the empty space around it. */}
+      <div className="hidden md:block fixed bottom-6 right-6 z-[20] pointer-events-none">
+        <Link
+          href="/"
+          className="pointer-events-auto flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-semibold text-sm px-4 py-3 rounded-xl shadow-lg transition-colors"
+        >
+          <Store size={16} />
+          Browse Marketplace
+        </Link>
+      </div>
 
       {/* Mobile bottom navigation */}
       <BottomNav />

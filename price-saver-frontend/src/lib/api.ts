@@ -225,6 +225,12 @@ export const authApi = {
       body: JSON.stringify({ username, password, ...(email ? { email } : {}), ...(role ? { role } : {}) }),
     }),
 
+  /** Live username validity + availability check for the signup form. */
+  checkUsername: (u: string) =>
+    request<{ valid: boolean; available: boolean; reason: string | null }>(
+      `/api/auth/username-available?u=${encodeURIComponent(u)}`
+    ),
+
   verifyEmailToken: (token: string) =>
     request<{ message: string; redirect: string; email?: string }>(
       `/api/auth/verify-email?token=${encodeURIComponent(token)}`

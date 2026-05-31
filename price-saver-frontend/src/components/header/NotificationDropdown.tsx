@@ -1,6 +1,5 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { Bell, X, Check, Megaphone, ShoppingBag, MessageCircle, Star, AlertCircle, BadgeCheck, BadgeX, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -189,16 +188,6 @@ export default function NotificationDropdown({ scope }: { scope?: string }) {
             );
           })}
         </ul>
-
-        <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-800">
-          <Link
-            href="/notifications"
-            className="block text-center text-sm font-medium text-brand-500 hover:text-brand-700"
-            onClick={() => setIsOpen(false)}
-          >
-            View all notifications
-          </Link>
-        </div>
       </Dropdown>
     </div>
   );

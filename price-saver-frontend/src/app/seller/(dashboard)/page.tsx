@@ -127,15 +127,18 @@ export default function SellerOverviewPage() {
     { label: "No-show Rate",    value: `${noShowRate}%`, bar: Math.max(0, 100 - noShowRate), color: "bg-success-500" },
   ];
 
-  /* health score: completeness-based, consistent with listings/page.tsx */
+  /* Listing health: a 0–100 completeness score so sellers know which listings
+     need work. Kept in sync with listings/page.tsx. */
   const healthScore = (l: SellerListing) => {
     let score = 0;
-    if (l.description && l.description.length >= 20) score += 25;
-    if (l.photos && l.photos.length > 0) score += 35;
-    if (l.location) score += 20;
-    if (l.category_id) score += 20;
+    if (l.description && l.description.length >= 20) score += 25;            // a real description
+    if (l.photos && l.photos.length > 0) score += 35;                       // at least one photo
+    if (l.location || (l.locations && l.locations.length > 0)) score += 20; // a pickup spot
+    if (l.category_id) score += 20;                                         // categorised
     return score;
   };
+  const HEALTH_HINT =
+    "Listing health = how complete this listing is (0–100). Points: photo +35, description (20+ chars) +25, pickup location +20, category +20.";
 
   return (
     <div className="space-y-6">
@@ -163,15 +166,12 @@ export default function SellerOverviewPage() {
           { label: "Seller Points",   value: fmt(stats.sellerPoints),              icon: <Star size={16} />,          iconBg: "bg-warning-500/10", iconColor: "text-warning-500" },
           { label: "Active Listings", value: fmt(stats.activeListings),            icon: <PackageIcon size={16} />,   iconBg: "bg-brand-500/10",   iconColor: "text-brand-400" },
           { label: "Followers",       value: fmt(stats.followersCount ?? 0),       icon: <Users size={16} />,         iconBg: "bg-accent-500/10",  iconColor: "text-accent-400" },
-        ].map((s, idx) => (
+        ].map((s) => (
           <div key={s.label} className="relative overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 min-w-0">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center mb-3">
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${s.iconBg} ${s.iconColor}`}>
                 {s.icon}
               </div>
-              <span className="absolute top-3 right-3 text-xs font-semibold text-success-400">
-                +{6 + idx * 2}%
-              </span>
             </div>
             <p className="text-xl font-black text-gray-800 dark:text-white tracking-tight">{s.value}</p>
             <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-medium">{s.label}</p>
@@ -269,7 +269,7 @@ export default function SellerOverviewPage() {
                     <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{l.name}</p>
                     <div className="flex items-center gap-3 text-[11px] text-gray-400 mt-0.5">
                       <span className="flex items-center gap-1"><Eye size={10} /> {l.view_count.toLocaleString()} views</span>
-                      <span>Health: <strong className={score > 70 ? "text-success-500" : "text-warning-500"}>{score}/100</strong></span>
+                      <span title={HEALTH_HINT} className="cursor-help">Health: <strong className={score > 70 ? "text-success-500" : "text-warning-500"}>{score}/100</strong></span>
                     </div>
                     <div className="h-1 bg-gray-200 dark:bg-gray-800 rounded-full mt-1.5 w-28 overflow-hidden">
                       <div

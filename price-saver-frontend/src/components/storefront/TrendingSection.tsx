@@ -31,7 +31,7 @@ export default function TrendingSection() {
   if (!loading && items.length === 0) {
     return (
       <section className="py-12 xl:py-15">
-        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
+        <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
               Trending on Campus
@@ -51,7 +51,7 @@ export default function TrendingSection() {
 
   return (
     <section className="py-12 xl:py-15">
-      <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 xl:px-0">
+      <div className="max-w-[1600px] w-full mx-auto px-4 sm:px-6 xl:px-8 2xl:px-0">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white xl:text-2xl">
             Trending on Campus

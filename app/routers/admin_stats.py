@@ -603,8 +603,10 @@ async def submit_verification(
     # Fire-and-forget emails (non-blocking)
     try:
         from app.services.email import send_seller_submission_email, send_admin_new_verification_email
-        send_seller_submission_email(data.email, data.seller_name)
-        send_admin_new_verification_email(data.seller_name, data.matric_no, data.business_name)
+        # These are async — must be awaited or the coroutine is discarded and no
+        # email is sent (same class of bug as the change-email OTP).
+        await send_seller_submission_email(data.email, data.seller_name)
+        await send_admin_new_verification_email(data.seller_name, data.matric_no, data.business_name)
     except Exception:
         pass  # Never crash on email failure
 
@@ -1596,17 +1598,16 @@ async def broadcast_announcement(
             if not u.email:
                 continue
             try:
-                send_email.delay(
-                    to=u.email,
-                    subject=subject,
-                    body=ANNOUNCEMENT_EMAIL(
-                        u.display_name or u.username or "there",
-                        ann.title,
-                        ann.message,
-                        ann.cta_label,
-                        ann.cta_href,
-                    ),
+                _ann_html = ANNOUNCEMENT_EMAIL(
+                    u.display_name or u.username or "there",
+                    ann.title,
+                    ann.message,
+                    ann.cta_label,
+                    ann.cta_href,
                 )
+                # Pass branded HTML as html= so it renders even if the worker
+                # is on older code without HTML auto-detection.
+                send_email.delay(to=u.email, subject=subject, body=_ann_html, html=_ann_html)
                 emailed += 1
             except Exception as e:
                 import logging as _lg

@@ -294,6 +294,14 @@ def search_prices(
     if location:
         loc_pattern = f"%{location.strip()}%"
         filters.append(or_(Price.location.ilike(loc_pattern), Price.retailer.ilike(loc_pattern)))
+    if locations:
+        # Canonical zone filter — was only applied on the FTS path, so the
+        # filter-only (no query term) browse used by "Find Nearby Sellers"
+        # ignored the picked zone entirely. Match if ANY wanted location is in
+        # the listing's JSON locations array.
+        wanted = [s.strip() for s in locations.split(",") if s.strip()]
+        if wanted:
+            filters.append(or_(*[Price.locations.ilike(f'%"{w}"%') for w in wanted]))
     if condition:
         filters.append(Price.condition == condition)
 

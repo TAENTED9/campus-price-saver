@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatDateTimeWAT } from "@/utils/date";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, type SellerVerificationData } from "@/lib/api";
@@ -13,14 +14,9 @@ const CARD =
   "rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] md:p-6";
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-NG", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Africa/Lagos",
-  });
+  // Delegate to the shared WAT formatter so naive-UTC timestamps render at the
+  // correct wall-clock time instead of an hour behind.
+  return formatDateTimeWAT(iso);
 }
 
 function CheckIcon({ className = "size-4" }: { className?: string }) {

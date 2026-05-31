@@ -38,6 +38,18 @@ type ChatContextType = {
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
+/**
+ * Dedupe a message list by id, keeping the LAST occurrence (so a freshly
+ * fetched/real message wins over an older copy). This is the single guard that
+ * prevents React "duplicate key" warnings no matter which path mutates the
+ * list — pagination overlap, WS echo, or optimistic replacement.
+ */
+function dedupeById(messages: Message[]): Message[] {
+  const byId = new Map<number, Message>();
+  for (const m of messages) byId.set(m.id, m);
+  return Array.from(byId.values());
+}
+
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -55,6 +67,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   const [totalMessageCount, setTotalMessageCount] = useState(0);
   const [typingUsers, setTypingUsers] = useState<Record<number, Set<number>>>({});
   const typingTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  // Monotonically-decreasing temp id for optimistic messages so two in-flight
+  // sends never collide on the same React key (the old fixed -1 did).
+  const nextTempId = useRef(-1);
 
   // Load conversations list
   const loadConversations = useCallback(async () => {
@@ -141,8 +156,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
         token
       );
 
-      // Prepend older messages to the beginning
-      setMessages((prev) => [...response.messages, ...prev]);
+      // Prepend older messages, then dedupe — cursor pagination can overlap the
+      // boundary message, which previously produced duplicate React keys.
+      setMessages((prev) => dedupeById([...response.messages, ...prev]));
       setCursor(response.cursor);
       setHasEarlierMessages(response.has_earlier);
     } catch (error) {
@@ -157,11 +173,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     async (receiver_id: number, content: string) => {
       if (!token) return;
 
+      // Declared outside try so the catch can roll back this exact entry.
+      const tempId = nextTempId.current--;
+
       try {
-        // Optimistic update: add message immediately to UI
+        // Optimistic update: add message immediately to UI with a UNIQUE temp id
         const myNumericId = user?.id ?? 0;
         const optimisticMessage: Message = {
-          id: -1, // Temporary ID
+          id: tempId,
           conversation_id: activeConversation?.id || 0,
           sender_id: myNumericId,
           content,
@@ -178,16 +197,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
           token
         );
 
-        // Replace optimistic message with real one.
-        // Guard against the rare race where WS broadcast arrived first
-        // (WS already removed id=-1 and added the real message).
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === newMessage.id)) {
-            // WS won the race — just remove any lingering optimistic entry
-            return prev.filter((m) => m.id !== -1);
-          }
-          return prev.map((msg) => (msg.id === -1 ? newMessage : msg));
-        });
+        // Drop this optimistic entry and add the real message, deduped — handles
+        // the race where the WS broadcast already added the real one.
+        setMessages((prev) =>
+          dedupeById([...prev.filter((m) => m.id !== tempId), newMessage])
+        );
 
         // Update conversations list with this message
         setConversations((prev) =>
@@ -212,8 +226,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
           });
         }
       } catch (error) {
-        // Remove optimistic message on error
-        setMessages((prev) => prev.filter((msg) => msg.id !== -1));
+        // Remove this send's optimistic message on error
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
         console.error("Failed to send message:", error);
         throw error;
       }
@@ -270,12 +284,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     (wsMsg: ChatWsMessage) => {
       const convId = Number(wsMsg.conversation_uuid);
       setMessages((prev) => {
-        // Deduplicate: REST optimistic replacement and WS broadcast share the same id
+        // Skip if we already have this real message (REST replacement or echo).
         if (prev.some((m) => m.id === Number(wsMsg.id))) return prev;
-        // Also remove stale optimistic entry (id=-1) if WS delivers first
-        const withoutOptimistic = prev.filter((m) => m.id !== -1);
-        return [
-          ...withoutOptimistic,
+        return dedupeById([
+          ...prev,
           {
             id: Number(wsMsg.id),
             conversation_id: convId,
@@ -284,7 +296,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
             created_at: wsMsg.created_at,
             is_read: wsMsg.is_read,
           },
-        ];
+        ]);
       });
       // Refresh conversation list preview
       setConversations((prev) =>

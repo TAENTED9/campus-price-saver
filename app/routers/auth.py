@@ -12,7 +12,7 @@ import string
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -344,11 +344,21 @@ class UserRegisterRequest(BaseModel):
     @field_validator("username")
     @classmethod
     def username_validator(cls, v: str) -> str:
-        if not v or len(v.strip()) < 3:
+        # Lowercase-strict: usernames are stored and compared in lowercase so
+        # "DEV" and "dev" can never coexist, and login (which lowercases input)
+        # always matches. Keeps storefront URLs (/store/<username>) canonical.
+        v = (v or "").strip().lower()
+        if len(v) < 3:
             raise ValueError("Username must be at least 3 characters")
-        if len(v) > 50:
-            raise ValueError("Username too long (max 50 characters)")
-        return v.strip()
+        if len(v) > 30:
+            raise ValueError("Username must be 30 characters or fewer")
+        # Safe charset only: lowercase letters, numbers, and underscore. This
+        # keeps usernames URL-safe and free of characters that could be abused
+        # in lookups, paths, or display contexts.
+        import re
+        if not re.fullmatch(r"[a-z0-9_]+", v):
+            raise ValueError("Username may only contain lowercase letters, numbers, and underscore (_)")
+        return v
 
     @field_validator("password")
     @classmethod
@@ -557,6 +567,38 @@ async def _post_login_tasks(
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+# Single source of truth for the username rule — reused by the validator above
+# (conceptually) and the live availability check below.
+USERNAME_RE = __import__("re").compile(r"[a-z0-9_]+")
+USERNAME_RULE = "3–30 characters: lowercase letters, numbers, and underscore (_) only"
+
+
+@router.get("/username-available")
+@limiter.limit("60/minute")
+async def username_available(
+    request: Request,
+    u: str = Query(..., min_length=1, max_length=40),
+    db: Session = Depends(get_db),
+):
+    """Live username availability + validity check for the signup form.
+
+    Returns {valid, available, reason}. `valid` is False when the string breaks
+    the charset/length rule; `available` is False when a (case-insensitive)
+    match already exists. The lookup is a single indexed query — no Bloom
+    filter / Redis needed at this scale.
+    """
+    name = (u or "").strip().lower()
+    if len(name) < 3 or len(name) > 30 or not USERNAME_RE.fullmatch(name):
+        return {"valid": False, "available": False, "reason": USERNAME_RULE}
+    from sqlalchemy import func as _func
+    taken = db.query(User).filter(_func.lower(User.username) == name).first() is not None
+    return {
+        "valid": True,
+        "available": not taken,
+        "reason": "Username is already taken" if taken else None,
+    }
+
+
 @router.post("/register")
 @limiter.limit("3/15minutes")
 async def register_user(
@@ -568,12 +610,16 @@ async def register_user(
     Register new user. Returns a pending-verification response — NO JWT.
     A verification link is emailed; user must click it before they can log in.
     """
-    existing_user = db.query(User).filter(User.username == body.username).first()
+    # Case-insensitive uniqueness — body.username is already lowercased by the
+    # validator, but compare with func.lower() so it also catches any legacy
+    # mixed-case rows (e.g. "DEV") created before lowercase-strict.
+    from sqlalchemy import func as _func
+    existing_user = db.query(User).filter(_func.lower(User.username) == body.username).first()
     if existing_user:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 
     if body.email:
-        existing_email = db.query(User).filter(User.email == body.email).first()
+        existing_email = db.query(User).filter(_func.lower(User.email) == body.email.strip().lower()).first()
         if existing_email:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
@@ -723,9 +769,14 @@ async def login_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Username and password are required")
 
-    from sqlalchemy import or_ as _or
+    # `body.username` is normalized to lowercase by the schema validator. Match
+    # both email and username case-insensitively so login works regardless of
+    # how the stored value was cased (usernames like "DEV"/"TAENTED" were never
+    # matching the lowercased input before — login is email-first in the UI).
+    from sqlalchemy import or_ as _or, func as _func
+    ident = body.username
     user = db.query(User).filter(
-        _or(User.username == body.username, User.email == body.username)
+        _or(_func.lower(User.email) == ident, _func.lower(User.username) == ident)
     ).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
@@ -1921,7 +1972,16 @@ async def send_otp(
     db.commit()
 
     name = current_user.display_name or current_user.username or "there"
-    send_otp_email(email, name, otp_plain)
+    # send_otp_email is async — it MUST be awaited, otherwise the coroutine is
+    # discarded and no email is ever sent (the old bug behind "OTP never
+    # arrives"). We also honor its return value so a delivery failure surfaces
+    # as an error instead of a misleading success toast.
+    sent = await send_otp_email(email, name, otp_plain)
+    if not sent:
+        raise HTTPException(
+            status_code=502,
+            detail="We couldn't send the verification code. Please try again shortly.",
+        )
     return {"success": True, "message": f"Verification code sent to {email}"}
 
 

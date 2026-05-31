@@ -183,8 +183,8 @@ const SellerSidebar: React.FC = () => {
               <div className="min-w-0 flex-1">
                 <p className="font-bold text-[13px] text-gray-800 dark:text-white truncate">{storeName}</p>
                 {isVerified && (
-                  <span className="inline-flex items-center gap-1 bg-brand-500 text-white rounded px-1.5 py-0.5 text-xs font-bold">
-                    <ShieldCheck size={9} />
+                  <span className="inline-flex items-center gap-0.5 bg-brand-500 text-white rounded px-1 py-px text-[9px] font-bold leading-none tracking-wide mt-0.5">
+                    <ShieldCheck size={8} />
                     VERIFIED
                   </span>
                 )}

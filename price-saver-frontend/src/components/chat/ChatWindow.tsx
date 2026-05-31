@@ -5,6 +5,7 @@ import { Message } from "@/lib/messageApi";
 import { useAuth } from "@/context/AuthContext";
 import { useChat } from "@/context/ChatContext";
 import { MessageInput } from "./MessageInput";
+import { formatTimeWAT } from "@/utils/date";
 
 interface ChatWindowProps {
   conversation_id: number;
@@ -198,10 +199,9 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn }) => {
-  const timestamp = new Date(message.created_at).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  // formatTimeWAT normalizes naive-UTC server timestamps and renders in WAT, so
+  // chat times match the wall clock instead of showing an hour behind.
+  const timestamp = formatTimeWAT(message.created_at);
 
   return (
     <div

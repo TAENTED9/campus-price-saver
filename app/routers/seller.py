@@ -151,7 +151,22 @@ async def get_seller_stats(
     ).count()
 
     followers_count = db.query(Follow).filter(Follow.seller_id == uid).count()
-    total_inquiries = db.query(Inquiry).filter(Inquiry.seller_id == uid).count()
+    # "Inquiries" = distinct buyers who have reached out to this seller. Buyers
+    # now contact sellers through the chat system (Conversation), but older
+    # contacts live in the legacy Inquiry table — count the union so neither
+    # channel is missed and a buyer using both is only counted once.
+    from sqlalchemy import or_ as _or
+    from app.routers.messages import Conversation
+    buyer_ids: set[int] = set()
+    for ua, ub in (
+        db.query(Conversation.user_a_id, Conversation.user_b_id)
+        .filter(_or(Conversation.user_a_id == uid, Conversation.user_b_id == uid))
+        .all()
+    ):
+        buyer_ids.add(ub if ua == uid else ua)
+    for (bid,) in db.query(Inquiry.buyer_id).filter(Inquiry.seller_id == uid).all():
+        buyer_ids.add(bid)
+    total_inquiries = len(buyer_ids)
 
     # Compute avg response time string from stored hours
     avg_resp_hours = current_user.avg_response_hours or 0.0
