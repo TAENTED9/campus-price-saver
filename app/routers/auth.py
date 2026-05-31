@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.models import User
 from app.limiter import limiter
+from app.services.cache import cache_get, cache_set
 
 from dotenv import load_dotenv
 
@@ -149,6 +150,74 @@ def needs_rehash(hashed_password: str) -> bool:
     except Exception as e:
         logger.debug(f"needs_rehash check failed: {e}")
         return False
+
+# ── Failed login tracking with progressive warnings and lockout ────────────────
+
+async def _get_failed_login_count(ident: str) -> int:
+    """Get number of failed login attempts for this username/email (case-insensitive)."""
+    key = f"login:failures:{ident.lower()}"
+    count = await cache_get(key)
+    return count if isinstance(count, int) else 0
+
+
+async def _is_account_locked(ident: str) -> bool:
+    """Check if account is locked out (5+ failed attempts within 15 minutes)."""
+    key = f"login:lockout:{ident.lower()}"
+    lockout = await cache_get(key)
+    return lockout is not None
+
+
+async def _record_failed_login(ident: str) -> int:
+    """
+    Increment failed login count and return new total. TTL: 15 minutes.
+    After 5 attempts, create a lockout record.
+    """
+    ident_lower = ident.lower()
+    failures_key = f"login:failures:{ident_lower}"
+    lockout_key = f"login:lockout:{ident_lower}"
+    
+    count = await _get_failed_login_count(ident)
+    new_count = count + 1
+    
+    # Update failure count
+    await cache_set(failures_key, new_count, ttl=900)  # 15 minutes
+    
+    # After 5 failed attempts, create a lockout
+    if new_count >= 5:
+        await cache_set(lockout_key, True, ttl=900)  # 15-minute lockout
+        logger.warning(f"Account locked: '{ident}' after {new_count} failed attempts")
+    else:
+        logger.warning(f"Failed login attempt for '{ident}' (attempt #{new_count})")
+    
+    return new_count
+
+
+async def _clear_failed_logins(ident: str) -> None:
+    """Clear failed login attempts and lockout on successful login."""
+    ident_lower = ident.lower()
+    from app.services.cache import cache_delete
+    await cache_delete(f"login:failures:{ident_lower}")
+    await cache_delete(f"login:lockout:{ident_lower}")
+
+
+def _build_auth_failure_message(attempt_count: int) -> str:
+    """
+    Build appropriate error message based on attempt count.
+    Attempts 1-2: Generic message (no warning).
+    Attempts 3-4: Show countdown to lockout.
+    Attempt 5+: Lockout message (handled separately).
+    """
+    if attempt_count <= 2:
+        return "Invalid credentials."
+    elif attempt_count == 3:
+        # 2 attempts remaining before lockout (5 total)
+        return "Invalid credentials. 2 attempts remaining before a 15-minute lockout."
+    elif attempt_count == 4:
+        # 1 attempt remaining before lockout
+        return "Invalid credentials. 1 attempt remaining before a 15-minute lockout."
+    else:
+        # Should not reach here; lockout is handled separately
+        return "Invalid credentials."
 
 # ── JWT tokens ────────────────────────────────────────────────────────────────
 
@@ -764,23 +833,58 @@ async def login_user(
     body: UserLoginRequest,
     db: Session = Depends(get_db),
 ):
-    """Login with username and password. Returns JWT valid for 24 hours."""
+    """
+    Login with username and password. Returns JWT valid for 24 hours.
+    
+    Features:
+    - Progressive failed-attempt warnings (attempts 3+)
+    - Automatic 15-minute lockout after 5 failed attempts
+    - Rate limiting: 5 attempts per 15 minutes per IP
+    - Ambiguous auth failures (user not found vs wrong password treated identically)
+    """
     if not body.username or not body.password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Username and password are required")
 
+    ident = body.username.lower()
+    
+    # ─── LOCKOUT CHECK (before any DB access) ───────────────────────────────────
+    # Check if this identifier is locked out. Fail fast without revealing why.
+    if await _is_account_locked(ident):
+        logger.warning(f"Lockout active: '{ident}' attempted login while locked")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please wait 15 minutes before trying again or use the password recovery option.",
+        )
+
+    # ─── DB LOOKUP & PASSWORD VERIFICATION ───────────────────────────────────────
     # `body.username` is normalized to lowercase by the schema validator. Match
     # both email and username case-insensitively so login works regardless of
     # how the stored value was cased (usernames like "DEV"/"TAENTED" were never
     # matching the lowercased input before — login is email-first in the UI).
     from sqlalchemy import or_ as _or, func as _func
-    ident = body.username
     user = db.query(User).filter(
         _or(_func.lower(User.email) == ident, _func.lower(User.username) == ident)
     ).first()
+    
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Invalid username or password")
+        # Track failed attempt even for non-existent users (security-neutral, no user enumeration).
+        # We check lockout status AFTER tracking to ensure consistent UX.
+        failed_count = await _record_failed_login(ident)
+        
+        # Check if we just crossed the lockout threshold
+        if failed_count >= 5:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed login attempts. Please wait 15 minutes before trying again or use the password recovery option.",
+            )
+        
+        # Return progressive warning based on attempt count
+        auth_detail = _build_auth_failure_message(failed_count)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=auth_detail,
+        )
 
     try:
         # FIND-26: admin-only accounts have no password_hash
@@ -789,9 +893,25 @@ async def login_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="This account uses admin-only authentication",
             )
+        
+        # Password verification
         if not verify_password(body.password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail="Invalid username or password")
+            # Track failed attempt and return appropriate warning
+            failed_count = await _record_failed_login(ident)
+            
+            # Check if we just crossed the lockout threshold
+            if failed_count >= 5:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many failed login attempts. Please wait 15 minutes before trying again or use the password recovery option.",
+                )
+            
+            # Return progressive warning based on attempt count
+            auth_detail = _build_auth_failure_message(failed_count)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=auth_detail,
+            )
 
         # Lifecycle checks before issuing any token.
         # Order matters: ban/suspend get checked BEFORE the generic paused flag
@@ -867,6 +987,10 @@ async def login_user(
         if getattr(user, "mfa_enabled", False):
             from app.services.token_service import create_mfa_temp_token
             temp_token = create_mfa_temp_token(user.id)
+            
+            # Clear failed login attempts before MFA challenge
+            await _clear_failed_logins(ident)
+            
             return LoginResponse(
                 success=True,
                 mfa_required=True,
@@ -900,6 +1024,9 @@ async def login_user(
                 client_ip or "Unknown",
                 ua or "Unknown",
             ))
+
+        # Clear failed login attempts on successful login
+        await _clear_failed_logins(ident)
 
         from app.services.settings_service import (
             get_or_create_settings as _gocs,
