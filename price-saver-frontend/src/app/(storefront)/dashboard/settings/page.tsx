@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { User, Lock, Bell, Eye, Palette, AlertTriangle, Check, X, Upload, Monitor, Globe, GraduationCap, Sun, Moon, type LucideIcon } from "lucide-react";
@@ -133,6 +133,14 @@ function pwStrength(pw: string): { label: string; color: string; pct: number; la
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function BuyerSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <BuyerSettingsContent />
+    </Suspense>
+  );
+}
+
+function BuyerSettingsContent() {
   const { user, token, logout, refreshUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

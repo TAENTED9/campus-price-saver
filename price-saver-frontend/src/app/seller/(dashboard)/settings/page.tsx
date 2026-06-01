@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Store, Shield, FileText, MapPin, List, Lock, Bell, AlertTriangle, Check, X, Clock, Upload, Monitor, Palmtree, Pause, ArrowDownCircle, Circle, Loader2, type LucideIcon } from "lucide-react";
@@ -118,6 +118,14 @@ function NotifRow({ label, sub, emailVal, pushVal, onEmail, onPush, last }: {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function SellerSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SellerSettingsContent />
+    </Suspense>
+  );
+}
+
+function SellerSettingsContent() {
   const { user, token, logout, refreshUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

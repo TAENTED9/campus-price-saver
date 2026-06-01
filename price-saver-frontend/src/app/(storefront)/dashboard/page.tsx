@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -37,6 +37,14 @@ interface TrendingItem {
 }
 
 export default function BrowseMarketPage() {
+  return (
+    <Suspense fallback={null}>
+      <BrowseMarketContent />
+    </Suspense>
+  );
+}
+
+function BrowseMarketContent() {
   const { token, user } = useAuth();
   const searchParams = useSearchParams();
   const verifiedPending = searchParams.get("verified") === "pending";

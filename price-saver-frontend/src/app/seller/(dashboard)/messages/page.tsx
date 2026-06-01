@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { Suspense } from "react";
 import { ChatProvider } from "@/context/ChatContext";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { useAuth } from "@/context/AuthContext";
@@ -9,6 +9,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 export default function SellerMessagesPage() {
+  return (
+    <Suspense fallback={null}>
+      <SellerMessagesContent />
+    </Suspense>
+  );
+}
+
+function SellerMessagesContent() {
   const { isAuthenticated, isLoading } = useAuth();
   const { markCategoryRead } = useNotifications();
   const router = useRouter();

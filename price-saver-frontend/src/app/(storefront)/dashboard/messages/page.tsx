@@ -1,12 +1,20 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChatProvider } from "@/context/ChatContext";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { useNotifications } from "@/context/NotificationContext";
 
 export default function MessagesPage() {
+  return (
+    <Suspense fallback={null}>
+      <MessagesPageContent />
+    </Suspense>
+  );
+}
+
+function MessagesPageContent() {
   const { markCategoryRead } = useNotifications();
   const searchParams = useSearchParams();
   const initialConvId = searchParams.get("conv") ? Number(searchParams.get("conv")) : undefined;

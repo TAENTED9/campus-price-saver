@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatDateTimeWAT } from "@/utils/date";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -206,6 +206,14 @@ function StatusBanner({ data }: { data: VerificationObj }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SellerVerificationPage() {
+  return (
+    <Suspense fallback={null}>
+      <SellerVerificationContent />
+    </Suspense>
+  );
+}
+
+function SellerVerificationContent() {
   const { token, user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

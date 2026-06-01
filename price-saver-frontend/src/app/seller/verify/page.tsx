@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
@@ -106,6 +106,14 @@ function DocUpload({ label, hint, file, preview, uploading, onFile }: DocUploadP
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SellerVerifyPage() {
+  return (
+    <Suspense fallback={null}>
+      <SellerVerifyContent />
+    </Suspense>
+  );
+}
+
+function SellerVerifyContent() {
   const { token, user, isLoading } = useAuth();
   const router = useRouter();
   const params = useSearchParams();
