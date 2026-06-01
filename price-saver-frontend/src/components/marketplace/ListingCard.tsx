@@ -24,6 +24,9 @@ export interface ListingCardProps {
   onWishlistToggle?: (id: string | number) => void;
   flashSale?: boolean;
   flashSaleLabel?: string;
+  /** Discounted price from an active flash sale. When set and below `price`,
+   *  it becomes the headline price and `price` is shown struck through. */
+  salePrice?: number | null;
   isFeatured?: boolean;
   sellerAvatarUrl?: string | null;
   isNegotiable?: boolean;
@@ -72,6 +75,7 @@ export default function ListingCard({
   onWishlistToggle,
   flashSale = false,
   flashSaleLabel,
+  salePrice,
   isFeatured = false,
   sellerAvatarUrl,
   isNegotiable = false,
@@ -80,6 +84,9 @@ export default function ListingCard({
   const badge = CONDITION_BADGE[condition] ?? CONDITION_BADGE.used;
   const thumb = imageUrl ? thumbnailImage(imageUrl, 400) : "";
   const initial = (sellerName[0] ?? "S").toUpperCase();
+  // An active flash sale only counts when it genuinely undercuts the price.
+  const onSale = salePrice != null && salePrice < price;
+  const discountPct = onSale ? Math.round(((price - salePrice!) / price) * 100) : 0;
 
   const wishlistAction = useCallback(async () => {
     onWishlistToggle?.(id);
@@ -125,11 +132,11 @@ export default function ListingCard({
             {badge.label}
           </span>
 
-          {/* Flash sale badge */}
-          {flashSale && (
+          {/* Flash sale badge — also shown when a discounted salePrice is passed */}
+          {(flashSale || onSale) && (
             <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-bold text-white">
               <Zap size={9} className="fill-white" />
-              {flashSaleLabel || "Flash Sale"}
+              {flashSaleLabel || (onSale ? `-${discountPct}%` : "Flash Sale")}
             </span>
           )}
 
@@ -170,9 +177,18 @@ export default function ListingCard({
             </span>
           )}
 
-          <p className="text-lg font-black text-blue-600 dark:text-blue-400">
-            {formatPrice(price)}
-          </p>
+          {onSale ? (
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <p className="text-lg font-black text-blue-600 dark:text-blue-400">
+                {formatPrice(salePrice!)}
+              </p>
+              <span className="text-xs text-gray-400 line-through">{formatPrice(price)}</span>
+            </div>
+          ) : (
+            <p className="text-lg font-black text-blue-600 dark:text-blue-400">
+              {formatPrice(price)}
+            </p>
+          )}
 
           {/* Seller row */}
           <div className="flex items-center gap-1.5 mt-2">

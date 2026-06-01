@@ -1,0 +1,117 @@
+# Render Blueprint — Campify backend (Docker) + Redis.
+# Provisions the FastAPI web service and a free Key Value (Redis) instance.
+#
+# NOT included here:
+#   • Postgres — using Supabase (external). Set DATABASE_URL in the dashboard.
+#   • Frontend — deployed on Vercel.
+#   • Celery worker/beat — disabled for the free worker-less launch
+#     (CELERY_WORKER_ENABLED=false runs tasks inline). A commented-out worker
+#     block is at the bottom for when you upgrade.
+#
+# Apply:  Render Dashboard → Blueprints → New Blueprint Instance → pick this repo.
+# Env vars marked `sync: false` are NOT stored in git — Render prompts for them
+# on first apply (paste secrets there).
+
+services:
+  # ── FastAPI backend (Docker) ──────────────────────────────────────────────
+  - type: web
+    name: campify-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    dockerContext: .
+    plan: free                      # free sleeps after 15m idle; bump to "starter" ($7) to stay warm
+    region: oregon                  # match your Supabase region's nearest option
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Core
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true         # Render generates a strong value once
+      - key: DATABASE_URL
+        sync: false                 # paste Supabase URI (port 5432, Session mode)
+
+      # CORS / URLs — paste your Vercel URL (no trailing slash). Update after
+      # the frontend's first deploy if you don't know it yet.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+
+      # Celery — worker-less launch: tasks run inline, broker untouched.
+      - key: CELERY_WORKER_ENABLED
+        value: "false"
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: keyvalue
+          name: campify-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: keyvalue
+          name: campify-redis
+          property: connectionString
+
+      # Admin
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: ADMIN_USERNAMES
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+
+      # Email (Resend)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # Cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+      # Google Maps (optional)
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+
+  # ── Redis (Key Value) ─────────────────────────────────────────────────────
+  - type: keyvalue
+    name: campify-redis
+    plan: free
+    region: oregon
+    maxmemoryPolicy: noeviction     # don't drop queued jobs once you add a worker
+    ipAllowList: []                 # internal-only (no public access)
+
+  # ── Celery worker + beat (UNCOMMENT when you can pay for a worker) ─────────
+  # Then flip CELERY_WORKER_ENABLED=true on campify-backend and redeploy.
+  #
+  # - type: worker
+  #   name: campify-worker
+  #   runtime: docker
+  #   dockerfilePath: ./Dockerfile.backend
+  #   dockerContext: .
+  #   plan: starter
+  #   region: oregon
+  #   dockerCommand: celery -A app.celery_app worker --loglevel=info --concurrency=2 --queues=emails,notifications,media,default
+  #   envVars:
+  #     - fromGroup: campify-shared      # or repeat the env vars above
+  #
+  # - type: worker
+  #   name: campify-beat
+  #   runtime: docker
+  #   dockerfilePath: ./Dockerfile.backend
+  #   dockerContext: .
+  #   plan: starter
+  #   region: oregon
+  #   dockerCommand: celery -A app.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler --schedule /tmp/celerybeat-schedule

@@ -65,7 +65,7 @@ export default function PendingVerifications() {
         <div className="flex items-center gap-3">
           {!isLoading && <Badge color="warning">{pendingCount} pending</Badge>}
           <Link
-            href="/admin/verification/pending"
+            href="/admin/seller"
             className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-theme-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
           >
             See all
@@ -131,7 +131,7 @@ export default function PendingVerifications() {
                   <TableCell className="py-3">
                     <div className="flex items-center gap-2">
                       <Link
-                        href={`/admin/verification/pending/${request.id}`}
+                        href={`/admin/seller?highlight=${request.id}`}
                         className="inline-flex items-center rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-theme-xs font-medium text-brand-600 hover:bg-brand-100 dark:border-brand-700 dark:bg-brand-500/10 dark:text-brand-400"
                       >
                         Review

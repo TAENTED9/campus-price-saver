@@ -14,6 +14,25 @@ RESULT_BACKEND = os.getenv(
     "CELERY_RESULT_BACKEND", "redis://localhost:6379/2"
 )
 
+# Is a real Celery worker deployed to consume the queue?
+#
+# With Redis running but NO worker, `.delay()` would happily push jobs into
+# the broker where nothing ever pulls them out — they sit there forever and
+# the email/notification silently never sends. To avoid that trap when running
+# worker-less (e.g. Render free tier), set CELERY_WORKER_ENABLED=false: Celery
+# flips into eager mode and runs every task INLINE & synchronously in the web
+# process — it never touches the broker, so nothing can be orphaned.
+#
+# Redis is untouched either way; this only governs task *dispatch*. Caching,
+# rate-limit storage, etc. keep using Redis as normal.
+#
+# Upgrade path (no code change): deploy a worker, then set
+# CELERY_WORKER_ENABLED=true — `.delay()` goes back to queuing into Redis and
+# the worker consumes it.
+_WORKER_ENABLED = os.getenv("CELERY_WORKER_ENABLED", "true").lower() in (
+    "1", "true", "yes", "on",
+)
+
 celery = Celery(
     "campify",
     broker=BROKER_URL,
@@ -28,6 +47,13 @@ celery = Celery(
 )
 
 celery.conf.update(
+    # No worker deployed → run tasks inline instead of queuing into a broker
+    # that nothing reads. eager_propagates stays False so a failed email task
+    # never bubbles up and breaks the HTTP request — callers already wrap
+    # .delay() in try/except.
+    task_always_eager=not _WORKER_ENABLED,
+    task_eager_propagates=False,
+
     # Serialization
     task_serializer="json",
     result_serializer="json",

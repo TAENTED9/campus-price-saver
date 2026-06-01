@@ -31,6 +31,16 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  async redirects() {
+    // The legacy /admin/verification* routes were consolidated into the
+    // /admin/seller page (Pending/Approved/Rejected tabs). Redirect old
+    // bookmarks and email links so they never hit a 404.
+    return [
+      { source: "/admin/verification", destination: "/admin/seller", permanent: true },
+      { source: "/admin/verification/:path*", destination: "/admin/seller", permanent: true },
+    ];
+  },
+
   async headers() {
     return [
       {

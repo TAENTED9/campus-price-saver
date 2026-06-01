@@ -384,6 +384,17 @@ export type Price = {
   submitted_at?: string | null;
   view_count?: number | null;
   description?: string | null;
+  flash_sale?: FlashSaleInfo | null;
+};
+
+// Compact active-flash-sale payload attached to listing/card responses so the
+// discounted price can be rendered everywhere until the sale ends.
+export type FlashSaleInfo = {
+  id?: number;
+  sale_price: number;
+  original_price?: number;
+  discount_pct?: number;
+  end_time?: string | null;
 };
 
 // ─── Flash Sale type ──────────────────────────────────────────────────────────
@@ -500,6 +511,7 @@ export type ListingDetail = {
   pack_size?: string | null;
   pack_unit?: string | null;
   seller?: SellerInfo | null;
+  flash_sale?: FlashSaleInfo | null;
 };
 
 export type SellerStorefront = {

@@ -9,7 +9,7 @@ import { listingApi, storefrontApi, wishlistApi, type ListingDetail, type Follow
 import { messageApi } from "@/lib/messageApi";
 import { optimizeImage, thumbnailImage, cloudinaryVideoSrc } from "@/lib/cloudinary";
 import { formatPrice } from "@/lib/formatPrice";
-import { Heart, Flag, Eye, Package, Truck, ChevronRight, ArrowLeft, X, Star, ShieldCheck, MessageCircle, Award, Check, CheckCircle2, Play, Maximize2 } from "lucide-react";
+import { Heart, Flag, Eye, Package, Truck, ChevronRight, ArrowLeft, X, Star, ShieldCheck, MessageCircle, Award, Check, CheckCircle2, Play, Maximize2, Zap } from "lucide-react";
 
 // Block 5: Cloudinary video URLs can be transformed to a JPG thumbnail of the
 // first frame by swapping the extension. Used for the gallery strip so videos
@@ -546,7 +546,34 @@ export default function ListingDetailPage() {
                 )}
               </div>
 
-              <p className="text-3xl font-black text-brand-500 mb-2">{formatPrice(listing.price)}</p>
+              {(() => {
+                // Flash sale: when an active sale is attached, the discounted
+                // price becomes the headline and the original is struck
+                // through. This is the same sale_price the homepage advertises,
+                // so the price now matches everywhere until the sale ends.
+                const sale = listing.flash_sale;
+                const onSale =
+                  !!sale &&
+                  sale.sale_price != null &&
+                  sale.sale_price < listing.price;
+                if (onSale && sale) {
+                  const pct =
+                    sale.discount_pct ??
+                    Math.round(((listing.price - sale.sale_price) / listing.price) * 100);
+                  return (
+                    <div className="mb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-3xl font-black text-brand-500">{formatPrice(sale.sale_price)}</p>
+                        <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full bg-error-50 text-error-600 dark:bg-error-500/10 dark:text-error-400">
+                          <Zap size={11} className="fill-current" /> -{pct}%
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-400 line-through mt-0.5">{formatPrice(listing.price)}</p>
+                    </div>
+                  );
+                }
+                return <p className="text-3xl font-black text-brand-500 mb-2">{formatPrice(listing.price)}</p>;
+              })()}
 
               <div className="flex flex-wrap gap-2 mb-4">
                 {listing.is_negotiable && (
@@ -719,7 +746,14 @@ export default function ListingDetailPage() {
                   </div>
                   <div className="p-2.5">
                     <p className="text-xs font-semibold text-gray-800 dark:text-white truncate">{s.name}</p>
-                    <p className="text-xs font-bold text-brand-500">{formatPrice(s.price)}</p>
+                    {s.flash_sale && s.flash_sale.sale_price != null && s.flash_sale.sale_price < s.price ? (
+                      <p className="text-xs font-bold text-brand-500">
+                        {formatPrice(s.flash_sale.sale_price)}
+                        <span className="ml-1 text-[10px] font-normal text-gray-400 line-through">{formatPrice(s.price)}</span>
+                      </p>
+                    ) : (
+                      <p className="text-xs font-bold text-brand-500">{formatPrice(s.price)}</p>
+                    )}
                   </div>
                 </Link>
               ))}

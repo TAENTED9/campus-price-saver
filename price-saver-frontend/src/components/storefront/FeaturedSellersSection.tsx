@@ -13,6 +13,7 @@ type FeaturedSeller = {
   slug?: string | null;
   category?: string | null;
   listing_count?: number;
+  is_verified?: boolean;
 };
 
 export default function FeaturedSellersSection() {
@@ -100,7 +101,13 @@ export default function FeaturedSellersSection() {
                       <p className="font-bold text-sm text-gray-900 dark:text-white truncate">
                         {seller.display_name}
                       </p>
-                      <ShieldCheck size={12} className="text-blue-500 flex-shrink-0" />
+                      {seller.is_verified && (
+                        <ShieldCheck
+                          size={12}
+                          className="text-blue-500 flex-shrink-0"
+                          aria-label="Verified seller"
+                        />
+                      )}
                     </div>
                     {seller.category && (
                       <p className="text-[10px] text-gray-400 mt-0.5">{seller.category}</p>

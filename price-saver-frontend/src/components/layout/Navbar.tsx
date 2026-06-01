@@ -114,7 +114,9 @@ export default function Navbar() {
               )}
             </div>
 
-            {/* ── Desktop centre search ── */}
+            {/* ── Desktop centre search — hidden on /search, which renders its
+                own search bar; showing both produced a confusing duplicate ── */}
+            {pathname !== "/search" && (
             <form onSubmit={handleSearch} className="hidden lg:flex flex-1 max-w-lg mx-4" suppressHydrationWarning>
               <div className="relative w-full">
                 <input
@@ -130,6 +132,7 @@ export default function Navbar() {
                 </button>
               </div>
             </form>
+            )}
 
             {/* ── Desktop right ── */}
             <nav className="hidden lg:flex items-center gap-1 ml-auto">

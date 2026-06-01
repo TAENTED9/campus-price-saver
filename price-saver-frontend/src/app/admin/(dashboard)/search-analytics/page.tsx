@@ -251,36 +251,54 @@ export default function SearchAnalyticsPage() {
 
       const base = `/api/admin/search-analytics`;
 
-      fetchJson<SummaryResponse>(`${base}/summary?days=${days}`, token, signal)
-        .then(setSummary)
-        .catch((e) => setErrSummary((e as Error).message))
-        .finally(() => setLoadingSummary(false));
+      // Wire a fetch promise to a panel's state. Aborted requests (StrictMode
+      // double-mount in dev, or a fast range switch) are silently ignored —
+      // otherwise the abort rejection lands as a bogus "Failed to fetch" error
+      // *after* the replacement fetch has already cleared it. Success also
+      // clears any prior error so a recovered panel doesn't stay stuck.
+      const run = <T,>(
+        p: Promise<T>,
+        setData: (v: T) => void,
+        setErr: (v: string | null) => void,
+        setLoading: (v: boolean) => void,
+      ) => {
+        p.then((d) => {
+          if (signal?.aborted) return;
+          setData(d);
+          setErr(null);
+        })
+          .catch((e) => {
+            if (signal?.aborted) return;
+            setErr((e as Error).message);
+          })
+          .finally(() => {
+            if (signal?.aborted) return;
+            setLoading(false);
+          });
+      };
 
-      fetchJson<TopRow[]>(`${base}/top?days=${days}&limit=15`, token, signal)
-        .then(setTop)
-        .catch((e) => setErrTop((e as Error).message))
-        .finally(() => setLoadingTop(false));
+      run(
+        fetchJson<SummaryResponse>(`${base}/summary?days=${days}`, token, signal),
+        setSummary, setErrSummary, setLoadingSummary,
+      );
 
-      fetchJson<ZeroRow[]>(
-        `${base}/zero-results?days=${days}&limit=15`,
-        token,
-        signal,
-      )
-        .then(setZero)
-        .catch((e) => setErrZero((e as Error).message))
-        .finally(() => setLoadingZero(false));
+      run(
+        fetchJson<TopRow[]>(`${base}/top?days=${days}&limit=15`, token, signal),
+        setTop, setErrTop, setLoadingTop,
+      );
+
+      run(
+        fetchJson<ZeroRow[]>(`${base}/zero-results?days=${days}&limit=15`, token, signal),
+        setZero, setErrZero, setLoadingZero,
+      );
 
       // Trending uses period-over-period growth — capped at 30 days
       // by the backend (longer windows make growth comparisons noisy).
       const trendDays = Math.min(days, 30);
-      fetchJson<TrendRow[]>(
-        `${base}/trending?days=${trendDays}&limit=15`,
-        token,
-        signal,
-      )
-        .then(setTrending)
-        .catch((e) => setErrTrending((e as Error).message))
-        .finally(() => setLoadingTrending(false));
+      run(
+        fetchJson<TrendRow[]>(`${base}/trending?days=${trendDays}&limit=15`, token, signal),
+        setTrending, setErrTrending, setLoadingTrending,
+      );
     },
     [token, days],
   );

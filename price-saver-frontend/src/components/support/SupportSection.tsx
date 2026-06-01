@@ -66,6 +66,7 @@ export function SupportSection({ variant = "banner" }: SupportSectionProps) {
   }
 
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   // Floating-button behavior: collapse to a circle while scrolling down, and
   // hide entirely while a text field is focused (so it never fights the mobile
   // keyboard or covers a form). Only wired up for the floating variant.
@@ -94,6 +95,11 @@ export function SupportSection({ variant = "banner" }: SupportSectionProps) {
       document.removeEventListener("focusout", onFocusOut);
     };
   }, [variant]);
+
+  // Hydration safety: only render interactive components after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [step, setStep] = useState<"form" | "success">("form");
   const [loading, setLoading] = useState(false);
@@ -391,7 +397,9 @@ export function SupportSection({ variant = "banner" }: SupportSectionProps) {
     );
 
   // ── FLOATING BUTTON ────────────────────────────────────────────
+  // Only render after mount to prevent hydration mismatch
   if (variant === "floating") {
+    if (!mounted) return null;
     return (
       <>
         {modal}

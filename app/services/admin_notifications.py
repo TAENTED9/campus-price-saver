@@ -59,10 +59,13 @@ async def notify_admin(
 
     if ADMIN_EMAIL:
         subject = _subject(event_type, user_email)
-        body = _body(event_type, user_email, user_role, payload)
+        text_body, html_body = _body(event_type, user_email, user_role, payload)
         try:
             from app.tasks.email_tasks import send_email
-            send_email.delay(to=ADMIN_EMAIL, subject=subject, body=body)
+            # Pass both the plain-text fallback (body) and branded HTML (html) so
+            # the admin inbox renders the same branded shell as user-facing mail
+            # instead of a naked text dump.
+            send_email.delay(to=ADMIN_EMAIL, subject=subject, body=text_body, html=html_body)
         except Exception as e:
             # Celery broker unavailable — log but never break the request
             import logging as _lg
@@ -123,18 +126,117 @@ def _subject(event_type: str, email: str) -> str:
     return subjects.get(event_type, f"[Campify] Event: {event_type}")
 
 
-def _body(event_type: str, email: str, role: str, payload: dict) -> str:
+# Friendly headings per event so the branded email reads like a real
+# notification, not a raw event dump.
+_HEADINGS = {
+    "new_user":                   "New user registered",
+    "new_seller_application":      "New seller application",
+    "verification_docs_uploaded":  "Seller verification — docs need review",
+    "new_listing":                 "New listing posted",
+    "account_pause_request":       "Account pause requested",
+    "account_delete_request":      "Account deletion requested",
+    "account_paused":              "Account paused",
+    "account_deleted":             "Account deleted",
+    "account_reactivated":         "Account reactivated",
+    "reactivation_requested":      "Reactivation requested",
+    "verification_approved":       "Verification approved",
+    "verification_rejected":       "Verification rejected",
+}
+
+# Payload keys that are document/image links → rendered as buttons, not rows.
+_DOC_KEYS = ("id_card_url", "portal_url")
+_DOC_LABELS = {"id_card_url": "View ID Card", "portal_url": "View Portal Screenshot"}
+
+
+def _detail_row(label: str, value: str) -> str:
+    return (
+        '<tr>'
+        f'<td style="padding:6px 0;color:#94a3b8;font-size:13px;width:140px;'
+        f'vertical-align:top;">{label}</td>'
+        f'<td style="padding:6px 0;color:#0f172a;font-size:14px;font-weight:600;">{value}</td>'
+        '</tr>'
+    )
+
+
+def _body(event_type: str, email: str, role: str, payload: dict):
+    """
+    Returns (text_body, html_body).
+    text_body is a plain-text fallback; html_body is the branded Campify shell.
+    """
+    when = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    # Route to the page that actually exists. Seller verification review lives on
+    # the consolidated /admin/seller page (Pending/Approved/Rejected tabs);
+    # everything else lands on the dashboard. The old /admin/verification path
+    # 404s on the frontend.
+    if event_type in ("verification_docs_uploaded", "new_seller_application"):
+        review_path = "/admin/seller"
+    else:
+        review_path = "/admin"
+    review_url = f"{APP_URL}{review_path}" if APP_URL else review_path
+
+    # ── Plain-text fallback ──────────────────────────────────────────────
     lines = [
         f"Event: {event_type}",
         f"User: {email} ({role})",
-        f"Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Time: {when}",
         "",
     ]
     for k, v in payload.items():
         lines.append(f"{k}: {v}")
-    if "id_card_url" in payload:
-        lines.append(f"\nView ID Card: {payload['id_card_url']}")
-    if "portal_url" in payload:
-        lines.append(f"View Portal Screenshot: {payload['portal_url']}")
-    lines.append(f"\n---\nLog in to review: {APP_URL}/admin")
-    return "\n".join(lines)
+    for dk in _DOC_KEYS:
+        if payload.get(dk):
+            lines.append(f"\n{_DOC_LABELS[dk]}: {payload[dk]}")
+    lines.append(f"\n---\nLog in to review: {review_url}")
+    text_body = "\n".join(lines)
+
+    # ── Branded HTML ─────────────────────────────────────────────────────
+    from app.services.email_templates import branded_email
+
+    rows = [
+        _detail_row("User", f"{email}"),
+        _detail_row("Role", role),
+        _detail_row("Time", when),
+    ]
+    for k, v in payload.items():
+        if k in _DOC_KEYS:
+            continue
+        label = k.replace("_", " ").title()
+        rows.append(_detail_row(label, str(v)))
+
+    doc_links = []
+    for dk in _DOC_KEYS:
+        if payload.get(dk):
+            doc_links.append(
+                f'<a href="{payload[dk]}" '
+                'style="display:inline-block;margin:0 8px 8px 0;padding:8px 14px;'
+                'background:#eff6ff;color:#2563eb;border-radius:8px;'
+                'font-size:13px;font-weight:600;text-decoration:none;">'
+                f'{_DOC_LABELS[dk]} &rarr;</a>'
+            )
+    docs_html = (
+        f'<div style="margin-top:18px;">{"".join(doc_links)}</div>' if doc_links else ""
+    )
+
+    body_html = (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;">'
+        + "".join(rows)
+        + "</table>"
+        + docs_html
+    )
+
+    heading = _HEADINGS.get(event_type, f"Admin event: {event_type}")
+    cta_label = (
+        "Review Verification"
+        if review_path == "/admin/seller"
+        else "Open Admin Dashboard"
+    )
+    html_body = branded_email(
+        heading=heading,
+        greeting="Hi Admin,",
+        body_html=body_html,
+        cta_label=cta_label,
+        cta_href=review_url,
+        footer_note="You're receiving this because you're the Campify admin contact.",
+    )
+    return text_body, html_body

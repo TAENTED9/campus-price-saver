@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, model_validator
 from datetime import datetime
 from typing import Optional, List
 
@@ -126,6 +126,38 @@ class PriceOut(PriceBase):
     view_count: int = 0
     is_featured: bool = False
     featured_until: Optional[datetime] = None
+    # Active flash sale (if any) so list/grid cards can show the discounted
+    # price everywhere, not just on the homepage flash-sale strip. Resolved
+    # from the ORM relationship; None when there's no live sale.
+    flash_sale: Optional[dict] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _attach_flash_sale(cls, obj):
+        # Runs in ORM mode (from_attributes): `obj` is the Price model. Resolve
+        # the active sale from the already-loaded relationship — no extra query.
+        # end_time is naive UTC, so compare with utcnow() (see flash_sales router).
+        # We stash the dict onto obj so from_attributes reads it as `flash_sale`.
+        try:
+            sales = getattr(obj, "flash_sales", None)
+            if sales:
+                now = datetime.utcnow()
+                active = next(
+                    (s for s in sales if s.is_active and s.end_time and s.end_time > now),
+                    None,
+                )
+                if active:
+                    obj.flash_sale = {
+                        "id": active.id,
+                        "sale_price": active.sale_price,
+                        "original_price": active.original_price,
+                        "discount_pct": active.discount_pct,
+                        "end_time": active.end_time.isoformat() if active.end_time else None,
+                    }
+        except Exception:
+            # Never let sale resolution break listing serialization.
+            pass
+        return obj
 
     class Config:
         from_attributes = True

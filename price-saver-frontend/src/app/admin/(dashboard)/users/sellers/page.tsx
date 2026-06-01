@@ -4,7 +4,7 @@ import React, { useEffect, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/context/AdminAuthContext";
 import { usePolling } from "@/hooks/usePolling";
-import { adminApi, AdminUser } from "@/lib/api";
+import { adminApi, type AdminUserLegacy as AdminUser } from "@/lib/api";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import PromptModal from "@/components/ui/PromptModal";
 import { useToast } from "@/components/ui/Toast";
@@ -21,7 +21,7 @@ export default function SellersPage() {
 
   useEffect(() => { if (!authLoading && !isAuthenticated) router.push("/admin/signin"); }, [authLoading, isAuthenticated, router]);
 
-  const fetchData = useCallback(() => adminApi.getUsers(token!, "seller"), [token]);
+  const fetchData = useCallback(() => adminApi.getUsersLegacy(token!, "seller"), [token]);
   const { data, loading, error, refetch } = usePolling<{ success: boolean; total: number; data: AdminUser[] }>(fetchData, 30000, isAuthenticated && !!token);
 
   const confirmSuspend = async (reason: string) => {

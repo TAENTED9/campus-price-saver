@@ -1,0 +1,45 @@
+# Keep the Docker build context small & the image clean.
+# The backend image only needs app/, api/, requirements.txt.
+
+# Frontend (deployed separately on Vercel — never goes in the backend image)
+price-saver-frontend/
+
+# Dev database & WAL sidecars (production uses Postgres via DATABASE_URL)
+data.db
+data.db-shm
+data.db-wal
+*.sqlite
+*.sqlite3
+
+# Local env & secrets
+.env
+.env.*
+!.env.production.example
+
+# VCS / IDE / OS
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Python caches & virtualenvs
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs & build artifacts
+logs/
+*.log
+build/
+dist/
+*.egg-info/
+
+# Docs / tooling not needed at runtime
+*.md
+tests/

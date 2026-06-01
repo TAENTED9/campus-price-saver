@@ -26,6 +26,7 @@ interface MarketplaceItem {
   location?: string | null;
   listing_status?: string | null;
   is_negotiable?: boolean | null;
+  flash_sale?: { sale_price: number } | null;
   seller?: {
     username?: string;
     display_name?: string;
@@ -152,6 +153,8 @@ export default function ListingsGrid({ category = "all" }: ListingsGridProps) {
                   createdAt={item.submitted_at ?? new Date().toISOString()}
                   viewsCount={item.view_count ?? 0}
                   isNegotiable={item.is_negotiable ?? false}
+                  flashSale={Boolean(item.flash_sale)}
+                  salePrice={item.flash_sale?.sale_price ?? null}
                 />
               </motion.div>
             ))}

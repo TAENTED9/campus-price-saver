@@ -228,6 +228,16 @@ async def get_featured_sellers(limit: int = 6, db: Session = Depends(get_db)):
         avg_rating = db.query(func.avg(Review.rating)).filter(
             Review.seller_id == s.id, Review.is_flagged == False
         ).scalar()
+        # Verified badge: only true when the seller has an Approved verification
+        # record. Without this the homepage showed a blue check on every seller,
+        # including unverified ones.
+        v = (
+            db.query(SellerVerification)
+            .filter(SellerVerification.user_id == s.id)
+            .order_by(SellerVerification.submitted_at.desc())
+            .first()
+        )
+        is_verified = v is not None and v.status == "Approved"
         results.append({
             "id": s.id,
             "display_name": s.display_name or s.username,
@@ -237,6 +247,7 @@ async def get_featured_sellers(limit: int = 6, db: Session = Depends(get_db)):
             "category": getattr(s, "category", None),
             "listing_count": listing_count,
             "avg_rating": round(float(avg_rating), 1) if avg_rating else None,
+            "is_verified": is_verified,
         })
     return results
 

@@ -66,6 +66,7 @@ type ListingPrice = Price & {
   listing_status?: string | null;
   view_count?: number | null;
   submitted_at?: string | null;
+  sale_price?: number | null;
   seller?: {
     username?: string;
     display_name?: string;
@@ -117,6 +118,7 @@ function toCardProps(item: ListingPrice) {
     category:       String(item.category_id ?? ""),
     createdAt:      item.submitted_at ?? new Date().toISOString(),
     viewsCount:     item.view_count ?? 0,
+    salePrice:      item.sale_price ?? null,
   };
 }
 
@@ -356,6 +358,7 @@ export default function SearchPage() {
             submitted_at:   s.created_at,
             listing_status: s.status ?? "active",
             is_negotiable:  s.is_negotiable,
+            sale_price:     s.on_sale ? s.sale_price : null,
             seller:         s.seller
               ? {
                   username:     s.seller.username ?? undefined,

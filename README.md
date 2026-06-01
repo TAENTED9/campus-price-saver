@@ -218,9 +218,7 @@
 | `/admin/users/sellers`           | Seller management              |
 | `/admin/listings`                | All listings moderation        |
 | `/admin/listings/flagged`        | Flagged listings               |
-| `/admin/verification/pending`    | Pending seller verifications   |
-| `/admin/verification/approved`   | Approved sellers               |
-| `/admin/verification/rejected`   | Rejected applications          |
+| `/admin/seller`                  | Seller verifications (tabbed)  |
 | `/admin/reports`                 | User reports queue             |
 | `/admin/disputes`                | Buyer-seller disputes          |
 | `/admin/announcements`           | System announcements           |

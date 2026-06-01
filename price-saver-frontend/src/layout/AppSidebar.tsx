@@ -41,7 +41,7 @@ const AppSidebar: React.FC = () => {
     if (!token) return;
     try {
       const s = await adminApi.getStats(token);
-      setBadges({ pendingVerifs: s.pendingVerifications, openReports: s.openReports });
+      setBadges({ pendingVerifs: s.data.pendingVerifications, openReports: s.data.openReports });
     } catch { /* silent */ }
   }, [token]);
 

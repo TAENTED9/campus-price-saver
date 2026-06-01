@@ -80,6 +80,8 @@ export default function TrendingSection() {
                   createdAt={item.submitted_at ?? new Date().toISOString()}
                   viewsCount={item.view_count ?? 0}
                   isNegotiable={item.is_negotiable ?? false}
+                  flashSale={Boolean(item.flash_sale)}
+                  salePrice={item.flash_sale?.sale_price ?? null}
                 />
               ))}
         </div>

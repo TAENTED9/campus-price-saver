@@ -34,4 +34,7 @@ RUN mkdir -p logs
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Bind to $PORT when the platform injects one (Render sets it, default 10000),
+# else fall back to 8000 for local `docker run`. Shell form so the var expands.
+# (docker-compose overrides this CMD with its own --reload command for dev.)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
