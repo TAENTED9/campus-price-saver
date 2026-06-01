@@ -1,5 +1,15 @@
 import type { NextConfig } from "next";
 
+// Single source of truth for the CSP connect-src allowlist: whatever backend
+// NEXT_PUBLIC_API_URL points to (plus its WebSocket origin) is allowed. This
+// avoids hardcoding a domain that drifts from the real deployment — set the
+// env var on Vercel and the CSP follows automatically. Baked at build time.
+const API_ORIGIN = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
+const WS_ORIGIN = API_ORIGIN.replace(/^http/, "ws"); // https→wss, http→ws
+const PROD_CONNECT_SRC = ["'self'", API_ORIGIN, WS_ORIGIN]
+  .filter(Boolean)
+  .join(" ");
+
 const nextConfig: NextConfig = {
   output: "standalone",
 
@@ -67,7 +77,7 @@ const nextConfig: NextConfig = {
               // object URLs.
               "media-src 'self' blob: https://res.cloudinary.com",
               process.env.NODE_ENV === "production"
-                ? "connect-src 'self' https://campify.digital https://api.campify.digital wss://campify.digital"
+                ? `connect-src ${PROD_CONNECT_SRC}`
                 : "connect-src 'self' http://localhost:* ws://localhost:* http://192.168.0.195:* ws://192.168.0.195:*",
             ].join("; "),
           },
