@@ -41,6 +41,14 @@ services:
       - key: APP_URL
         sync: false
 
+      # Response caching ([cache.py]) — degrades gracefully if unset, but wire
+      # it so caching actually works in prod.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: campify-redis
+          property: connectionString
+
       # Celery — worker-less launch: tasks run inline, broker untouched.
       - key: CELERY_WORKER_ENABLED
         value: "false"
