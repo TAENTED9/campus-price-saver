@@ -37,4 +37,10 @@ EXPOSE 8000
 # Bind to $PORT when the platform injects one (Render sets it, default 10000),
 # else fall back to 8000 for local `docker run`. Shell form so the var expands.
 # (docker-compose overrides this CMD with its own --reload command for dev.)
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+#
+# --proxy-headers + --forwarded-allow-ips=*: Render terminates TLS at its edge
+# and forwards to the container over HTTP. Without trusting X-Forwarded-Proto,
+# the app sees scheme=http and HTTPSRedirectMiddleware 307-loops every request
+# (and fails the health check). Trusting the proxy makes scheme=https so the
+# redirect middleware passes through. Safe here: Render's edge is the only hop.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=*"]
