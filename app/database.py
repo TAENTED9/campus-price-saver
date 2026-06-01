@@ -432,8 +432,21 @@ def _run_postgres_migrations():
             END;
             $$ LANGUAGE plpgsql
         """))
+        # NOTE: a BEFORE-UPDATE trigger that sets NEW.updated_at only works on
+        # tables that HAVE an updated_at column. Postgres doesn't validate the
+        # column at CREATE TRIGGER time — only when the trigger fires — so a
+        # trigger on a column-less table (e.g. `users`) silently breaks the
+        # FIRST update of any row ("record new has no field updated_at").
+        # Always drop on every candidate (self-heals DBs that got the bad
+        # trigger), then only (re)create where the column actually exists.
         for tbl in ["users", "profiles", "listings", "prices"]:
             _pg_try(conn, f"DROP TRIGGER IF EXISTS {tbl}_updated_at ON {tbl}")
+            has_col = conn.execute(text("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = :tbl AND column_name = 'updated_at'
+            """), {"tbl": tbl}).first()
+            if not has_col:
+                continue
             _pg_try(conn, f"""
                 CREATE TRIGGER {tbl}_updated_at
                 BEFORE UPDATE ON {tbl}
