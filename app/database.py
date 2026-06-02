@@ -446,31 +446,44 @@ def _run_postgres_migrations():
         # of the trigger's name (covers triggers created manually / by older
         # code under a different name). Then (re)create the conventional
         # trigger only where the updated_at column actually exists.
+        #
+        # CRITICAL: every catalog/column lookup below is pinned to the `public`
+        # schema. On Supabase the `auth` schema also has a `users` table — and
+        # `auth.users` HAS an `updated_at` column. An unqualified
+        # `information_schema.columns WHERE table_name='users'` therefore reports
+        # the column as present, causing this code to (re)create the trigger on
+        # `public.users` on every boot — which is exactly the bug that made the
+        # "record new has no field updated_at" 500 keep coming back after a
+        # manual drop. Qualifying with table_schema='public' fixes it for good.
         for tbl in ["users", "profiles", "listings", "prices"]:
             stale = conn.execute(text("""
                 SELECT tg.tgname
-                FROM pg_trigger tg
-                JOIN pg_class  c ON c.oid = tg.tgrelid
-                JOIN pg_proc   p ON p.oid = tg.tgfoid
-                WHERE c.relname = :tbl
+                FROM pg_trigger   tg
+                JOIN pg_class     c ON c.oid = tg.tgrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_proc      p ON p.oid = tg.tgfoid
+                WHERE n.nspname = 'public'
+                  AND c.relname = :tbl
                   AND p.proname = 'update_updated_at'
                   AND NOT tg.tgisinternal
             """), {"tbl": tbl}).fetchall()
             for (tgname,) in stale:
-                _pg_try(conn, f'DROP TRIGGER IF EXISTS "{tgname}" ON {tbl}')
+                _pg_try(conn, f'DROP TRIGGER IF EXISTS "{tgname}" ON public.{tbl}')
             # Belt-and-braces: also drop the conventional name in case the
             # catalog lookup missed it (e.g. function recreated/renamed).
-            _pg_try(conn, f"DROP TRIGGER IF EXISTS {tbl}_updated_at ON {tbl}")
+            _pg_try(conn, f"DROP TRIGGER IF EXISTS {tbl}_updated_at ON public.{tbl}")
 
             has_col = conn.execute(text("""
                 SELECT 1 FROM information_schema.columns
-                WHERE table_name = :tbl AND column_name = 'updated_at'
+                WHERE table_schema = 'public'
+                  AND table_name = :tbl
+                  AND column_name = 'updated_at'
             """), {"tbl": tbl}).first()
             if not has_col:
                 continue
             _pg_try(conn, f"""
                 CREATE TRIGGER {tbl}_updated_at
-                BEFORE UPDATE ON {tbl}
+                BEFORE UPDATE ON public.{tbl}
                 FOR EACH ROW EXECUTE FUNCTION update_updated_at()
             """)
 
