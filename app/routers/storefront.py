@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 import json
 from datetime import datetime
-from app.utils.timezone import now_wat, format_wat_iso
+from app.utils.timezone import now_wat, format_wat_iso, utc_now, as_utc
 from typing import Optional
 
 from app.database import get_db
@@ -106,16 +106,15 @@ def _seller_info(seller: User, db: Session) -> dict:
 
 def _price_to_dict(p: Price) -> dict:
     # Resolve active flash sale from the relationship (no extra query).
-    # FlashSale.end_time is a *naive* UTC datetime (the flash_sales router
-    # strips tzinfo via _to_naive_utc before saving). Comparing it with
-    # now_wat() — which is tz-aware — raises TypeError and 500s the listing
-    # endpoint, which the frontend renders as "Listing not found." Use the
-    # matching naive UTC clock instead.
-    now = datetime.utcnow()
+    # FlashSale.end_time is a TIMESTAMPTZ on Postgres (reads back tz-AWARE) but
+    # naive on SQLite. Normalise both sides to aware UTC before comparing —
+    # mixing naive/aware raises TypeError and 500s the listing endpoint, which
+    # the frontend renders as "Listing not found."
+    now = utc_now()
     active_sale = next(
         (
             s for s in (p.flash_sales or [])
-            if s.is_active and s.end_time and s.end_time > now
+            if s.is_active and s.end_time and as_utc(s.end_time) > now
         ),
         None,
     )

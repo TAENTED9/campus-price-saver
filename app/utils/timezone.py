@@ -27,3 +27,29 @@ def format_wat_iso(dt: datetime) -> str:
     if dt is None:
         return None
     return to_wat(dt).isoformat()
+
+
+def utc_now() -> datetime:
+    """Current time as a timezone-AWARE UTC datetime.
+
+    Use this (not datetime.utcnow(), which is naive) whenever comparing
+    against a value read back from a Postgres TIMESTAMPTZ column. Postgres
+    returns aware datetimes; comparing an aware value against a naive one
+    raises "can't compare offset-naive and offset-aware datetimes".
+    """
+    return datetime.now(timezone.utc)
+
+
+def as_utc(dt: datetime) -> datetime:
+    """Normalise any datetime to timezone-aware UTC (None passes through).
+
+    Naive datetimes are assumed to already be UTC — that's how this app has
+    always stored them on SQLite. This makes a value safe to compare against
+    utc_now() regardless of whether it came from SQLite (naive) or Postgres
+    TIMESTAMPTZ (aware).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)

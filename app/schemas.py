@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from app.constants.locations import LOCATION_SET
+from app.utils.timezone import utc_now, as_utc
 
 _XSS_PATTERNS = ("<script", "javascript:")
 
@@ -136,14 +137,15 @@ class PriceOut(PriceBase):
     def _attach_flash_sale(cls, obj):
         # Runs in ORM mode (from_attributes): `obj` is the Price model. Resolve
         # the active sale from the already-loaded relationship — no extra query.
-        # end_time is naive UTC, so compare with utcnow() (see flash_sales router).
+        # end_time is TIMESTAMPTZ on Postgres (aware) but naive on SQLite, so
+        # normalise both sides to aware UTC before comparing (see utils.timezone).
         # We stash the dict onto obj so from_attributes reads it as `flash_sale`.
         try:
             sales = getattr(obj, "flash_sales", None)
             if sales:
-                now = datetime.utcnow()
+                now = utc_now()
                 active = next(
-                    (s for s in sales if s.is_active and s.end_time and s.end_time > now),
+                    (s for s in sales if s.is_active and s.end_time and as_utc(s.end_time) > now),
                     None,
                 )
                 if active:

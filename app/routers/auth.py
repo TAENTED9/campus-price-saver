@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal, get_db
 from app.models import User
 from app.limiter import limiter
+from app.utils.timezone import utc_now, as_utc
 from app.services.cache import cache_get, cache_set
 
 from dotenv import load_dotenv
@@ -352,7 +353,7 @@ async def get_current_user(
         # Only auto-lift suspensions that were time-boxed AND have expired.
         # Indefinite suspensions (until is None) stay in force until admin
         # explicitly restores the account — never silently clear them here.
-        if until is not None and until <= datetime.utcnow():
+        if until is not None and as_utc(until) <= utc_now():
             user.is_suspended = False
             user.suspended_until = None
             user.suspension_reason = None
@@ -933,7 +934,7 @@ async def login_user(
             until = getattr(user, "suspended_until", None)
             # Lift an EXPIRED time-boxed suspension. Indefinite suspensions
             # (until is None) must NOT be auto-lifted here.
-            if until is not None and until <= datetime.utcnow():
+            if until is not None and as_utc(until) <= utc_now():
                 user.is_suspended = False
                 user.suspended_until = None
                 user.suspension_reason = None
@@ -1307,7 +1308,7 @@ async def reset_password(
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
 
-    if user.password_reset_token_exp and user.password_reset_token_exp < datetime.utcnow():
+    if user.password_reset_token_exp and as_utc(user.password_reset_token_exp) < utc_now():
         raise HTTPException(
             status_code=400,
             detail="This reset link has expired. Request a new one.",
@@ -1417,7 +1418,7 @@ async def verify_email(token: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired verification link.")
 
-    if user.email_verify_token_exp and user.email_verify_token_exp < datetime.utcnow():
+    if user.email_verify_token_exp and as_utc(user.email_verify_token_exp) < utc_now():
         raise HTTPException(
             status_code=400,
             detail="Verification link has expired. Request a new one.",
@@ -1844,7 +1845,7 @@ async def refresh_token(
         )
     if getattr(user, "is_suspended", False):
         until = getattr(user, "suspended_until", None)
-        if until is None or until > datetime.utcnow():
+        if until is None or as_utc(until) > utc_now():
             clear_refresh_cookie(response)
             raise HTTPException(
                 status_code=403,
