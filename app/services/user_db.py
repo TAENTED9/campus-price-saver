@@ -14,18 +14,39 @@ import json
 from sqlalchemy import text
 
 
+def _is_pg(db_engine) -> bool:
+    """True on PostgreSQL. The per-user DDL below was written for SQLite, so
+    we branch on dialect to avoid SQLite-only constructs (datetime('now'),
+    INTEGER PRIMARY KEY AUTOINCREMENT) that are syntax errors on Postgres."""
+    try:
+        return db_engine.dialect.name == "postgresql"
+    except Exception:
+        return False
+
+
+def _now_sql(is_pg: bool) -> str:
+    """SQL expression for the current timestamp, per dialect."""
+    return "NOW()" if is_pg else "datetime('now')"
+
+
 def create_user_tables(user_id: int, db_engine) -> None:
     """
     Called once when a user registers.
     Creates 4 tables prefixed with the user's ID (idempotent).
     """
+    is_pg = _is_pg(db_engine)
+    # Timestamp column: a real TIMESTAMPTZ on Postgres, TEXT on SQLite.
+    ts_col = "TIMESTAMPTZ DEFAULT NOW()" if is_pg else "TEXT DEFAULT (datetime('now'))"
+    # Auto-incrementing PK: SERIAL on Postgres, AUTOINCREMENT on SQLite.
+    auto_pk = "id SERIAL PRIMARY KEY" if is_pg else "id INTEGER PRIMARY KEY AUTOINCREMENT"
+
     with db_engine.connect() as conn:
         # 1. Profile
         conn.execute(text(f"""
             CREATE TABLE IF NOT EXISTS user_{user_id}_profile (
                 key        TEXT PRIMARY KEY,
                 value      TEXT,
-                updated_at TEXT DEFAULT (datetime('now'))
+                updated_at {ts_col}
             )
         """))
         # 2. Settings
@@ -33,17 +54,17 @@ def create_user_tables(user_id: int, db_engine) -> None:
             CREATE TABLE IF NOT EXISTS user_{user_id}_settings (
                 key        TEXT PRIMARY KEY,
                 value      TEXT,
-                updated_at TEXT DEFAULT (datetime('now'))
+                updated_at {ts_col}
             )
         """))
         # 3. Activity log
         conn.execute(text(f"""
             CREATE TABLE IF NOT EXISTS user_{user_id}_activity (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                {auto_pk},
                 action     TEXT NOT NULL,
                 details    TEXT,
                 ip_address TEXT,
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at {ts_col}
             )
         """))
         # 4. Notification preferences
@@ -51,7 +72,7 @@ def create_user_tables(user_id: int, db_engine) -> None:
             CREATE TABLE IF NOT EXISTS user_{user_id}_notif_prefs (
                 key        TEXT PRIMARY KEY,
                 value      TEXT,
-                updated_at TEXT DEFAULT (datetime('now'))
+                updated_at {ts_col}
             )
         """))
         conn.commit()
@@ -82,12 +103,13 @@ def upsert_user_data(
         return
     try:
         with db_engine.connect() as conn:
+            now_sql = _now_sql(_is_pg(db_engine))
             for key, value in data.items():
                 if value is None:
                     continue
                 conn.execute(text(f"""
                     INSERT INTO user_{user_id}_{table_suffix} (key, value, updated_at)
-                    VALUES (:key, :value, datetime('now'))
+                    VALUES (:key, :value, {now_sql})
                     ON CONFLICT(key) DO UPDATE SET
                         value      = excluded.value,
                         updated_at = excluded.updated_at
