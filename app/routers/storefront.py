@@ -188,9 +188,9 @@ async def get_platform_stats(db: Session = Depends(get_db)):
     row = db.execute(_sql("""
         SELECT
             (SELECT COUNT(*) FROM users
-              WHERE is_deleted IS NOT 1)                        AS total_users,
+              WHERE is_deleted IS NOT TRUE)                     AS total_users,
             (SELECT COUNT(*) FROM users
-              WHERE role = 'seller' AND is_deleted IS NOT 1)    AS total_sellers,
+              WHERE role = 'seller' AND is_deleted IS NOT TRUE) AS total_sellers,
             (SELECT COUNT(*) FROM prices
               WHERE status = 'approved'
                 AND listing_status = 'active')                  AS active_listings,
