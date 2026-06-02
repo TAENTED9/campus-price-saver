@@ -42,10 +42,19 @@ const nextConfig: NextConfig = {
   },
 
   async redirects() {
-    // The legacy /admin/verification* routes were consolidated into the
-    // /admin/seller page (Pending/Approved/Rejected tabs). Redirect old
-    // bookmarks and email links so they never hit a 404.
     return [
+      // Canonical host: force www → bare domain so there is a single origin.
+      // Keeps CORS (ALLOWED_ORIGINS), cookies, and emailed links consistent on
+      // https://campify.digital. Matched by Host header, preserves the path.
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.campify.digital" }],
+        destination: "https://campify.digital/:path*",
+        permanent: true,
+      },
+      // The legacy /admin/verification* routes were consolidated into the
+      // /admin/seller page (Pending/Approved/Rejected tabs). Redirect old
+      // bookmarks and email links so they never hit a 404.
       { source: "/admin/verification", destination: "/admin/seller", permanent: true },
       { source: "/admin/verification/:path*", destination: "/admin/seller", permanent: true },
     ];
