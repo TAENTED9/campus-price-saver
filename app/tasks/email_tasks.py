@@ -17,13 +17,28 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run an async coroutine from a sync Celery task."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    """Run an async coroutine from a sync Celery task.
+
+    In worker-less prod (CELERY_WORKER_ENABLED=false) tasks run EAGERLY —
+    synchronously inline in the caller. When the caller is an async FastAPI
+    endpoint (e.g. /register), that inline execution happens ON the running
+    event loop's thread, so a naive new_event_loop().run_until_complete()
+    raises "Cannot run the event loop while another loop is running" and the
+    send is silently dropped. Detect that case and run the coroutine in a
+    dedicated thread with its own loop instead.
+    """
     try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        asyncio.get_running_loop()
+        loop_running = True
+    except RuntimeError:
+        loop_running = False
+
+    if loop_running:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(coro)).result()
+
+    return asyncio.run(coro)
 
 
 def _plain_to_html(body: str) -> str:
