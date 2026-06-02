@@ -112,10 +112,11 @@ def init_db():
 
 def _run_postgres_migrations():
     with engine.connect() as conn:
-        # Extensions
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
-        conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        # Extensions — wrapped so a restricted managed-Postgres role (no
+        # superuser) can't abort the entire migration pass on CREATE EXTENSION.
+        _pg_try(conn, "CREATE EXTENSION IF NOT EXISTS pgcrypto")
+        _pg_try(conn, 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
+        _pg_try(conn, "CREATE EXTENSION IF NOT EXISTS pg_trgm")
         # unaccent: strip diacritics for accent-insensitive search
         # (e.g. "café" matches "cafe"). Wrapped in _pg_try because
         # some managed Postgres providers restrict CREATE EXTENSION
@@ -336,7 +337,7 @@ def _run_postgres_migrations():
         _pg_try(conn, "CREATE INDEX IF NOT EXISTS idx_login_history_user_time ON login_history(user_id, logged_in_at DESC)")
 
         # Refresh token table (for secure "Remember Me")
-        conn.execute(text("""
+        _pg_try(conn, """
             CREATE TABLE IF NOT EXISTS refresh_tokens (
                 id          SERIAL PRIMARY KEY,
                 user_id     INTEGER NOT NULL
@@ -349,7 +350,7 @@ def _run_postgres_migrations():
                 ip_address  TEXT,
                 user_agent  TEXT
             )
-        """))
+        """)
         _pg_try(conn, """
             CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user
             ON refresh_tokens(user_id, revoked)
@@ -422,8 +423,10 @@ def _run_postgres_migrations():
             WHERE event_type = 'click'
         """)
 
-        # updated_at trigger function
-        conn.execute(text("""
+        # updated_at trigger function (wrapped: CREATE FUNCTION must never be
+        # allowed to abort the whole migration transaction — that would roll
+        # back the self-heal drop below and leave the bad trigger in place).
+        _pg_try(conn, """
             CREATE OR REPLACE FUNCTION update_updated_at()
             RETURNS TRIGGER AS $$
             BEGIN
@@ -431,16 +434,34 @@ def _run_postgres_migrations():
                 RETURN NEW;
             END;
             $$ LANGUAGE plpgsql
-        """))
+        """)
         # NOTE: a BEFORE-UPDATE trigger that sets NEW.updated_at only works on
         # tables that HAVE an updated_at column. Postgres doesn't validate the
         # column at CREATE TRIGGER time — only when the trigger fires — so a
         # trigger on a column-less table (e.g. `users`) silently breaks the
         # FIRST update of any row ("record new has no field updated_at").
-        # Always drop on every candidate (self-heals DBs that got the bad
-        # trigger), then only (re)create where the column actually exists.
+        #
+        # Self-heal: drop EVERY trigger that calls update_updated_at() on each
+        # candidate table — discovered from the catalog, so it works regardless
+        # of the trigger's name (covers triggers created manually / by older
+        # code under a different name). Then (re)create the conventional
+        # trigger only where the updated_at column actually exists.
         for tbl in ["users", "profiles", "listings", "prices"]:
+            stale = conn.execute(text("""
+                SELECT tg.tgname
+                FROM pg_trigger tg
+                JOIN pg_class  c ON c.oid = tg.tgrelid
+                JOIN pg_proc   p ON p.oid = tg.tgfoid
+                WHERE c.relname = :tbl
+                  AND p.proname = 'update_updated_at'
+                  AND NOT tg.tgisinternal
+            """), {"tbl": tbl}).fetchall()
+            for (tgname,) in stale:
+                _pg_try(conn, f'DROP TRIGGER IF EXISTS "{tgname}" ON {tbl}')
+            # Belt-and-braces: also drop the conventional name in case the
+            # catalog lookup missed it (e.g. function recreated/renamed).
             _pg_try(conn, f"DROP TRIGGER IF EXISTS {tbl}_updated_at ON {tbl}")
+
             has_col = conn.execute(text("""
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name = :tbl AND column_name = 'updated_at'
