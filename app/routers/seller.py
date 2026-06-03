@@ -322,24 +322,27 @@ async def create_listing(
     db: Session = Depends(get_db),
 ):
     """Create a new price listing (pending admin approval)."""
-    # Require an approved seller verification before allowing any listing
-    verif = (
-        db.query(SellerVerification)
-        .filter(SellerVerification.user_id == current_user.id)
-        .order_by(SellerVerification.submitted_at.desc())
-        .first()
-    )
-    if not (verif and verif.status == "Approved"):
-        raise HTTPException(
-            status_code=403,
-            detail="Seller verification required. Complete verification to start listing products.",
+    is_draft = (data.listing_status or "active") == "draft"
+
+    # Publishing requires an approved seller verification. Saving a DRAFT does
+    # not — drafts are private work-in-progress, so a seller can prepare listings
+    # while their verification is still pending review.
+    if not is_draft:
+        verif = (
+            db.query(SellerVerification)
+            .filter(SellerVerification.user_id == current_user.id)
+            .order_by(SellerVerification.submitted_at.desc())
+            .first()
         )
+        if not (verif and verif.status == "Approved"):
+            raise HTTPException(
+                status_code=403,
+                detail="Seller verification required. Complete verification to publish listings. You can still save this as a draft.",
+            )
 
     expires_at = None
     if data.duration_days:
         expires_at = now_wat() + timedelta(days=data.duration_days)
-
-    is_draft = (data.listing_status or "active") == "draft"
 
     # Validate canonical locations. Drafts may have an empty list; publishing requires ≥1.
     try:

@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { sellerApi, itemsApi, uploadApi, flashSalesApi, type Category } from "@/lib/api";
-import { X, Upload, ChevronLeft, UploadCloud, Star, Zap, Check } from "lucide-react";
+import { sellerApi, itemsApi, uploadApi, type Category } from "@/lib/api";
+import { X, Upload, ChevronLeft, UploadCloud, Star, Zap, Check, Lock } from "lucide-react";
 import NumberInput from "@/components/ui/NumberInput";
 import QuantityInput from "@/components/ui/QuantityInput";
 import ListingVideoUploader from "@/components/seller/ListingVideoUploader";
@@ -59,9 +59,7 @@ export default function NewListingPage() {
   const [packUnit, setPackUnit] = useState("");
 
   const [step, setStep]           = useState(1);
-  const [flashSale, setFlashSale]   = useState(false);
-  const [flashPrice, setFlashPrice] = useState<number | "">("");
-  const [flashEnd, setFlashEnd]     = useState("");
+  const [flashLockHint, setFlashLockHint] = useState(false); // new listings are pending → flash sale locked until approved
   const [meetupSpots, setMeetupSpots] = useState<string[]>([]);
   const [dragOver, setDragOver]     = useState(false);
 
@@ -105,9 +103,8 @@ export default function NewListingPage() {
         if (typeof d.brand === "string") setBrand(d.brand);
         if (typeof d.packSize === "string") setPackSize(d.packSize);
         if (typeof d.packUnit === "string") setPackUnit(d.packUnit);
-        if (typeof d.flashSale === "boolean") setFlashSale(d.flashSale);
-        if (typeof d.flashPrice === "number" || d.flashPrice === "") setFlashPrice(d.flashPrice);
-        if (typeof d.flashEnd === "string") setFlashEnd(d.flashEnd);
+        // flashSale intentionally not restored — it stays locked off until the
+        // listing is approved (see toggle below).
         if (Array.isArray(d.meetupSpots)) setMeetupSpots(d.meetupSpots);
         if (typeof d.step === "number") setStep(d.step);
         setDraftRestored(true);
@@ -128,15 +125,14 @@ export default function NewListingPage() {
         localStorage.setItem(draftKey, JSON.stringify({
           name, categoryId, subcategory, description, price, isNegotiable, condition,
           photos, videos, quantity, hasPickup, hasDelivery, deliveryFee, location,
-          duration, brand, packSize, packUnit, flashSale, flashPrice, flashEnd,
-          meetupSpots, step, savedAt: Date.now(),
+          duration, brand, packSize, packUnit, meetupSpots, step, savedAt: Date.now(),
         }));
       } catch { /* quota / private mode — best-effort only */ }
     }, 600);
     return () => clearTimeout(t);
   }, [draftKey, hydrated, name, categoryId, subcategory, description, price, isNegotiable,
       condition, photos, videos, quantity, hasPickup, hasDelivery, deliveryFee, location,
-      duration, brand, packSize, packUnit, flashSale, flashPrice, flashEnd, meetupSpots, step]);
+      duration, brand, packSize, packUnit, meetupSpots, step]);
 
   function clearDraft() {
     if (draftKey) { try { localStorage.removeItem(draftKey); } catch { /* ignore */ } }
@@ -223,15 +219,6 @@ export default function NewListingPage() {
       }
     }
 
-    if (
-      listingStatus === "active" &&
-      flashSale &&
-      (flashPrice === "" || Number(flashPrice) <= 0 || Number(flashPrice) >= Number(price) || !flashEnd)
-    ) {
-      setError("Flash sale needs a sale price below the listing price and an end date in the future.");
-      return;
-    }
-
     setSubmitting(true);
     try {
       const res = await sellerApi.createListing(token, {
@@ -256,36 +243,9 @@ export default function NewListingPage() {
         videos,
       });
 
-      if (listingStatus === "active" && flashSale && user?.id && res.id) {
-        // New listings are submitted for review (status: pending) before they
-        // go live, and a flash sale can only run on an APPROVED listing. So this
-        // call is expected to be deferred — we frame it as info, not an error,
-        // and tell the seller to start the flash sale once approved.
-        const discountPct = Math.max(
-          0.01,
-          Math.min(100, ((Number(price) - Number(flashPrice)) / Number(price)) * 100),
-        );
-        const endIso = new Date(flashEnd).toISOString();
-        try {
-          await flashSalesApi.create(token, {
-            listing_id: res.id,
-            title: name.trim(),
-            discount_pct: Number(discountPct.toFixed(2)),
-            end_time: endIso,
-          });
-          setSuccess("Listing published and flash sale scheduled! 🎉");
-        } catch {
-          // Almost always because the listing is still pending approval.
-          setSuccess(
-            "Listing submitted for review. Once it's approved you can start the " +
-            "flash sale anytime from your Listings page.",
-          );
-        }
-        clearDraft();
-        setTimeout(() => router.push("/seller/listings"), 1800);
-        return;
-      }
-
+      // Flash sales aren't offered at creation time — a new listing is pending
+      // approval, and a flash sale can only run on an approved listing. Sellers
+      // enable it later from Edit Listing once approved.
       clearDraft();
       setSuccess(res.message);
       setTimeout(() => router.push("/seller/listings"), 1200);
@@ -503,25 +463,23 @@ export default function NewListingPage() {
             <div className="sm:col-span-2 space-y-3">
               <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-800">
                 <div className="flex items-center gap-2">
-                  <Zap size={15} className="text-warning-500" />
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Flash Sale</span>
+                  <Zap size={15} className="text-gray-400" />
+                  <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Flash Sale</span>
+                  <Lock size={12} className="text-gray-400" />
                 </div>
-                <button type="button" role="switch" aria-label="Flash Sale" aria-checked={flashSale ? "true" : "false"} onClick={() => setFlashSale(!flashSale)}
-                  className={`relative w-10 h-5.5 rounded-full transition-colors ${flashSale ? "bg-warning-500" : "bg-gray-300 dark:bg-gray-600"}`}>
-                  <span className={`absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow transition-transform ${flashSale ? "translate-x-[18px]" : ""}`} />
+                {/* Locked: a brand-new listing is pending approval, so a flash
+                    sale can't run yet. Tapping explains how to enable it later. */}
+                <button type="button" role="switch" aria-label="Flash Sale (locked until approved)"
+                  aria-checked="false" onClick={() => setFlashLockHint(true)}
+                  className="relative w-10 h-5.5 rounded-full bg-gray-200 dark:bg-gray-700 cursor-not-allowed">
+                  <span className="absolute top-0.5 left-0.5 w-4.5 h-4.5 bg-white rounded-full shadow" />
                 </button>
               </div>
-              {flashSale && (
-                <div className="grid grid-cols-2 gap-3 p-3 bg-warning-50 dark:bg-warning-500/10 rounded-xl border border-warning-200 dark:border-warning-500/30">
-                  <div>
-                    <label className="text-xs font-medium text-warning-700 dark:text-warning-400 block mb-1">Sale Price (₦)</label>
-                    <NumberInput title="Flash sale price" placeholder="0" value={flashPrice} onValueChange={setFlashPrice} className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-warning-700 dark:text-warning-400 block mb-1">End Date & Time</label>
-                    <input type="datetime-local" title="Flash sale end date" value={flashEnd} onChange={(e) => setFlashEnd(e.target.value)} className={inp} />
-                  </div>
-                </div>
+              {flashLockHint && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 -mt-1">
+                  Flash sales unlock once your listing is approved. You&apos;ll be able to
+                  turn it on from <span className="font-medium">Edit Listing</span> then.
+                </p>
               )}
             </div>
           </div>
