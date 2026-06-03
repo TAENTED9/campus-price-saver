@@ -18,6 +18,21 @@ const MAX_VIDEOS_PER_LISTING = 2;
 const MAX_SIZE_MB = 50;
 const ACCEPTED_MIME = "video/mp4,video/quicktime,video/webm";
 
+/**
+ * Derive a still-frame poster from a Cloudinary video URL.
+ * Mobile browsers (notably iOS Safari) refuse to paint a frame from a
+ * `<video preload="metadata">` element, so the thumbnail shows up blank/black
+ * on phones. Pointing `poster` at a Cloudinary-rendered first frame (`so_0`,
+ * `.jpg`) makes the thumbnail appear on every device. Returns undefined for
+ * non-Cloudinary or blob URLs so the element just falls back to its own frame.
+ */
+function videoPosterUrl(url: string): string | undefined {
+  if (!url.includes("/video/upload/")) return undefined;
+  return url
+    .replace("/video/upload/", "/video/upload/so_0/")
+    .replace(/\.(mp4|mov|m4v|webm|quicktime)$/i, ".jpg");
+}
+
 type Props = {
   token: string | null;
   videos: string[];
@@ -141,6 +156,7 @@ export default function ListingVideoUploader({
             >
               <video
                 src={url}
+                poster={videoPosterUrl(url)}
                 muted
                 playsInline
                 preload="metadata"
@@ -156,7 +172,7 @@ export default function ListingVideoUploader({
                 type="button"
                 onClick={() => handleRemove(url)}
                 title="Remove video"
-                className="absolute top-1.5 right-1.5 bg-black/70 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
+                className="absolute top-1.5 right-1.5 bg-black/70 text-white rounded-full p-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-red-500"
               >
                 <X size={12} />
               </button>

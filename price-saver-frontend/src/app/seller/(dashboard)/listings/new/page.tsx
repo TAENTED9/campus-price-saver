@@ -521,7 +521,7 @@ export default function NewListingPage() {
                     </div>
                   )}
                   <button type="button" title="Remove photo" onClick={() => removePhoto(i)}
-                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500">
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-red-500">
                     <X size={12} />
                   </button>
                 </div>

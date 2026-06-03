@@ -438,7 +438,7 @@ export default function EditListingPage() {
                   )}
                   <button type="button" title="Remove photo"
                     onClick={() => setPhotos((prev) => prev.filter((_, idx) => idx !== i))}
-                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500">
+                    className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-red-500">
                     <X size={12} />
                   </button>
                 </div>
