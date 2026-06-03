@@ -70,9 +70,82 @@ export default function NewListingPage() {
   const [success, setSuccess] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── Draft autosave (survives accidental logout / network drop / refresh) ──
+  // Scoped per-user so a draft never leaks across accounts on a shared device.
+  const draftKey = user?.id ? `campify:listing-draft:${user.id}` : null;
+  const [hydrated, setHydrated]         = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+
   useEffect(() => {
     itemsApi.getCategories().then(setCategories).catch(() => {});
   }, []);
+
+  // Restore a previously-saved draft once we know which user we are.
+  useEffect(() => {
+    if (!draftKey) return;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (typeof d.name === "string") setName(d.name);
+        if (typeof d.categoryId === "number" || d.categoryId === "") setCategoryId(d.categoryId);
+        if (typeof d.subcategory === "string") setSubcategory(d.subcategory);
+        if (typeof d.description === "string") setDescription(d.description);
+        if (typeof d.price === "number" || d.price === "") setPrice(d.price);
+        if (typeof d.isNegotiable === "boolean") setIsNegotiable(d.isNegotiable);
+        if (typeof d.condition === "string") setCondition(d.condition);
+        if (Array.isArray(d.photos)) setPhotos(d.photos);
+        if (Array.isArray(d.videos)) setVideos(d.videos);
+        if (typeof d.quantity === "number") setQuantity(d.quantity);
+        if (typeof d.hasPickup === "boolean") setHasPickup(d.hasPickup);
+        if (typeof d.hasDelivery === "boolean") setHasDelivery(d.hasDelivery);
+        if (typeof d.deliveryFee === "number" || d.deliveryFee === "") setDeliveryFee(d.deliveryFee);
+        if (typeof d.location === "string") setLocation(d.location);
+        if (typeof d.duration === "number") setDuration(d.duration);
+        if (typeof d.brand === "string") setBrand(d.brand);
+        if (typeof d.packSize === "string") setPackSize(d.packSize);
+        if (typeof d.packUnit === "string") setPackUnit(d.packUnit);
+        if (typeof d.flashSale === "boolean") setFlashSale(d.flashSale);
+        if (typeof d.flashPrice === "number" || d.flashPrice === "") setFlashPrice(d.flashPrice);
+        if (typeof d.flashEnd === "string") setFlashEnd(d.flashEnd);
+        if (Array.isArray(d.meetupSpots)) setMeetupSpots(d.meetupSpots);
+        if (typeof d.step === "number") setStep(d.step);
+        setDraftRestored(true);
+      }
+    } catch { /* corrupt draft — ignore */ }
+    setHydrated(true); // batched with the setters above → save effect sees restored values
+  }, [draftKey]);
+
+  // Debounced autosave whenever a field changes (after the initial restore).
+  useEffect(() => {
+    if (!draftKey || !hydrated) return;
+    const hasContent =
+      name.trim() || description.trim() || price !== "" ||
+      photos.length > 0 || videos.length > 0 || brand.trim() || location.trim();
+    const t = setTimeout(() => {
+      try {
+        if (!hasContent) { localStorage.removeItem(draftKey); return; }
+        localStorage.setItem(draftKey, JSON.stringify({
+          name, categoryId, subcategory, description, price, isNegotiable, condition,
+          photos, videos, quantity, hasPickup, hasDelivery, deliveryFee, location,
+          duration, brand, packSize, packUnit, flashSale, flashPrice, flashEnd,
+          meetupSpots, step, savedAt: Date.now(),
+        }));
+      } catch { /* quota / private mode — best-effort only */ }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [draftKey, hydrated, name, categoryId, subcategory, description, price, isNegotiable,
+      condition, photos, videos, quantity, hasPickup, hasDelivery, deliveryFee, location,
+      duration, brand, packSize, packUnit, flashSale, flashPrice, flashEnd, meetupSpots, step]);
+
+  function clearDraft() {
+    if (draftKey) { try { localStorage.removeItem(draftKey); } catch { /* ignore */ } }
+  }
+
+  function discardDraft() {
+    clearDraft();
+    window.location.reload(); // simplest reliable reset back to a blank form
+  }
 
   // Verification gate — redirect to verification form if not yet submitted
   useEffect(() => {
@@ -184,6 +257,10 @@ export default function NewListingPage() {
       });
 
       if (listingStatus === "active" && flashSale && user?.id && res.id) {
+        // New listings are submitted for review (status: pending) before they
+        // go live, and a flash sale can only run on an APPROVED listing. So this
+        // call is expected to be deferred — we frame it as info, not an error,
+        // and tell the seller to start the flash sale once approved.
         const discountPct = Math.max(
           0.01,
           Math.min(100, ((Number(price) - Number(flashPrice)) / Number(price)) * 100),
@@ -196,17 +273,20 @@ export default function NewListingPage() {
             discount_pct: Number(discountPct.toFixed(2)),
             end_time: endIso,
           });
-        } catch (flashErr) {
-          setError(
-            flashErr instanceof Error
-              ? `Listing created, but flash sale failed: ${flashErr.message}`
-              : "Listing created, but flash sale failed.",
+          setSuccess("Listing published and flash sale scheduled! 🎉");
+        } catch {
+          // Almost always because the listing is still pending approval.
+          setSuccess(
+            "Listing submitted for review. Once it's approved you can start the " +
+            "flash sale anytime from your Listings page.",
           );
-          setSubmitting(false);
-          return;
         }
+        clearDraft();
+        setTimeout(() => router.push("/seller/listings"), 1800);
+        return;
       }
 
+      clearDraft();
       setSuccess(res.message);
       setTimeout(() => router.push("/seller/listings"), 1200);
     } catch (err) {
@@ -289,6 +369,16 @@ export default function NewListingPage() {
           );
         })}
       </div>
+
+      {draftRestored && !success && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
+          <span>We restored your unsaved listing. Pick up right where you left off.</span>
+          <button type="button" onClick={discardDraft}
+            className="shrink-0 font-medium underline hover:no-underline">
+            Discard &amp; start fresh
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-500/10 dark:text-red-400">{error}</div>

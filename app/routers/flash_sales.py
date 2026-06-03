@@ -177,16 +177,39 @@ def create_flash_sale(
     db: Session = Depends(get_db),
 ):
     """Create a flash sale on an approved, active listing you own."""
+    # Check ownership first, then status, so the error tells the seller exactly
+    # what's wrong instead of a misleading "doesn't belong to you" when the real
+    # issue is that their listing is still pending approval.
     listing = db.query(Price).filter(
         Price.id == body.listing_id,
         Price.submitted_by == current_user.id,
-        Price.status == "approved",
-        Price.listing_status == "active",
     ).first()
     if not listing:
         raise HTTPException(
             status_code=404,
-            detail="Listing not found, not approved/active, or doesn't belong to you",
+            detail="Listing not found, or it doesn't belong to you.",
+        )
+
+    if listing.status != "approved":
+        status_label = {
+            "pending":  "still pending approval",
+            "rejected": "was rejected",
+        }.get(listing.status, f"not approved (status: {listing.status})")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"You can't run a flash sale yet — this listing is {status_label}. "
+                "Flash sales become available once your listing is approved."
+            ),
+        )
+
+    if listing.listing_status != "active":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This listing isn't active right now, so it can't go on flash sale. "
+                "Make sure it's published and live, then try again."
+            ),
         )
 
     if body.end_time <= datetime.utcnow():

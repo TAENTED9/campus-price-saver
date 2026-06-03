@@ -79,27 +79,76 @@ export function setTokenRefreshCallback(cb: ((token: string) => void) | null): v
   _onTokenRefreshed = cb;
 }
 
+/**
+ * A network error is a fetch() rejection (DNS failure, dropped connection,
+ * offline, request never reached the server) — as opposed to the server
+ * answering with an error STATUS. The two must be handled very differently:
+ * a network error is transient and must NOT end the session, whereas a 401
+ * from the server genuinely means the session is dead.
+ */
+function _isNetworkError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true; // timeout
+  // `fetch` throws a TypeError ("Failed to fetch") when the request can't reach the server.
+  return err instanceof TypeError;
+}
+
+const _NETWORK_MESSAGE =
+  "Can't reach Campify — your connection looks unstable. Check your internet and try again.";
+
+/** Sentinel thrown by _silentRefresh when the refresh call couldn't reach the
+ *  server. Lets callers keep the session alive instead of forcing a logout. */
+class RefreshNetworkError extends Error {
+  constructor() { super(_NETWORK_MESSAGE); this.name = "RefreshNetworkError"; }
+}
+
+/**
+ * Rotate the refresh cookie into a fresh access token.
+ *  - Returns the new token on success.
+ *  - Returns null when the server explicitly rejects the session (real 401/403)
+ *    — caller should treat this as logged-out.
+ *  - THROWS RefreshNetworkError when the server was unreachable — caller should
+ *    keep the session and surface a "check your connection" error, never log out.
+ * Single-flighted via _refreshPromise so concurrent 401s share one refresh.
+ */
 async function _silentRefresh(): Promise<string | null> {
   if (_refreshPromise) return _refreshPromise;
   _refreshPromise = (async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!res.ok) { _accessToken = null; return null; }
-      const data = await res.json();
-      _accessToken = data.access_token ?? null;
-      if (_accessToken && _onTokenRefreshed) _onTokenRefreshed(_accessToken);
-      return _accessToken;
-    } catch {
-      _accessToken = null;
-      return null;
-    } finally {
-      _refreshPromise = null;
+    // Retry transient network failures a few times with backoff before giving
+    // up — flaky/low-bandwidth networks routinely drop the first attempt.
+    const delays = [0, 400, 1200];
+    let lastNetworkErr = false;
+    for (const wait of delays) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+        });
+        if (res.status === 401 || res.status === 403) {
+          // Server says the session is genuinely invalid.
+          _accessToken = null;
+          return null;
+        }
+        if (!res.ok) { lastNetworkErr = true; continue; } // 5xx etc. — retry
+        const data = await res.json();
+        _accessToken = data.access_token ?? null;
+        if (_accessToken && _onTokenRefreshed) _onTokenRefreshed(_accessToken);
+        return _accessToken;
+      } catch (err) {
+        if (_isNetworkError(err)) { lastNetworkErr = true; continue; }
+        throw err;
+      }
     }
+    // Exhausted retries without a definitive answer from the server.
+    if (lastNetworkErr) throw new RefreshNetworkError();
+    _accessToken = null;
+    return null;
   })();
-  return _refreshPromise;
+  try {
+    return await _refreshPromise;
+  } finally {
+    _refreshPromise = null;
+  }
 }
 
 // ===================== HELPERS =====================
@@ -107,7 +156,11 @@ async function _silentRefresh(): Promise<string | null> {
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  timeoutMs = 12_000
+  timeoutMs = 12_000,
+  // Allow network-error retries even for a non-GET request. Safe only for
+  // endpoints that are idempotent in practice (e.g. /auth/refresh, whose
+  // double-rotation is tolerated by the backend's rotation grace window).
+  netRetry = false,
 ): Promise<T> {
   const supplied = (options.headers ?? {}) as Record<string, string>;
   const headers: Record<string, string> = {
@@ -120,44 +173,69 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${_accessToken}`;
   }
 
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), timeoutMs);
-
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${endpoint}`, {
+  // Single fetch attempt with its own timeout. Throws on network failure/timeout.
+  const attempt = (hdrs: Record<string, string>): Promise<Response> => {
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(`${API_BASE}${endpoint}`, {
       ...options,
-      headers,
+      headers: hdrs,
       credentials: "include", // always send the HttpOnly refresh cookie
       signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(tid);
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error("Request timed out. Please check your connection and try again.");
+    }).finally(() => clearTimeout(tid));
+  };
+
+  // GET requests are safe to auto-retry on a flaky connection; mutating
+  // requests are not (retrying could double-submit), so they fail fast with a
+  // clear message and let the user decide.
+  const method = (options.method ?? "GET").toUpperCase();
+  const idempotent = netRetry || method === "GET" || method === "HEAD";
+
+  let res: Response | undefined;
+  const netDelays = idempotent ? [0, 500, 1500] : [0];
+  for (let i = 0; i < netDelays.length; i++) {
+    if (netDelays[i]) await new Promise((r) => setTimeout(r, netDelays[i]));
+    try {
+      res = await attempt(headers);
+      break;
+    } catch (err) {
+      if (!_isNetworkError(err)) throw err; // genuine programming/parse error
+      // otherwise loop and retry (idempotent only)
     }
-    throw err;
   }
-  clearTimeout(tid);
+  if (!res) {
+    // Ran out of retries against an unreachable server / timeout.
+    throw new Error(_NETWORK_MESSAGE);
+  }
 
   // ── 401 → silent refresh → retry once ─────────────────────────────────────
   // Skip for credential endpoints — a 401 there means wrong password, not expired token.
   const _noSilentRefresh = new Set(["/api/auth/login", "/api/auth/register", "/api/auth/admin"]);
   if (res.status === 401 && !_noSilentRefresh.has(endpoint)) {
-    const newToken = await _silentRefresh();
+    let newToken: string | null;
+    try {
+      newToken = await _silentRefresh();
+    } catch (err) {
+      // Refresh couldn't reach the server — DON'T end the session. Surface a
+      // network error so the caller can retry once the connection recovers.
+      if (err instanceof RefreshNetworkError) throw new Error(_NETWORK_MESSAGE);
+      throw err;
+    }
     if (newToken) {
-      const retryRes = await fetch(`${API_BASE}${endpoint}`, {
-        ...options,
-        headers: { ...headers, Authorization: `Bearer ${newToken}` },
-        credentials: "include",
-      });
+      let retryRes: Response;
+      try {
+        retryRes = await attempt({ ...headers, Authorization: `Bearer ${newToken}` });
+      } catch (err) {
+        if (_isNetworkError(err)) throw new Error(_NETWORK_MESSAGE);
+        throw err;
+      }
       if (!retryRes.ok) {
         const b = await retryRes.json().catch(() => ({ detail: "Request failed" }));
         throw new Error(typeof b.detail === "string" ? b.detail : "Request failed");
       }
       return retryRes.json() as Promise<T>;
     }
-    // Refresh failed — session truly expired
+    // Refresh returned null — session truly expired
     _accessToken = null;
     const b = await res.json().catch(() => ({ detail: "Session expired" }));
     throw new Error(typeof b.detail === "string" ? b.detail : "Session expired");
@@ -270,6 +348,8 @@ export const authApi = {
       inFlight = request<{ access_token: string; token_type: string; settings?: import("@/lib/settingsApi").UserSettingsData }>(
         "/api/auth/refresh",
         { method: "POST" },
+        12_000,
+        true, // netRetry: survive a flaky connection on session restore
       ).finally(() => { inFlight = null; });
       return inFlight;
     };

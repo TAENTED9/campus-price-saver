@@ -28,6 +28,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES  = 15
 REFRESH_TOKEN_REMEMBER_DAYS  = 30
 REFRESH_TOKEN_SESSION_HOURS  = 24
 
+# Grace window (seconds) for refresh-token rotation. A token that was revoked
+# by a *normal rotation* this recently — while the user still holds an active
+# token — is treated as a concurrent/retry refresh (multi-tab, a flaky-network
+# retry, or two parallel 401s racing to refresh), NOT token theft. Without this
+# window, the second of two near-simultaneous refreshes presents an
+# already-rotated token and trips theft detection, which revokes every token
+# and logs the user out mid-session. 30s comfortably covers request races and
+# offline→online retries while keeping the reuse window for a genuinely stolen
+# token tiny.
+REFRESH_ROTATION_GRACE_SECONDS = 30
+
 # ── Cookie constants ──────────────────────────────────────────────────────────
 
 COOKIE_NAME          = "campify_refresh"
@@ -174,6 +185,47 @@ def rotate_refresh_token(
     now = datetime.now(timezone.utc)
 
     if record.revoked:
+        # ── Rotation grace window (anti-spurious-logout) ───────────────────────
+        # Distinguish a benign concurrent refresh from genuine token theft.
+        # A benign race looks like: the presented token was rotated very
+        # recently AND the user still holds at least one live token (the winner
+        # of the race). Genuine reuse of an old token — or reuse after a
+        # logout / revoke-all — has no live sibling, so it still trips theft
+        # detection below.
+        revoked_at = record.revoked_at
+        if revoked_at is not None and revoked_at.tzinfo is None:
+            revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+        within_grace = (
+            revoked_at is not None
+            and (now - revoked_at).total_seconds() <= REFRESH_ROTATION_GRACE_SECONDS
+        )
+        has_live_sibling = db.query(RefreshToken).filter(
+            RefreshToken.user_id == record.user_id,
+            RefreshToken.revoked == False,
+        ).first() is not None
+
+        if within_grace and has_live_sibling:
+            user = db.query(User).filter(User.id == record.user_id).first()
+            if not user or getattr(user, "is_deleted", False) or getattr(user, "is_paused", False):
+                return None
+            prev_remember_me = getattr(record, "remember_me", False)
+            new_raw  = generate_refresh_token()
+            new_record = RefreshToken(
+                user_id     = user.id,
+                token_hash  = hash_token(new_raw),
+                expires_at  = now + timedelta(
+                    days=REFRESH_TOKEN_REMEMBER_DAYS if prev_remember_me
+                    else REFRESH_TOKEN_SESSION_HOURS / 24
+                ),
+                ip_address  = ip_address,
+                user_agent  = user_agent,
+                remember_me = prev_remember_me,
+            )
+            db.add(new_record)
+            db.commit()
+            return new_raw, user, prev_remember_me
+
+        # Genuine reuse → revoke everything (theft detection).
         db.query(RefreshToken).filter(
             RefreshToken.user_id == record.user_id,
             RefreshToken.revoked == False,
