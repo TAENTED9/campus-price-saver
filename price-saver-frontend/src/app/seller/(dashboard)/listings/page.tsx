@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { sellerApi, itemsApi, type SellerListing, type Category } from "@/lib/api";
 import { formatPrice } from "@/lib/formatPrice";
+import { thumbnailImage } from "@/lib/cloudinary";
 import { useToast } from "@/components/ui/Toast";
 import { Plus, Eye, Trash2, PencilLine, Copy, CheckCircle, Pause, Play, Moon, Search, Camera, MapPin, ChevronDown, X, AlertTriangle, RotateCcw } from "lucide-react";
 import { LocationsNeededBanner } from "@/components/locations/LocationsNeededBanner";
@@ -378,9 +379,11 @@ export default function SellerListingsPage() {
           const isSelected = selectedIds.has(l.id);
           return (
             <div key={l.id}
-              className={`rounded-2xl border bg-white dark:bg-white/[0.03] p-4 flex items-start gap-3 transition-colors ${
+              className={`rounded-2xl border bg-white dark:bg-white/[0.03] p-4 flex flex-col gap-3 sm:flex-row sm:items-start transition-colors ${
                 isSelected ? "border-brand-300 dark:border-brand-500/50 bg-brand-50/30 dark:bg-brand-500/5" : "border-gray-200 dark:border-gray-800"
               }`}>
+              {/* Main row: select + thumbnail + info + price (stays one row on every screen) */}
+              <div className="flex items-start gap-3 flex-1 min-w-0">
               {/* Checkbox */}
               <div className="flex-shrink-0 pt-0.5">
                 <input type="checkbox" title="Select listing"
@@ -392,7 +395,7 @@ export default function SellerListingsPage() {
               {/* Thumbnail */}
               <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
                 {firstPhoto
-                  ? <img src={firstPhoto} alt={l.name} className="w-full h-full object-cover" />
+                  ? <img src={thumbnailImage(firstPhoto, 64)} alt={l.name} className="w-full h-full object-cover" />
                   : <span className="text-2xl font-black text-brand-400">{l.name.charAt(0).toUpperCase()}</span>}
               </div>
 
@@ -430,16 +433,18 @@ export default function SellerListingsPage() {
                 </div>
               </div>
 
-              {/* Price */}
-              <div className="text-right flex-shrink-0 hidden sm:block">
-                <p className="font-extrabold text-[16px] text-gray-800 dark:text-white">
+              {/* Price — now visible on mobile too (was hidden), right-aligned beside the info */}
+              <div className="text-right flex-shrink-0">
+                <p className="font-extrabold text-[15px] sm:text-[16px] text-gray-800 dark:text-white whitespace-nowrap">
                   {formatPrice(l.price)}
                 </p>
                 {l.is_featured && <span className="text-xs text-warning-500 font-semibold">⭐ Featured</span>}
               </div>
+              </div>{/* end main row */}
 
-              {/* Actions */}
-              <div className="flex items-center flex-shrink-0">
+              {/* Actions — wrap onto their own row below the details on mobile,
+                  sit inline on the right from sm: up. */}
+              <div className="flex items-center flex-wrap justify-end gap-0.5 border-t border-gray-100 dark:border-gray-800 pt-2 sm:border-0 sm:pt-0 sm:flex-shrink-0 sm:flex-nowrap">
                 {/* Edit */}
                 <div className="min-w-[44px] min-h-[44px] flex items-center justify-center">
                   <Link href={`/seller/listings/${l.uuid ?? l.id}/edit`} title="Edit"

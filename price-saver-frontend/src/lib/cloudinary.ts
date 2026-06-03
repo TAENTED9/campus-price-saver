@@ -19,8 +19,10 @@ export function optimizeImage(url: string | null | undefined, width = 800): stri
   if (!url) return "";
   const match = url.match(CLOUDINARY_RE);
   if (!match) return url;
-  // Insert transformation string right after the /upload/ segment
-  return url.replace(match[1], `${match[1]}f_auto,q_auto,w_${width}/`);
+  // q_auto:best keeps these large "look at the product" images visually close to
+  // the original (less aggressive compression than plain q_auto). f_auto still
+  // serves WebP/AVIF where supported so files stay reasonable.
+  return url.replace(match[1], `${match[1]}f_auto,q_auto:best,w_${width}/`);
 }
 
 /**
@@ -34,7 +36,10 @@ export function thumbnailImage(url: string | null | undefined, size = 200): stri
   if (!url) return "";
   const match = url.match(CLOUDINARY_RE);
   if (!match) return url;
-  return url.replace(match[1], `${match[1]}f_auto,q_auto,w_${size},h_${size},c_fill/`);
+  // q_auto:good is near-lossless for small thumbnails while keeping them light.
+  // dpr_2.0 doubles the delivered pixels so cards stay crisp on phone/retina
+  // screens (where the device pixel ratio is 2–3×) instead of looking soft.
+  return url.replace(match[1], `${match[1]}f_auto,q_auto:good,dpr_2.0,w_${size},h_${size},c_fill/`);
 }
 
 const CLOUDINARY_VIDEO_RE = /^(https?:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\/)/;

@@ -405,7 +405,7 @@ export default function ListingDetailPage() {
             <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-brand-50 to-accent-500/10 dark:from-brand-500/10 dark:to-accent-500/5 relative flex items-center justify-center">
               {activeItem?.kind === "photo" && (
                 <Image
-                  src={optimizeImage(activeItem.url, 800)}
+                  src={optimizeImage(activeItem.url, 1200)}
                   alt={listing.name}
                   fill
                   sizes="(max-width: 768px) 100vw, 800px"

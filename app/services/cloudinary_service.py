@@ -103,10 +103,17 @@ def upload_file(
         # verification documents from being shared via public URL guessing.
         extra_kwargs["type"] = "authenticated"
         extra_kwargs["access_mode"] = "authenticated"
-        # Don't run auto-transformations on sensitive uploads — keep originals intact.
         transformation: list = []
     else:
-        transformation = [{"fetch_format": "auto", "quality": "auto"}]
+        # Store the ORIGINAL bytes untouched. The previous incoming transformation
+        # ({"quality": "auto"}) re-encoded and replaced the stored master, so every
+        # delivered image was lossy-compressed twice (once here, again at delivery)
+        # and could never look like the file the seller uploaded. We now keep the
+        # master pristine and let delivery-time transforms (f_auto,q_auto in
+        # cloudinary.ts) handle format/size per request. We only LIMIT very large
+        # photos to 2560px on the long edge — c_limit just downscales oversized
+        # images (it never upscales) and does not re-compress quality.
+        transformation = [{"width": 2560, "height": 2560, "crop": "limit"}]
 
     try:
         result = _upload_with_retry(
